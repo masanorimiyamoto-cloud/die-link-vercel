@@ -144,7 +144,7 @@ export default async function handler(req) {
         <div><b>${escapeHtml(FIELD_QTY)}:</b> ${row.amount ?? ''}</div>
         <div><b>${escapeHtml(FIELD_DATE)}:</b> ${escapeHtml(row.ndate ?? '')}</div>
         <hr style="margin:16px 0">
-        <div style="font-weight:bold;color:#0a0">この抜型は正しいです。</div>
+        <div style="font-weight:bold;color:#0a0">下記の受注がありこの抜型は正しいと思われます。</div>
       `;
       return renderHTML({ ok: true, title: '照合結果', html, code: 200 });
     }
@@ -195,9 +195,9 @@ export default async function handler(req) {
       <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:15px">
         <thead style="background:#f7f7f7">
           <tr>
-            <th style="padding:6px 8px">納期 (${escapeHtml(FIELD_DATE)})</th>
-            <th style="padding:6px 8px">品名 (${escapeHtml(FIELD_ITEM)})</th>
-            <th style="padding:6px 8px">数量 (${escapeHtml(FIELD_QTY)})</th>
+            <th style="padding:8px 10px">納期 (${escapeHtml(FIELD_DATE)})</th>
+            <th style="padding:8px 10px">品名 (${escapeHtml(FIELD_ITEM)})</th>
+            <th style="padding:8px 10px">数量 (${escapeHtml(FIELD_QTY)})</th>
             <th style="padding:6px 8px">Record ID</th>
           </tr>
         </thead>
