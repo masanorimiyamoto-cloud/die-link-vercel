@@ -4,11 +4,12 @@ export const config = { runtime: 'edge' };
 /** ===== 設定 ===== */
 const AIRTABLE_BASE  = 'appwAnJP9OOZ3MVF5';   // ← あなたの app...
 const TABLE_NAME     = 'TableJuchu';          // ← あなたのテーブル名
-const BOOK_FIELD     = 'Book';                // ← 書籍/案件コード等のフィールド名
-const WORKCORD_FIELD = 'WorkCord';            // ← 抜型をひもづけるコード
-const WORKCORD_IS_NUMBER = true;              // ← 数値フィールドなら true, 文字列なら false
+const BOOK_FIELD     = 'Book';
+const WORKCORD_FIELD = 'WorkCord';
+const NAME_FIELD     = 'Name';                // ★ 追加：表示したいフィールド
+const WORKCORD_IS_NUMBER = true;
 
-// 納期として優先的に探すフィールド名（先に見つかったものを採用）
+// 納期として優先的に探すフィールド名（あれば従来通り拾う）
 const DUE_FIELD_CANDIDATES = ['納期', 'Due', 'DueDate', 'WorkDay', 'DeliveryDate'];
 
 const TOKEN = process.env.AIRTABLE_TOKEN;
@@ -36,12 +37,11 @@ function renderJSON(payload, code = 200) {
 
 function fmtDateLike(v) {
   if (!v) return '';
-  // ISO / yyyy-mm-dd / yyyy/mm/dd をそれっぽく整形
-  const tryDate = new Date(v);
-  if (!isNaN(tryDate.getTime())) {
-    const y = tryDate.getFullYear();
-    const m = String(tryDate.getMonth() + 1).padStart(2, '0');
-    const d = String(tryDate.getDate()).padStart(2, '0');
+  const dt = new Date(v);
+  if (!isNaN(dt.getTime())) {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
   return String(v);
@@ -54,11 +54,28 @@ function pickDueField(fields) {
   return null;
 }
 
-/** ===== Handler =====
- * 入力：?book=〇〇&wc=□□  もしくは  ?recordId=recXXXX
- * 出力：HTML（既定） / JSON（?json=1 指定時）
- * 目的：該当が1件なら「この抜型は正しいです」＋ 納期 を返す
- */
+// Name 文字列の簡易パーサ（任意。書式に合わせて調整可）
+function parseNameInfo(nameText) {
+  if (!nameText) return {};
+  const t = String(nameText);
+
+  // 例: 「製品名:XXX 数量:123 納期:2025/10/02」などから拾う素朴な正規表現
+  const prodMatch = t.match(/(?:製品名|品名|Product)\s*[:：]\s*([^\s,，／/]+)|^([^\s,，／/]+)/);
+  const qtyMatch  = t.match(/(?:数量|Qty|量)\s*[:：]?\s*([0-9,]+)\s*(?:個|枚|set|ｾｯﾄ)?/i);
+  const dueMatch  = t.match(/(?:納期|Due|納入日|納品日)\s*[:：]?\s*([0-9]{2,4}[\/\-年\.][0-9]{1,2}[\/\-月\.][0-9]{1,2}日?)/);
+
+  const product = prodMatch ? (prodMatch[1] || prodMatch[2]) : undefined;
+  const quantity = qtyMatch ? qtyMatch[1].replace(/,/g, '') : undefined;
+  const dueFree = dueMatch ? dueMatch[1] : undefined;
+
+  return {
+    product,
+    quantity: quantity ? Number(quantity) : undefined,
+    dueTextFromName: dueFree ? fmtDateLike(dueFree) : undefined,
+  };
+}
+
+/** ===== Handler ===== */
 export default async function handler(req) {
   try {
     const { searchParams } = new URL(req.url);
@@ -69,7 +86,7 @@ export default async function handler(req) {
       return wantJSON ? renderJSON({ ok: false, error: msg }, 500) : renderHTML({ ok: false, title: 'NG', lines: [msg], code: 500 });
     }
 
-    // 1) recordId 直指定（優先）
+    // recordId 直指定
     const recordId = (searchParams.get('recordId') || '').trim();
     if (recordId) {
       const rec = await fetchRecordById(recordId);
@@ -80,7 +97,7 @@ export default async function handler(req) {
       return respondOk(rec, { wantJSON });
     }
 
-    // 2) book & wc で検索
+    // book & wc 検索
     const book = (searchParams.get('book') || '').trim();
     const wc   = (searchParams.get('wc')   || '').trim();
     if (!book || !wc) {
@@ -131,28 +148,46 @@ async function fetchByBookAndWc(book, wc) {
 /** ===== 共通の成功レスポンス ===== */
 function respondOk(rec, { wantJSON }) {
   const f = rec.fields || {};
+
+  // 納期フィールド（優先）
   const due = pickDueField(f);
   const dueText = due ? fmtDateLike(due.value) : '(納期フィールド未設定)';
+
+  // ★ Name の表示と簡易抽出
+  const nameRaw = (f[NAME_FIELD] ?? '').toString();
+  const parsed = parseNameInfo(nameRaw);
 
   if (wantJSON) {
     return renderJSON({
       ok: true,
       message: 'この抜型は正しいです。',
       recordId: rec.id,
+      book: f[BOOK_FIELD] ?? null,
+      workcord: f[WORKCORD_FIELD] ?? null,
+      name: nameRaw || null,
+      // 追加情報（取れた場合のみ）
+      parsedFromName: {
+        product: parsed.product ?? null,
+        quantity: parsed.quantity ?? null,
+        due: parsed.dueTextFromName ?? null,
+      },
       dueField: due?.key || null,
       due: dueText,
     }, 200);
   }
 
-  return renderHTML({
-    ok: true,
-    title: 'この抜型は正しいです',
-    lines: [
-      `<b>Record ID:</b> ${rec.id}`,
-      `<b>${BOOK_FIELD}:</b> ${f[BOOK_FIELD] ?? ''}`,
-      `<b>${WORKCORD_FIELD}:</b> ${f[WORKCORD_FIELD] ?? ''}`,
-      `<b>納期:</b> ${dueText}`,
-    ],
-    code: 200
-  });
+  // HTML表示
+  const lines = [
+    `<b>Record ID:</b> ${rec.id}`,
+    `<b>${BOOK_FIELD}:</b> ${f[BOOK_FIELD] ?? ''}`,
+    `<b>${WORKCORD_FIELD}:</b> ${f[WORKCORD_FIELD] ?? ''}`,
+    `<b>${NAME_FIELD}:</b> ${nameRaw || '(未設定)'}`,                // ★ 追加表示
+    `<b>納期:</b> ${parsed.dueTextFromName || dueText}`,            // Nameに納期があればそれを優先表示
+  ];
+
+  // Nameから製品名/数量が取れていれば補助表示
+  if (parsed.product)  lines.splice(3, 0, `<b>製品名(推定):</b> ${parsed.product}`);
+  if (parsed.quantity) lines.splice(4, 0, `<b>数量(推定):</b> ${parsed.quantity.toLocaleString()}`);
+
+  return renderHTML({ ok: true, title: 'この抜型は正しいです', lines, code: 200 });
 }
