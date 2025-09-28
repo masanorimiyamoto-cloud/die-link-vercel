@@ -2,76 +2,112 @@
 export const config = { runtime: 'edge' };
 
 /** ===== 設定 ===== */
-const AIRTABLE_BASE  = 'appwAnJP9OOZ3MVF5';   // ← あなたの app...
-const TABLE_NAME     = 'TableJuchu';          // ← あなたのテーブル名
+const AIRTABLE_BASE  = 'appwAnJP9OOZ3MVF5'; // ← あなたの app...
+const TABLE_NAME     = 'TableJuchu';        // ← あなたのテーブル名
+
+// 照合キー
 const BOOK_FIELD     = 'Book';
 const WORKCORD_FIELD = 'WorkCord';
-const NAME_FIELD     = 'Name';                // ★ 追加：表示したいフィールド
-const WORKCORD_IS_NUMBER = true;
+const WORKCORD_IS_NUMBER = true; // WorkCord が数値なら true, 文字列なら false
 
-// 納期として優先的に探すフィールド名（あれば従来通り拾う）
-const DUE_FIELD_CANDIDATES = ['納期', 'Due', 'DueDate', 'WorkDay', 'DeliveryDate'];
+// 取得して並べたいフィールド（今回の要件）
+const FIELD_DATE = 'Ndate';
+const FIELD_ITEM = 'ItemName';
+const FIELD_QTY  = 'NAmount';
 
 const TOKEN = process.env.AIRTABLE_TOKEN;
 
 /** ===== ユーティリティ ===== */
-function renderHTML({ ok, title, lines = [], code = 200 }) {
+function renderHTML({ ok, title, html = '', code = 200 }) {
   const color = ok ? '#0a0' : '#c00';
-  const body  = [
-    `<!doctype html><meta charset="utf-8">`,
-    `<body style="font-family:system-ui;padding:24px;line-height:1.7">`,
-    `<h1 style="color:${color};font-size:28px;margin:0 0 12px">${title}</h1>`,
-    ...lines.map(l => `<div style="font-size:16px">${l}</div>`),
-    `<p style="margin-top:20px"><a href="javascript:history.back()">← 戻る</a></p>`,
-    `</body>`
-  ].join('\n');
+  const body  = `<!doctype html><meta charset="utf-8">
+  <body style="font-family:system-ui;padding:24px;line-height:1.6">
+    <h1 style="color:${color};font-size:24px;margin:0 0 12px">${title}</h1>
+    ${html}
+    <p style="margin-top:16px"><a href="javascript:history.back()">← 戻る</a></p>
+  </body>`;
   return new Response(body, { status: code, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
 
 function renderJSON(payload, code = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
-    status: code,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    status: code, headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 }
 
-function fmtDateLike(v) {
+function fmtDate(v) {
   if (!v) return '';
-  const dt = new Date(v);
-  if (!isNaN(dt.getTime())) {
-    const y = dt.getFullYear();
-    const m = String(dt.getMonth() + 1).padStart(2, '0');
-    const d = String(dt.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return String(v);
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
-function pickDueField(fields) {
-  for (const key of DUE_FIELD_CANDIDATES) {
-    if (key in fields && fields[key] != null && fields[key] !== '') return { key, value: fields[key] };
-  }
+function parseQty(v) {
+  if (v == null) return null;
+  const n = Number(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function byDateAsc(a, b) {
+  const da = a._dateMs ?? Number.POSITIVE_INFINITY;
+  const db = b._dateMs ?? Number.POSITIVE_INFINITY;
+  return da - db;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+/** ===== Airtable helpers ===== */
+async function fetchRecordById(recordId) {
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}/${encodeURIComponent(recordId)}?fields[]=${encodeURIComponent(FIELD_DATE)}&fields[]=${encodeURIComponent(FIELD_ITEM)}&fields[]=${encodeURIComponent(FIELD_QTY)}&fields[]=${encodeURIComponent(BOOK_FIELD)}&fields[]=${encodeURIComponent(WORKCORD_FIELD)}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  if (r.status === 200) return r.json();
   return null;
 }
 
-// Name 文字列の簡易パーサ（任意。書式に合わせて調整可）
-function parseNameInfo(nameText) {
-  if (!nameText) return {};
-  const t = String(nameText);
+async function fetchByBookAndWcAll(book, wc, limit = 100) {
+  const wcExpr  = WORKCORD_IS_NUMBER ? wc : `'${wc.replace(/'/g, "\\'")}'`;
+  const formula = `AND({${BOOK_FIELD}}='${book.replace(/'/g, "\\'")}',{${WORKCORD_FIELD}}=${wcExpr})`;
 
-  // 例: 「製品名:XXX 数量:123 納期:2025/10/02」などから拾う素朴な正規表現
-  const prodMatch = t.match(/(?:製品名|品名|Product)\s*[:：]\s*([^\s,，／/]+)|^([^\s,，／/]+)/);
-  const qtyMatch  = t.match(/(?:数量|Qty|量)\s*[:：]?\s*([0-9,]+)\s*(?:個|枚|set|ｾｯﾄ)?/i);
-  const dueMatch  = t.match(/(?:納期|Due|納入日|納品日)\s*[:：]?\s*([0-9]{2,4}[\/\-年\.][0-9]{1,2}[\/\-月\.][0-9]{1,2}日?)/);
+  // fields[] で必要最小限だけ取得
+  const baseUrl = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(formula)}&fields[]=${encodeURIComponent(FIELD_DATE)}&fields[]=${encodeURIComponent(FIELD_ITEM)}&fields[]=${encodeURIComponent(FIELD_QTY)}&fields[]=${encodeURIComponent(BOOK_FIELD)}&fields[]=${encodeURIComponent(WORKCORD_FIELD)}&pageSize=100`;
 
-  const product = prodMatch ? (prodMatch[1] || prodMatch[2]) : undefined;
-  const quantity = qtyMatch ? qtyMatch[1].replace(/,/g, '') : undefined;
-  const dueFree = dueMatch ? dueMatch[1] : undefined;
+  let results = [];
+  let offset;
+  while (results.length < limit) {
+    const url = baseUrl + (offset ? `&offset=${encodeURIComponent(offset)}` : '');
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (r.status !== 200) {
+      const text = await r.text();
+      throw new Error(`Airtable API エラー: HTTP ${r.status} / ${text.slice(0, 300)}`);
+    }
+    const j = await r.json();
+    results = results.concat(j.records || []);
+    if (!j.offset) break;
+    offset = j.offset;
+  }
+  if (results.length > limit) results.length = limit;
+  return results;
+}
+
+/** ===== 変換共通 ===== */
+function mapRecord(rec) {
+  const f = rec.fields || {};
+  const rawDate = f[FIELD_DATE];
+  const dateMs = rawDate ? Date.parse(rawDate) : NaN;
 
   return {
-    product,
-    quantity: quantity ? Number(quantity) : undefined,
-    dueTextFromName: dueFree ? fmtDateLike(dueFree) : undefined,
+    id: rec.id,
+    book: f[BOOK_FIELD] ?? null,
+    workcord: f[WORKCORD_FIELD] ?? null,
+    itemName: f[FIELD_ITEM] ?? null,
+    amount: parseQty(f[FIELD_QTY]),
+    ndate: rawDate ? fmtDate(rawDate) : null,
+    _dateMs: Number.isFinite(dateMs) ? dateMs : undefined,
   };
 }
 
@@ -80,114 +116,98 @@ export default async function handler(req) {
   try {
     const { searchParams } = new URL(req.url);
     const wantJSON = (searchParams.get('json') || '') === '1';
+    const limit = Math.max(1, Math.min(1000, Number(searchParams.get('limit') || 100)));
 
     if (!TOKEN) {
-      const msg = 'サーバ設定エラー：AIRTABLE_TOKEN が未設定です（Vercel → Environment Variables に追加後、再デプロイ）。';
-      return wantJSON ? renderJSON({ ok: false, error: msg }, 500) : renderHTML({ ok: false, title: 'NG', lines: [msg], code: 500 });
+      const msg = 'サーバ設定エラー：AIRTABLE_TOKEN が未設定です（Vercel の環境変数に追加して再デプロイ）。';
+      return wantJSON ? renderJSON({ ok: false, error: msg }, 500)
+                      : renderHTML({ ok: false, title: 'NG', html: `<pre>${escapeHtml(msg)}</pre>`, code: 500 });
     }
 
-    // recordId 直指定
-    const recordId = (searchParams.get('recordId') || '').trim();
-    if (recordId) {
-      const rec = await fetchRecordById(recordId);
+    // 1) recordId 指定（単票表示）
+    const recId = (searchParams.get('recordId') || '').trim();
+    if (recId) {
+      const rec = await fetchRecordById(recId);
       if (!rec) {
-        const msg = `指定のレコードが見つかりません：${recordId}`;
-        return wantJSON ? renderJSON({ ok: false, error: msg }, 404) : renderHTML({ ok: false, title: '該当なし', lines: [msg], code: 404 });
+        const msg = `指定のレコードが見つかりません：${recId}`;
+        return wantJSON ? renderJSON({ ok: false, error: msg }, 404)
+                        : renderHTML({ ok: false, title: '該当なし', html: `<pre>${escapeHtml(msg)}</pre>`, code: 404 });
       }
-      return respondOk(rec, { wantJSON });
+      const row = mapRecord(rec);
+      if (wantJSON) return renderJSON({ ok: true, hits: [row] }, 200);
+
+      const html = `
+        <div><b>Record ID:</b> ${escapeHtml(row.id)}</div>
+        <div><b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(row.book ?? '')}</div>
+        <div><b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(row.workcord ?? '')}</div>
+        <div><b>${escapeHtml(FIELD_ITEM)}:</b> ${escapeHtml(row.itemName ?? '')}</div>
+        <div><b>${escapeHtml(FIELD_QTY)}:</b> ${row.amount ?? ''}</div>
+        <div><b>${escapeHtml(FIELD_DATE)}:</b> ${escapeHtml(row.ndate ?? '')}</div>
+        <hr style="margin:16px 0">
+        <div style="font-weight:bold;color:#0a0">この抜型は正しいです。</div>
+      `;
+      return renderHTML({ ok: true, title: '照合結果', html, code: 200 });
     }
 
-    // book & wc 検索
+    // 2) book & wc 指定（複数可 → 納期昇順）
     const book = (searchParams.get('book') || '').trim();
     const wc   = (searchParams.get('wc')   || '').trim();
     if (!book || !wc) {
       const msg = 'パラメータ不足：?book=〇〇&wc=□□  または  ?recordId=recXXXX を指定してください。';
-      return wantJSON ? renderJSON({ ok: false, error: msg }, 400) : renderHTML({ ok: false, title: 'NG', lines: [msg], code: 400 });
+      return wantJSON ? renderJSON({ ok: false, error: msg }, 400)
+                      : renderHTML({ ok: false, title: 'NG', html: `<pre>${escapeHtml(msg)}</pre>`, code: 400 });
     }
 
-    const recs = await fetchByBookAndWc(book, wc);
+    const recs = await fetchByBookAndWcAll(book, wc, limit);
     if (recs.length === 0) {
       const msg = `該当なし：${BOOK_FIELD}='${book}' / ${WORKCORD_FIELD}='${wc}'`;
-      return wantJSON ? renderJSON({ ok: false, error: msg }, 404) : renderHTML({ ok: false, title: '該当なし', lines: [msg], code: 404 });
-    }
-    if (recs.length > 1) {
-      const msg = `複数件ヒット：${recs.length} 件\n（${BOOK_FIELD} と ${WORKCORD_FIELD} の一意性を確認してください）`;
-      return wantJSON ? renderJSON({ ok: false, error: msg, hits: recs.map(r => r.id) }, 409)
-                      : renderHTML({ ok: false, title: '複数ヒット', lines: [msg], code: 409 });
+      return wantJSON ? renderJSON({ ok: false, error: msg }, 404)
+                      : renderHTML({ ok: false, title: '該当なし', html: `<pre>${escapeHtml(msg)}</pre>`, code: 404 });
     }
 
-    return respondOk(recs[0], { wantJSON });
+    const rows = recs.map(mapRecord).sort(byDateAsc);
+
+    if (wantJSON) {
+      return renderJSON({
+        ok: true,
+        count: rows.length,
+        book,
+        workcord: wc,
+        hits: rows
+      }, 200);
+    }
+
+    const tableRows = rows.map(r => `
+      <tr>
+        <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
+        <td style="padding:6px 8px">${escapeHtml(r.itemName ?? '')}</td>
+        <td style="padding:6px 8px;text-align:right">${r.amount ?? ''}</td>
+        <td style="padding:6px 8px;white-space:nowrap;font-family:ui-monospace,monospace">${escapeHtml(r.id)}</td>
+      </tr>
+    `).join('');
+
+    const html = `
+      <div style="margin-bottom:8px">
+        <b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(book)}　
+        <b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(wc)}
+      </div>
+      <div style="margin:10px 0 6px;color:#0a0;font-weight:bold">この抜型は正しいです（${rows.length}件ヒット）</div>
+      <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:15px">
+        <thead style="background:#f7f7f7">
+          <tr>
+            <th style="padding:6px 8px">納期 (${escapeHtml(FIELD_DATE)})</th>
+            <th style="padding:6px 8px">品名 (${escapeHtml(FIELD_ITEM)})</th>
+            <th style="padding:6px 8px">数量 (${escapeHtml(FIELD_QTY)})</th>
+            <th style="padding:6px 8px">Record ID</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    `;
+    return renderHTML({ ok: true, title: '照合結果（納期が早い順）', html, code: 200 });
 
   } catch (e) {
     const msg = `関数内エラー：${String(e?.message || e)}`;
-    return renderHTML({ ok: false, title: 'NG', lines: [msg], code: 500 });
+    return renderHTML({ ok: false, title: 'NG', html: `<pre>${escapeHtml(msg)}</pre>`, code: 500 });
   }
-}
-
-/** ===== Airtable helpers ===== */
-async function fetchRecordById(recordId) {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}/${encodeURIComponent(recordId)}`;
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
-  if (r.status === 200) return r.json();
-  return null;
-}
-
-async function fetchByBookAndWc(book, wc) {
-  const wcExpr = WORKCORD_IS_NUMBER ? wc : `'${wc.replace(/'/g, "\\'")}'`;
-  const formula = `AND({${BOOK_FIELD}}='${book.replace(/'/g, "\\'")}',{${WORKCORD_FIELD}}=${wcExpr})`;
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?maxRecords=2&filterByFormula=${encodeURIComponent(formula)}`;
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
-  if (r.status !== 200) {
-    const text = await r.text();
-    throw new Error(`Airtable API エラー: HTTP ${r.status} / ${text.slice(0, 400)}`);
-  }
-  const j = await r.json();
-  return j.records || [];
-}
-
-/** ===== 共通の成功レスポンス ===== */
-function respondOk(rec, { wantJSON }) {
-  const f = rec.fields || {};
-
-  // 納期フィールド（優先）
-  const due = pickDueField(f);
-  const dueText = due ? fmtDateLike(due.value) : '(納期フィールド未設定)';
-
-  // ★ Name の表示と簡易抽出
-  const nameRaw = (f[NAME_FIELD] ?? '').toString();
-  const parsed = parseNameInfo(nameRaw);
-
-  if (wantJSON) {
-    return renderJSON({
-      ok: true,
-      message: 'この抜型は正しいです。',
-      recordId: rec.id,
-      book: f[BOOK_FIELD] ?? null,
-      workcord: f[WORKCORD_FIELD] ?? null,
-      name: nameRaw || null,
-      // 追加情報（取れた場合のみ）
-      parsedFromName: {
-        product: parsed.product ?? null,
-        quantity: parsed.quantity ?? null,
-        due: parsed.dueTextFromName ?? null,
-      },
-      dueField: due?.key || null,
-      due: dueText,
-    }, 200);
-  }
-
-  // HTML表示
-  const lines = [
-    `<b>Record ID:</b> ${rec.id}`,
-    `<b>${BOOK_FIELD}:</b> ${f[BOOK_FIELD] ?? ''}`,
-    `<b>${WORKCORD_FIELD}:</b> ${f[WORKCORD_FIELD] ?? ''}`,
-    `<b>${NAME_FIELD}:</b> ${nameRaw || '(未設定)'}`,                // ★ 追加表示
-    `<b>納期:</b> ${parsed.dueTextFromName || dueText}`,            // Nameに納期があればそれを優先表示
-  ];
-
-  // Nameから製品名/数量が取れていれば補助表示
-  if (parsed.product)  lines.splice(3, 0, `<b>製品名(推定):</b> ${parsed.product}`);
-  if (parsed.quantity) lines.splice(4, 0, `<b>数量(推定):</b> ${parsed.quantity.toLocaleString()}`);
-
-  return renderHTML({ ok: true, title: 'この抜型は正しいです', lines, code: 200 });
 }
