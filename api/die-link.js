@@ -3,7 +3,7 @@ export const config = { runtime: 'edge' };
 
 const AIRTABLE_BASE = 'appwAnJP9OOZ3MVF5';
 const TABLE_NAME    = 'TableJuchu';
-const PAGE_ID_RAW   = 'pagV1rqHkuuSg3BPm';   // ← あなたのID
+const PAGE_ID_RAW   = 'pagvlY8ISJVIQYsnP';   // ← あなたのID
 const WORKCORD_IS_NUMBER = true;
 
 const TOKEN = process.env.AIRTABLE_TOKEN;
