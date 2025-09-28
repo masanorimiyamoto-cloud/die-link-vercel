@@ -1,11 +1,12 @@
-// pages/api/die-link.js
 export const config = { runtime: 'edge' };
 
 const AIRTABLE_BASE = 'appwAnJP9OOZ3MVF5';
 const TABLE_NAME    = 'TableJuchu';
-const PAGE_ID_RAW   = 'pagvlY8ISJVIQYsnP';   // ← あなたのID
-const WORKCORD_IS_NUMBER = true;
 
+// ここに「/interfaces の後ろ全部」または「pag…だけ」を入れる
+const INTERFACE_PATH_OR_PAGEID = 'pagvlY8ISJVIQYsnP'; // ← 今は pag だけでOK。後で pgl.../pages/pag... に差し替え可
+
+const WORKCORD_IS_NUMBER = true;
 const TOKEN = process.env.AIRTABLE_TOKEN;
 
 function html(msg, ok=false, code=200) {
@@ -20,51 +21,64 @@ function html(msg, ok=false, code=200) {
   );
 }
 
+function buildInterfaceUrl(baseId, pathOrPag, recordId) {
+  const p = (pathOrPag || '').trim();
+
+  // 1) 推奨：pgl.../pages/pag... 形式
+  if (/^(?:pgl)[A-Za-z0-9]+\/pages\/pag[A-Za-z0-9]+$/.test(p)) {
+    return `https://airtable.com/${baseId}/interfaces/${p}?recordId=${encodeURIComponent(recordId)}`;
+  }
+  // 2) 代替：pag... だけ（編集URLではなく閲覧用の短縮パス）
+  if (/^pag[A-Za-z0-9]+$/.test(p)) {
+    // 編集画面は /edit が付くが、閲覧は付かない。?recordId はそのまま使える。
+    return `https://airtable.com/${baseId}/${p}?recordId=${encodeURIComponent(recordId)}`;
+  }
+  // 3) 不正
+  return null;
+}
+
 export default async function handler(req) {
   try {
-    const PAGE_ID = (PAGE_ID_RAW || '').trim();
-
     const { searchParams } = new URL(req.url);
 
-    // recordId 直指定なら即リダイレクト
-    const directRec = (searchParams.get('recordId') || '').trim();
-    if (directRec) {
-      if (!PAGE_ID) return html('設定エラー：PAGE_ID が未設定です。', false, 500);
-      const dest = `https://airtable.com/${AIRTABLE_BASE}/interfaces/${PAGE_ID}?recordId=${encodeURIComponent(directRec)}`;
+    // recordId直指定（テストしやすい）
+    const recIdDirect = (searchParams.get('recordId') || '').trim();
+    if (recIdDirect) {
+      const dest = buildInterfaceUrl(AIRTABLE_BASE, INTERFACE_PATH_OR_PAGEID, recIdDirect);
+      if (!dest) {
+        return html(`設定エラー：INTERFACE_PATH_OR_PAGEID が不正です。\n` +
+                    `例）pglXXXX/pages/pagYYYY もしくは pagYYYY`, false, 500);
+      }
+      // 確認用: &dry=1 でURLだけ表示
+      if ((searchParams.get('dry') || '') === '1') return html(`Would redirect to:\n${dest}`, true, 200);
       return Response.redirect(dest, 302);
     }
 
+    // 検索パラメータ（?book=...&wc=...）
     const book = (searchParams.get('book') || '').trim();
     const wc   = (searchParams.get('wc')   || '').trim();
-    if (!book || !wc) {
-      return html('パラメータ不足：?book=○○&wc=□□ もしくは ?recordId=recXXXX を指定してください。', false, 400);
-    }
+    if (!book || !wc) return html('パラメータ不足：?book=○○&wc=□□ もしくは ?recordId=recXXXX を指定してください。', false, 400);
 
-    if (!TOKEN) {
-      return html('サーバ設定エラー：AIRTABLE_TOKEN が未設定です（Vercelの環境変数→再デプロイ）。', false, 500);
-    }
+    if (!TOKEN) return html('サーバ設定エラー：AIRTABLE_TOKEN 未設定（保存後は再デプロイが必要）', false, 500);
 
-    if (!PAGE_ID || !/^(?:pag|pgl)/.test(PAGE_ID)) {
-     return html(`サーバ設定エラー：PAGE_ID が不正です（現在：${PAGE_ID}）。AirtableのインターフェースURLから pag... / pgl... を入れてください。`, false, 500);
-    }
-
+    // Airtable検索
     const wcExpr  = WORKCORD_IS_NUMBER ? wc : `'${wc.replace(/'/g,"\\'")}'`;
     const formula = `AND({Book}='${book.replace(/'/g,"\\'")}',{WorkCord}=${wcExpr})`;
     const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
 
     const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
-    if (r.status !== 200) {
-      const txt = await r.text();
-      return html(`検索失敗：HTTP ${r.status}\n${txt.slice(0,800)}`, false, 502);
-    }
+    if (r.status !== 200) return html(`検索失敗：HTTP ${r.status}\n${(await r.text()).slice(0,800)}`, false, 502);
 
     const j = await r.json();
     const rec = (j.records || [])[0];
-    if (!rec) {
-      return html(`該当なし：Book='${book}' / WorkCord='${wc}'`, false, 404);
-    }
+    if (!rec) return html(`該当なし：Book='${book}' / WorkCord='${wc}'`, false, 404);
 
-    const dest = `https://airtable.com/${AIRTABLE_BASE}/interfaces/${PAGE_ID}?recordId=${rec.id}`;
+    const dest = buildInterfaceUrl(AIRTABLE_BASE, INTERFACE_PATH_OR_PAGEID, rec.id);
+    if (!dest) {
+      return html(`設定エラー：INTERFACE_PATH_OR_PAGEID が不正です。\n` +
+                  `例）pglXXXX/pages/pagYYYY もしくは pagYYYY`, false, 500);
+    }
+    if ((searchParams.get('dry') || '') === '1') return html(`Would redirect to:\n${dest}`, true, 200);
     return Response.redirect(dest, 302);
 
   } catch (e) {
