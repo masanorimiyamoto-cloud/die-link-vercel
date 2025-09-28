@@ -49,65 +49,92 @@ export default async function handler(req) {
 
     if (!TOKEN) return html('サーバ設定エラー：AIRTABLE_TOKEN 未設定', false, 500);
 
-    // 検索式
-    const wcExpr = WORKCORD_IS_NUMBER ? wc : `"${wc.replace(/"/g, '\\"')}"`;
-    const formula = `AND({Book}="${book.replace(/"/g, '\\"')}", {WorkCord}=${wcExpr})`;
-    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(formula)}&pageSize=10`;
+    // デバッグ情報
+    let debugInfo = `検索条件:\n- Book: "${book}"\n- WorkCord: "${wc}"\n- 数値扱い: ${WORKCORD_IS_NUMBER}\n\n`;
 
-    const r = await fetch(url, { 
-      headers: { 
-        Authorization: `Bearer ${TOKEN}`,
-        'Content-Type': 'application/json'
-      } 
-    });
+    // Airtable検索 - 複数の検索方法を試す
+    let formulas = [];
     
-    if (r.status !== 200) {
-      const errorText = await r.text();
-      return html(`検索失敗：HTTP ${r.status}\n${errorText.slice(0,800)}`, false, 502);
+    // 方法1: 元の検索式
+    let wcExpr = WORKCORD_IS_NUMBER ? wc : `"${wc.replace(/"/g, '\\"')}"`;
+    formulas.push(`AND({Book}="${book.replace(/"/g, '\\"')}", {WorkCord}=${wcExpr})`);
+    
+    // 方法2: フィールド名を変更してみる
+    formulas.push(`AND({book}="${book.replace(/"/g, '\\"')}", {workcord}=${wcExpr})`);
+    formulas.push(`AND({BOOK}="${book.replace(/"/g, '\\"')}", {WORKCORD}=${wcExpr})`);
+    
+    // 方法3: WorkCordを文字列として検索
+    if (WORKCORD_IS_NUMBER) {
+      formulas.push(`AND({Book}="${book.replace(/"/g, '\\"')}", {WorkCord}="${wc}")`);
     }
 
-    const j = await r.json();
-    const records = j.records || [];
-    
-    if (records.length === 0) {
-      return html(`該当なし：Book='${book}' / WorkCord='${wc}'`, false, 404);
-    }
+    let foundRecord = null;
+    let lastError = '';
 
-    // 複数件見つかった場合の処理
-    let targetRecord = records[0];
-    
-    if (records.length > 1) {
-      // 複数件ある場合は最新のレコードを選択（createdTimeでソート）
-      records.sort((a, b) => new Date(b.createdTime) - new Date(a.createdTime));
-      targetRecord = records[0];
+    for (const formula of formulas) {
+      const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(formula)}`;
       
-      // dryモードで確認
-      if ((searchParams.get('dry') || '') === '1') {
-        let debugInfo = `⚠️ 複数件（${records.length}件）見つかりました\n\n`;
-        debugInfo += `最新レコードを選択:\n`;
-        debugInfo += `- ID: ${targetRecord.id}\n`;
-        debugInfo += `- 作成日時: ${targetRecord.createdTime}\n\n`;
-        debugInfo += `全レコード:\n`;
-        records.forEach((rec, i) => {
-          debugInfo += `${i+1}. ID: ${rec.id}, 作成: ${rec.createdTime}\n`;
-          debugInfo += `   フィールド: ${JSON.stringify(rec.fields)}\n\n`;
+      debugInfo += `検索式: ${formula}\n`;
+      debugInfo += `URL: ${url}\n\n`;
+
+      try {
+        const r = await fetch(url, { 
+          headers: { 
+            Authorization: `Bearer ${TOKEN}`,
+            'Content-Type': 'application/json'
+          } 
         });
         
-        const dest = buildInterfaceUrl(AIRTABLE_BASE, INTERFACE_PATH_OR_PAGEID, targetRecord.id);
-        return html(`Would redirect to:\n${dest}\n\n${debugInfo}`, true, 200);
+        if (r.status === 200) {
+          const j = await r.json();
+          debugInfo += `結果: ${j.records?.length || 0}件見つかりました\n`;
+          
+          if (j.records && j.records.length > 0) {
+            foundRecord = j.records[0];
+            debugInfo += `成功！ レコードID: ${foundRecord.id}\n`;
+            break;
+          }
+        } else {
+          const errorText = await r.text();
+          debugInfo += `エラー: HTTP ${r.status} - ${errorText.slice(0,200)}\n`;
+          lastError = errorText;
+        }
+      } catch (e) {
+        debugInfo += `例外: ${e.message}\n`;
+        lastError = e.message;
       }
+      
+      debugInfo += '---\n';
     }
 
-    const dest = buildInterfaceUrl(AIRTABLE_BASE, INTERFACE_PATH_OR_PAGEID, targetRecord.id);
+    if (!foundRecord) {
+      // テーブルの構造を確認するための全件取得（デバッグ用）
+      try {
+        const sampleUrl = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?maxRecords=3`;
+        const sampleRes = await fetch(sampleUrl, { 
+          headers: { Authorization: `Bearer ${TOKEN}` } 
+        });
+        
+        if (sampleRes.status === 200) {
+          const sampleData = await sampleRes.json();
+          debugInfo += `\n--- テーブルサンプルデータ ---\n`;
+          sampleData.records?.forEach((rec, i) => {
+            debugInfo += `レコード${i+1}:\n`;
+            debugInfo += `ID: ${rec.id}\n`;
+            debugInfo += `Fields: ${JSON.stringify(rec.fields, null, 2)}\n\n`;
+          });
+        }
+      } catch (e) {
+        debugInfo += `サンプル取得エラー: ${e.message}\n`;
+      }
+      
+      return html(`該当なし：Book='${book}' / WorkCord='${wc}'\n\nデバッグ情報:\n${debugInfo}`, false, 404);
+    }
+
+    const dest = buildInterfaceUrl(AIRTABLE_BASE, INTERFACE_PATH_OR_PAGEID, foundRecord.id);
     if (!dest) return html(`設定エラー：INTERFACE_PATH_OR_PAGEID が不正です`, false, 500);
     
-    if ((searchParams.get('dry') || '') === '1') {
-      const debugInfo = records.length > 1 ? 
-        `⚠️ 複数件（${records.length}件）見つかりました。最新レコードを使用します。\n` : 
-        `✅ 1件見つかりました。\n`;
-      return html(`Would redirect to:\n${dest}\n\n${debugInfo}`, true, 200);
-    }
-    
+    if ((searchParams.get('dry') || '') === '1') return html(`Would redirect to:\n${dest}\n\nデバッグ情報:\n${debugInfo}`, true, 200);
     return Response.redirect(dest, 302);
 
   } catch (e) {
