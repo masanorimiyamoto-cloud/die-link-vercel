@@ -22,16 +22,24 @@ const FIELD_CUT       = 'Cut_Size';
 const TOKEN = process.env.AIRTABLE_TOKEN;
 
 /** ===== ユーティリティ ===== */
+// 例：/api/die-check.js の renderHTML
 function renderHTML({ ok, title, html = '', code = 200 }) {
   const color = ok ? '#0a0' : '#c00';
   const body  = `<!doctype html><meta charset="utf-8">
   <body style="font-family:system-ui;padding:24px;line-height:1.6">
     <h1 style="color:${color};font-size:24px;margin:0 0 12px">${title}</h1>
     ${html}
-    <p style="margin-top:16px"><a href="javascript:history.back()">← 戻る</a></p>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <a href="/api/scan" style="background:#0a0;color:#fff;text-decoration:none;padding:10px 14px;border-radius:8px">QRを再スキャン</a>
+      <button onclick="if(document.referrer){history.back()}else{location.href='/api/scan'}"
+        style="padding:10px 14px;border-radius:8px;border:1px solid #ccc;background:#f7f7f7;cursor:pointer">
+        戻る
+      </button>
+    </div>
   </body>`;
   return new Response(body, { status: code, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
+
 
 function renderJSON(payload, code = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
