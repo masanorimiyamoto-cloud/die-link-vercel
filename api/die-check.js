@@ -292,7 +292,7 @@ export default async function handler(req) {
         <b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(book)}　
         <b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(wc)}
       </div>
-      <div style="margin:10px 0 6px;color:#0a0;font-weight:bold">この抜型は正しいです（${rows.length}件ヒット）</div>
+      <div style="margin:10px 0 6px;color:#0a0;font-weight:bold">この抜型を使用する受注があります（${rows.length}件ヒット）</div>
       <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:15px">
         <thead style="background:#f7f7f7">
           <tr>
