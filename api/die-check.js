@@ -2,14 +2,13 @@
 export const config = { runtime: 'edge' };
 
 /** ===== 設定 ===== */
-const AIRTABLE_BASE  = 'appwAnJP9OOZ3MVF5'; // ← あなたの app...
-const TABLE_NAME     = 'TableJuchu';        // ← あなたのテーブル名
+const AIRTABLE_BASE  = 'appwAnJP9OOZ3MVF5';
+const TABLE_NAME     = 'TableJuchu';
 
 // 照合キー
 const BOOK_FIELD     = 'Book';
 const WORKCORD_FIELD = 'WorkCord';
-const FIELD_ATTACH = '画像';
-const WORKCORD_IS_NUMBER = true; // WorkCord が数値なら true, 文字列なら false
+const WORKCORD_IS_NUMBER = true;
 
 // 表示＆取得フィールド
 const FIELD_DATE = 'Ndate';
@@ -19,11 +18,11 @@ const FIELD_KNAME = 'Kname';
 const FIELD_MATERIAL  = 'Material';
 const FIELD_PAPER     = 'Paper_Size';
 const FIELD_CUT       = 'Cut_Size';
+const FIELD_ATTACH    = '画像';
 
 const TOKEN = process.env.AIRTABLE_TOKEN;
 
 /** ===== ユーティリティ ===== */
-// 例：/api/die-check.js の renderHTML
 function renderHTML({ ok, title, html = '', code = 200 }) {
   const color = ok ? '#0a0' : '#c00';
   const body  = `<!doctype html><meta charset="utf-8">
@@ -39,23 +38,6 @@ function renderHTML({ ok, title, html = '', code = 200 }) {
     </div>
   </body>`;
   return new Response(body, { status: code, headers: { 'content-type': 'text/html; charset=utf-8' } });
-}
-
-function renderAttachmentsHTML(attachments) {
-  if (!attachments || !attachments.length) return '<span style="color:#666">（添付なし）</span>';
-  // 先頭3件を軽く表示（画像はサムネ、非画像はファイル名リンク）
-  const items = attachments.slice(0, 3).map(a => {
-    const isImg = String(a.type || '').startsWith('image/');
-    const thumbUrl = a.thumbnails?.small?.url || a.thumbnails?.large?.url || a.url;
-    if (isImg) {
-      return `<a href="${escapeHtml(a.url)}" target="_blank" style="display:inline-block;margin:2px">
-                <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(a.filename||'')}" style="height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px">
-              </a>`;
-    }
-    return `<div><a href="${escapeHtml(a.url)}" target="_blank">${escapeHtml(a.filename || '添付')}</a></div>`;
-  }).join('');
-  const more = attachments.length > 3 ? `<div style="color:#666">…他 ${attachments.length-3} 件</div>` : '';
-  return `<div style="display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px">${items}${more}</div>`;
 }
 
 function renderJSON(payload, code = 200) {
@@ -94,42 +76,11 @@ function escapeHtml(s) {
 function fieldsQuery() {
   const f = [
     FIELD_DATE, FIELD_ITEM, FIELD_QTY,
-    FIELD_KNAME, FIELD_MATERIAL, FIELD_PAPER, FIELD_CUT,FIELD_ATTACH, 
+    FIELD_KNAME, FIELD_MATERIAL, FIELD_PAPER, FIELD_CUT,
+    FIELD_ATTACH,
     BOOK_FIELD, WORKCORD_FIELD
   ];
   return f.map(x => `fields[]=${encodeURIComponent(x)}`).join('&');
-}
-function mapRecord(rec) {
-  const f = rec.fields || {};
-  const rawDate = f[FIELD_DATE];
-  const dateMs = rawDate ? Date.parse(rawDate) : NaN;
-
-  // 添付：Airtable の添付配列を使いやすい形に
-  const atts = Array.isArray(f[FIELD_ATTACH]) ? f[FIELD_ATTACH] : [];
-  const attachments = atts.map(a => ({
-    url: a.url,
-    filename: a.filename,
-    size: a.size,
-    type: a.type,
-    width: a.width,
-    height: a.height,
-    thumbnails: a.thumbnails || null
-  }));
-
-  return {
-    id: rec.id,
-    book: f[BOOK_FIELD] ?? null,
-    workcord: f[WORKCORD_FIELD] ?? null,
-    kname: f[FIELD_KNAME] ?? null,
-    itemName: f[FIELD_ITEM] ?? null,
-    amount: parseQty(f[FIELD_QTY]),
-    material: f[FIELD_MATERIAL] ?? null,
-    paperSize: f[FIELD_PAPER] ?? null,
-    cutSize: f[FIELD_CUT] ?? null,
-    attachments,                                // ← 追加
-    ndate: rawDate ? fmtDate(rawDate) : null,
-    _dateMs: Number.isFinite(dateMs) ? dateMs : undefined,
-  };
 }
 
 async function fetchRecordById(recordId) {
@@ -162,25 +113,61 @@ async function fetchByBookAndWcAll(book, wc, limit = 100) {
   return results;
 }
 
-/** ===== 変換共通 ===== */
+/** ===== 1回だけ定義する mapRecord（添付も含む） ===== */
 function mapRecord(rec) {
   const f = rec.fields || {};
   const rawDate = f[FIELD_DATE];
   const dateMs = rawDate ? Date.parse(rawDate) : NaN;
 
+  // 添付：使いやすい形へ
+  const atts = Array.isArray(f[FIELD_ATTACH]) ? f[FIELD_ATTACH] : [];
+  const attachments = atts.map(a => ({
+    url: a.url,
+    filename: a.filename,
+    size: a.size,
+    type: a.type,
+    width: a.width,
+    height: a.height,
+    thumbnails: a.thumbnails || null
+  }));
+
   return {
     id: rec.id,
     book: f[BOOK_FIELD] ?? null,
     workcord: f[WORKCORD_FIELD] ?? null,
-    kname: f[FIELD_KNAME] ?? null,            // ← 追加
+    kname: f[FIELD_KNAME] ?? null,
     itemName: f[FIELD_ITEM] ?? null,
     amount: parseQty(f[FIELD_QTY]),
-    material: f[FIELD_MATERIAL] ?? null,      // ← 追加
-    paperSize: f[FIELD_PAPER] ?? null,        // ← 追加
-    cutSize: f[FIELD_CUT] ?? null,            // ← 追加
+    material: f[FIELD_MATERIAL] ?? null,
+    paperSize: f[FIELD_PAPER] ?? null,
+    cutSize: f[FIELD_CUT] ?? null,
+    attachments,
     ndate: rawDate ? fmtDate(rawDate) : null,
     _dateMs: Number.isFinite(dateMs) ? dateMs : undefined,
   };
+}
+
+/** ===== 添付HTML ===== */
+function renderAttachmentsHTML(attachments) {
+  if (!attachments || !attachments.length) return '<span style="color:#666">（添付なし）</span>';
+  // 先頭3件を軽く表示（画像はサムネ、非画像はファイル名リンク）
+  const items = attachments.slice(0, 3).map(a => {
+    const isImg = String(a.type || '').startsWith('image/');
+    const thumbUrl = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
+    if (isImg) {
+      return `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"
+                 style="display:inline-block;margin:2px">
+                <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(a.filename||'')}"
+                     loading="lazy" referrerpolicy="no-referrer"
+                     style="height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px">
+              </a>`;
+    }
+    return `<div><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
+              ${escapeHtml(a.filename || '添付')}
+            </a></div>`;
+  }).join('');
+  const more = attachments.length > 3 ? `<div style="color:#666">…他 ${attachments.length-3} 件</div>` : '';
+  return `<div style="display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px">${items}${more}</div>`;
 }
 
 /** ===== Handler ===== */
@@ -207,11 +194,8 @@ export default async function handler(req) {
       }
       const row = mapRecord(rec);
 
-      if (wantJSON) {
-        return renderJSON({ ok: true, hits: [row] }, 200);
-      }
+      if (wantJSON) return renderJSON({ ok: true, hits: [row] }, 200);
 
-      // 単票表示：Record ID の代わりに Kname を出す、Material/Paper/Cut を追加
       const html = `
         <div><b>Kname:</b> ${escapeHtml(row.kname ?? '')}</div>
         <div><b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(row.book ?? '')}</div>
@@ -222,8 +206,11 @@ export default async function handler(req) {
         <div style="margin-top:8px"><b>${escapeHtml(FIELD_MATERIAL)}:</b> ${escapeHtml(row.material ?? '')}</div>
         <div><b>${escapeHtml(FIELD_PAPER)}:</b> ${escapeHtml(row.paperSize ?? '')}</div>
         <div><b>${escapeHtml(FIELD_CUT)}:</b> ${escapeHtml(row.cutSize ?? '')}</div>
+
+        <div style="margin-top:10px"><b>${escapeHtml(FIELD_ATTACH)}:</b></div>
+        ${renderAttachmentsHTML(row.attachments)}
+
         <hr style="margin:16px 0">
-        ${renderAttachmentsHTML(row.attachments)}        <!-- ← 追加表示 -->
         <div style="font-weight:bold;color:#0a0">この抜型を使用する注文があります。</div>
       `;
       return renderHTML({ ok: true, title: '照合結果（単票）', html, code: 200 });
@@ -257,35 +244,37 @@ export default async function handler(req) {
       }, 200);
     }
 
-    // 一覧：最後の列を Record ID から Kname に変更し、Material/Paper/Cut を追加
-    // 各行（tbody）の生成で、Knameの前に画像列を差し込む
+    // 一覧：画像列を追加（先頭サムネ + 件数）
     const tableRows = rows.map(r => {
-    // 先頭1件のプレビュー（画像なら小サムネ、非画像ならファイル名）
-    let attachCell = '（添付なし）';
-    if (r.attachments && r.attachments.length) {
+      let attachCell = '（添付なし）';
+      if (r.attachments && r.attachments.length) {
         const a = r.attachments[0];
         const isImg = String(a.type||'').startsWith('image/');
-        const thumb = a.thumbnails?.small?.url || a.thumbnails?.large?.url || a.url;
+        const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
         attachCell = isImg
-        ? `<a href="${escapeHtml(a.url)}" target="_blank"><img src="${escapeHtml(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:3px"></a>`
-        : `<a href="${escapeHtml(a.url)}" target="_blank">${escapeHtml(a.filename || '添付')}</a>`;
+          ? `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
+               <img src="${escapeHtml(thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                    style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:3px">
+             </a>`
+          : `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
+               ${escapeHtml(a.filename || '添付')}
+             </a>`;
         if (r.attachments.length > 1) attachCell += ` <span style="color:#666">(+${r.attachments.length-1})</span>`;
-    }
+      }
 
-  return `
-    <tr>
-      <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
-      <td style="padding:6px 8px">${escapeHtml(r.itemName ?? '')}</td>
-      <td style="padding:6px 8px;text-align:right">${r.amount ?? ''}</td>
-      <td style="padding:6px 8px">${escapeHtml(r.material ?? '')}</td>
-      <td style="padding:6px 8px">${escapeHtml(r.paperSize ?? '')}</td>
-      <td style="padding:6px 8px">${escapeHtml(r.cutSize ?? '')}</td>
-      <td style="padding:6px 8px">${attachCell}</td>          <!-- ← 追加列 -->
-      <td style="padding:6px 8px">${escapeHtml(r.kname ?? '')}</td>
-    </tr>
-  `;
-}).join('');
-
+      return `
+        <tr>
+          <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
+          <td style="padding:6px 8px">${escapeHtml(r.itemName ?? '')}</td>
+          <td style="padding:6px 8px;text-align:right">${r.amount ?? ''}</td>
+          <td style="padding:6px 8px">${escapeHtml(r.material ?? '')}</td>
+          <td style="padding:6px 8px">${escapeHtml(r.paperSize ?? '')}</td>
+          <td style="padding:6px 8px">${escapeHtml(r.cutSize ?? '')}</td>
+          <td style="padding:6px 8px">${attachCell}</td>
+          <td style="padding:6px 8px">${escapeHtml(r.kname ?? '')}</td>
+        </tr>
+      `;
+    }).join('');
 
     const html = `
       <div style="margin-bottom:8px">
