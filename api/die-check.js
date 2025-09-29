@@ -8,6 +8,7 @@ const TABLE_NAME     = 'TableJuchu';        // ← あなたのテーブル名
 // 照合キー
 const BOOK_FIELD     = 'Book';
 const WORKCORD_FIELD = 'WorkCord';
+const FIELD_ATTACH = '画像';
 const WORKCORD_IS_NUMBER = true; // WorkCord が数値なら true, 文字列なら false
 
 // 表示＆取得フィールド
@@ -40,6 +41,22 @@ function renderHTML({ ok, title, html = '', code = 200 }) {
   return new Response(body, { status: code, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
 
+function renderAttachmentsHTML(attachments) {
+  if (!attachments || !attachments.length) return '<span style="color:#666">（添付なし）</span>';
+  // 先頭3件を軽く表示（画像はサムネ、非画像はファイル名リンク）
+  const items = attachments.slice(0, 3).map(a => {
+    const isImg = String(a.type || '').startsWith('image/');
+    const thumbUrl = a.thumbnails?.small?.url || a.thumbnails?.large?.url || a.url;
+    if (isImg) {
+      return `<a href="${escapeHtml(a.url)}" target="_blank" style="display:inline-block;margin:2px">
+                <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(a.filename||'')}" style="height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px">
+              </a>`;
+    }
+    return `<div><a href="${escapeHtml(a.url)}" target="_blank">${escapeHtml(a.filename || '添付')}</a></div>`;
+  }).join('');
+  const more = attachments.length > 3 ? `<div style="color:#666">…他 ${attachments.length-3} 件</div>` : '';
+  return `<div style="display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px">${items}${more}</div>`;
+}
 
 function renderJSON(payload, code = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
@@ -77,10 +94,42 @@ function escapeHtml(s) {
 function fieldsQuery() {
   const f = [
     FIELD_DATE, FIELD_ITEM, FIELD_QTY,
-    FIELD_KNAME, FIELD_MATERIAL, FIELD_PAPER, FIELD_CUT,
+    FIELD_KNAME, FIELD_MATERIAL, FIELD_PAPER, FIELD_CUT,FIELD_ATTACH, 
     BOOK_FIELD, WORKCORD_FIELD
   ];
   return f.map(x => `fields[]=${encodeURIComponent(x)}`).join('&');
+}
+function mapRecord(rec) {
+  const f = rec.fields || {};
+  const rawDate = f[FIELD_DATE];
+  const dateMs = rawDate ? Date.parse(rawDate) : NaN;
+
+  // 添付：Airtable の添付配列を使いやすい形に
+  const atts = Array.isArray(f[FIELD_ATTACH]) ? f[FIELD_ATTACH] : [];
+  const attachments = atts.map(a => ({
+    url: a.url,
+    filename: a.filename,
+    size: a.size,
+    type: a.type,
+    width: a.width,
+    height: a.height,
+    thumbnails: a.thumbnails || null
+  }));
+
+  return {
+    id: rec.id,
+    book: f[BOOK_FIELD] ?? null,
+    workcord: f[WORKCORD_FIELD] ?? null,
+    kname: f[FIELD_KNAME] ?? null,
+    itemName: f[FIELD_ITEM] ?? null,
+    amount: parseQty(f[FIELD_QTY]),
+    material: f[FIELD_MATERIAL] ?? null,
+    paperSize: f[FIELD_PAPER] ?? null,
+    cutSize: f[FIELD_CUT] ?? null,
+    attachments,                                // ← 追加
+    ndate: rawDate ? fmtDate(rawDate) : null,
+    _dateMs: Number.isFinite(dateMs) ? dateMs : undefined,
+  };
 }
 
 async function fetchRecordById(recordId) {
@@ -174,7 +223,8 @@ export default async function handler(req) {
         <div><b>${escapeHtml(FIELD_PAPER)}:</b> ${escapeHtml(row.paperSize ?? '')}</div>
         <div><b>${escapeHtml(FIELD_CUT)}:</b> ${escapeHtml(row.cutSize ?? '')}</div>
         <hr style="margin:16px 0">
-        <div style="font-weight:bold;color:#0a0">この抜型は正しいです。</div>
+        ${renderAttachmentsHTML(row.attachments)}        <!-- ← 追加表示 -->
+        <div style="font-weight:bold;color:#0a0">この抜型を使用する注文があります。</div>
       `;
       return renderHTML({ ok: true, title: '照合結果（単票）', html, code: 200 });
     }
