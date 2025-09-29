@@ -10,10 +10,14 @@ const BOOK_FIELD     = 'Book';
 const WORKCORD_FIELD = 'WorkCord';
 const WORKCORD_IS_NUMBER = true; // WorkCord が数値なら true, 文字列なら false
 
-// 取得して並べたいフィールド（今回の要件）
+// 表示＆取得フィールド
 const FIELD_DATE = 'Ndate';
 const FIELD_ITEM = 'ItemName';
 const FIELD_QTY  = 'NAmount';
+const FIELD_KNAME = 'Kname';
+const FIELD_MATERIAL  = 'Material';
+const FIELD_PAPER     = 'Paper_Size';
+const FIELD_CUT       = 'Cut_Size';
 
 const TOKEN = process.env.AIRTABLE_TOKEN;
 
@@ -58,23 +62,30 @@ function byDateAsc(a, b) {
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
 
 /** ===== Airtable helpers ===== */
+function fieldsQuery() {
+  const f = [
+    FIELD_DATE, FIELD_ITEM, FIELD_QTY,
+    FIELD_KNAME, FIELD_MATERIAL, FIELD_PAPER, FIELD_CUT,
+    BOOK_FIELD, WORKCORD_FIELD
+  ];
+  return f.map(x => `fields[]=${encodeURIComponent(x)}`).join('&');
+}
+
 async function fetchRecordById(recordId) {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}/${encodeURIComponent(recordId)}?fields[]=${encodeURIComponent(FIELD_DATE)}&fields[]=${encodeURIComponent(FIELD_ITEM)}&fields[]=${encodeURIComponent(FIELD_QTY)}&fields[]=${encodeURIComponent(BOOK_FIELD)}&fields[]=${encodeURIComponent(WORKCORD_FIELD)}`;
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}/${encodeURIComponent(recordId)}?${fieldsQuery()}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
   if (r.status === 200) return r.json();
   return null;
 }
 
 async function fetchByBookAndWcAll(book, wc, limit = 100) {
-  const wcExpr  = WORKCORD_IS_NUMBER ? wc : `'${wc.replace(/'/g, "\\'")}'`;
-  const formula = `AND({${BOOK_FIELD}}='${book.replace(/'/g, "\\'")}',{${WORKCORD_FIELD}}=${wcExpr})`;
-
-  // fields[] で必要最小限だけ取得
-  const baseUrl = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(formula)}&fields[]=${encodeURIComponent(FIELD_DATE)}&fields[]=${encodeURIComponent(FIELD_ITEM)}&fields[]=${encodeURIComponent(FIELD_QTY)}&fields[]=${encodeURIComponent(BOOK_FIELD)}&fields[]=${encodeURIComponent(WORKCORD_FIELD)}&pageSize=100`;
+  const wcExpr  = WORKCORD_IS_NUMBER ? wc : `'${String(wc).replace(/'/g, "\\'")}'`;
+  const formula = `AND({${BOOK_FIELD}}='${String(book).replace(/'/g, "\\'")}',{${WORKCORD_FIELD}}=${wcExpr})`;
+  const baseUrl = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(formula)}&${fieldsQuery()}&pageSize=100`;
 
   let results = [];
   let offset;
@@ -104,8 +115,12 @@ function mapRecord(rec) {
     id: rec.id,
     book: f[BOOK_FIELD] ?? null,
     workcord: f[WORKCORD_FIELD] ?? null,
+    kname: f[FIELD_KNAME] ?? null,            // ← 追加
     itemName: f[FIELD_ITEM] ?? null,
     amount: parseQty(f[FIELD_QTY]),
+    material: f[FIELD_MATERIAL] ?? null,      // ← 追加
+    paperSize: f[FIELD_PAPER] ?? null,        // ← 追加
+    cutSize: f[FIELD_CUT] ?? null,            // ← 追加
     ndate: rawDate ? fmtDate(rawDate) : null,
     _dateMs: Number.isFinite(dateMs) ? dateMs : undefined,
   };
@@ -134,19 +149,26 @@ export default async function handler(req) {
                         : renderHTML({ ok: false, title: '該当なし', html: `<pre>${escapeHtml(msg)}</pre>`, code: 404 });
       }
       const row = mapRecord(rec);
-      if (wantJSON) return renderJSON({ ok: true, hits: [row] }, 200);
 
+      if (wantJSON) {
+        return renderJSON({ ok: true, hits: [row] }, 200);
+      }
+
+      // 単票表示：Record ID の代わりに Kname を出す、Material/Paper/Cut を追加
       const html = `
-        <div><b>Record ID:</b> ${escapeHtml(row.id)}</div>
+        <div><b>Kname:</b> ${escapeHtml(row.kname ?? '')}</div>
         <div><b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(row.book ?? '')}</div>
         <div><b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(row.workcord ?? '')}</div>
         <div><b>${escapeHtml(FIELD_ITEM)}:</b> ${escapeHtml(row.itemName ?? '')}</div>
         <div><b>${escapeHtml(FIELD_QTY)}:</b> ${row.amount ?? ''}</div>
         <div><b>${escapeHtml(FIELD_DATE)}:</b> ${escapeHtml(row.ndate ?? '')}</div>
+        <div style="margin-top:8px"><b>${escapeHtml(FIELD_MATERIAL)}:</b> ${escapeHtml(row.material ?? '')}</div>
+        <div><b>${escapeHtml(FIELD_PAPER)}:</b> ${escapeHtml(row.paperSize ?? '')}</div>
+        <div><b>${escapeHtml(FIELD_CUT)}:</b> ${escapeHtml(row.cutSize ?? '')}</div>
         <hr style="margin:16px 0">
-        <div style="font-weight:bold;color:#0a0">下記の受注がありこの抜型は正しいと思われます。</div>
+        <div style="font-weight:bold;color:#0a0">この抜型は正しいです。</div>
       `;
-      return renderHTML({ ok: true, title: '照合結果', html, code: 200 });
+      return renderHTML({ ok: true, title: '照合結果（単票）', html, code: 200 });
     }
 
     // 2) book & wc 指定（複数可 → 納期昇順）
@@ -177,12 +199,16 @@ export default async function handler(req) {
       }, 200);
     }
 
+    // 一覧：最後の列を Record ID から Kname に変更し、Material/Paper/Cut を追加
     const tableRows = rows.map(r => `
       <tr>
         <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
         <td style="padding:6px 8px">${escapeHtml(r.itemName ?? '')}</td>
         <td style="padding:6px 8px;text-align:right">${r.amount ?? ''}</td>
-        <td style="padding:6px 8px;white-space:nowrap;font-family:ui-monospace,monospace">${escapeHtml(r.id)}</td>
+        <td style="padding:6px 8px">${escapeHtml(r.material ?? '')}</td>
+        <td style="padding:6px 8px">${escapeHtml(r.paperSize ?? '')}</td>
+        <td style="padding:6px 8px">${escapeHtml(r.cutSize ?? '')}</td>
+        <td style="padding:6px 8px">${escapeHtml(r.kname ?? '')}</td>
       </tr>
     `).join('');
 
@@ -195,10 +221,13 @@ export default async function handler(req) {
       <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:15px">
         <thead style="background:#f7f7f7">
           <tr>
-            <th style="padding:8px 10px">納期 (${escapeHtml(FIELD_DATE)})</th>
-            <th style="padding:8px 10px">品名 (${escapeHtml(FIELD_ITEM)})</th>
-            <th style="padding:8px 10px">数量 (${escapeHtml(FIELD_QTY)})</th>
-            <th style="padding:6px 8px">Record ID</th>
+            <th style="padding:6px 8px">納期 (${escapeHtml(FIELD_DATE)})</th>
+            <th style="padding:6px 8px">品名 (${escapeHtml(FIELD_ITEM)})</th>
+            <th style="padding:6px 8px">数量 (${escapeHtml(FIELD_QTY)})</th>
+            <th style="padding:6px 8px">Material</th>
+            <th style="padding:6px 8px">Paper_Size</th>
+            <th style="padding:6px 8px">Cut_Size</th>
+            <th style="padding:6px 8px">Kname</th>
           </tr>
         </thead>
         <tbody>${tableRows}</tbody>
