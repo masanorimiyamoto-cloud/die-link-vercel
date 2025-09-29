@@ -258,17 +258,34 @@ export default async function handler(req) {
     }
 
     // 一覧：最後の列を Record ID から Kname に変更し、Material/Paper/Cut を追加
-    const tableRows = rows.map(r => `
-      <tr>
-        <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
-        <td style="padding:6px 8px">${escapeHtml(r.itemName ?? '')}</td>
-        <td style="padding:6px 8px;text-align:right">${r.amount ?? ''}</td>
-        <td style="padding:6px 8px">${escapeHtml(r.material ?? '')}</td>
-        <td style="padding:6px 8px">${escapeHtml(r.paperSize ?? '')}</td>
-        <td style="padding:6px 8px">${escapeHtml(r.cutSize ?? '')}</td>
-        <td style="padding:6px 8px">${escapeHtml(r.kname ?? '')}</td>
-      </tr>
-    `).join('');
+    // 各行（tbody）の生成で、Knameの前に画像列を差し込む
+    const tableRows = rows.map(r => {
+    // 先頭1件のプレビュー（画像なら小サムネ、非画像ならファイル名）
+    let attachCell = '（添付なし）';
+    if (r.attachments && r.attachments.length) {
+        const a = r.attachments[0];
+        const isImg = String(a.type||'').startsWith('image/');
+        const thumb = a.thumbnails?.small?.url || a.thumbnails?.large?.url || a.url;
+        attachCell = isImg
+        ? `<a href="${escapeHtml(a.url)}" target="_blank"><img src="${escapeHtml(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:3px"></a>`
+        : `<a href="${escapeHtml(a.url)}" target="_blank">${escapeHtml(a.filename || '添付')}</a>`;
+        if (r.attachments.length > 1) attachCell += ` <span style="color:#666">(+${r.attachments.length-1})</span>`;
+    }
+
+  return `
+    <tr>
+      <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
+      <td style="padding:6px 8px">${escapeHtml(r.itemName ?? '')}</td>
+      <td style="padding:6px 8px;text-align:right">${r.amount ?? ''}</td>
+      <td style="padding:6px 8px">${escapeHtml(r.material ?? '')}</td>
+      <td style="padding:6px 8px">${escapeHtml(r.paperSize ?? '')}</td>
+      <td style="padding:6px 8px">${escapeHtml(r.cutSize ?? '')}</td>
+      <td style="padding:6px 8px">${attachCell}</td>          <!-- ← 追加列 -->
+      <td style="padding:6px 8px">${escapeHtml(r.kname ?? '')}</td>
+    </tr>
+  `;
+}).join('');
+
 
     const html = `
       <div style="margin-bottom:8px">
@@ -285,6 +302,7 @@ export default async function handler(req) {
             <th style="padding:6px 8px">Material</th>
             <th style="padding:6px 8px">Paper_Size</th>
             <th style="padding:6px 8px">Cut_Size</th>
+            <th style="padding:6px 8px">画像</th>
             <th style="padding:6px 8px">Kname</th>
           </tr>
         </thead>
