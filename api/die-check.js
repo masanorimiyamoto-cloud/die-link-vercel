@@ -112,56 +112,6 @@ async function fetchByBookAndWcAll(book, wc, limit = 100) {
   if (results.length > limit) results.length = limit;
   return results;
 }
-// ========= ZXing フォールバック ==========
-const codeReader = new ZXing.BrowserMultiFormatReader();
-let zxingStarted = false;
-
-async function detectWithZXing() {
-  // 初回だけストリームにバインド（連続デコード）
-  if (!zxingStarted) {
-    await codeReader.decodeFromVideoDevice(selCam.value || undefined, video, (result, err) => {
-      if (result) {
-        const raw = result.getText ? result.getText() : (result.text || "");
-        const { kind, value } = parsePayload(raw);
-
-        // 4点（なければ近似矩形）を作る
-        let pts = [];
-        const rp = result.resultPoints || [];
-        if (rp.length >= 3) {
-          pts = rp.map(p => ({ x: p.x, y: p.y }));
-          if (pts.length === 3) pts.push(pts[2]);
-        } else {
-          // 簡易枠（動画全体）
-          const r = video.getBoundingClientRect();
-          pts = [{x:0,y:0},{x:r.width,y:0},{x:r.width,y:r.height},{x:0,y:r.height}];
-        }
-        const c = pts.reduce((a,p)=>({x:a.x+p.x, y:a.y+p.y}), {x:0,y:0});
-        const center = { x: c.x/pts.length, y: c.y/pts.length };
-
-        // 直近ヒットをキャッシュ（draw()/updateList() 側で使う想定の Map）
-        seen.set(raw, { ts: performance.now(), kind, box: pts, center, raw });
-      }
-      // err は未検出フレームなので無視
-    });
-    zxingStarted = true;
-  }
-
-  // 直近 500ms のヒットを集めて返す
-  const now = performance.now();
-  const hits = [];
-  seen.forEach(v => {
-    if (now - v.ts < 500) {
-      hits.push({
-        raw: v.raw,
-        kind: v.kind,
-        value: parsePayload(v.raw).value,
-        poly: v.box,
-        center: v.center
-      });
-    }
-  });
-  return assocNearest(hits); // 既存の最近傍マッチ関数を利用
-}
 
 /** ===== 1回だけ定義する mapRecord（添付も含む） ===== */
 function mapRecord(rec) {
