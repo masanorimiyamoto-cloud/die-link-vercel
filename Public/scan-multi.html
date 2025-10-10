@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>複数QRスキャン + 写真アップロード / 位置更新</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+  :root { --bd:#ddd; --tx:#222; --sub:#666; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 12px; color: var(--tx); }
+  h2 { margin: 6px 0 12px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+  video { width: 340px; max-width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; }
+  canvas { display:none; }
+  .panel { flex:1 1 320px; min-width:320px; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; }
+  button, .btn { padding: 9px 12px; border-radius: 10px; border:1px solid var(--bd); background:#fff; cursor:pointer; }
+  .muted { color: var(--sub); font-size: 12px; }
+  .list { margin-top:8px; }
+  .item { border:1px solid var(--bd); border-radius:12px; padding:10px; margin-bottom:10px; }
+  .head { font-weight:700; margin-bottom:6px; }
+  .kv { font-size: 13px; }
+  .sub { color: var(--sub); font-size:12px; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  .chip { display:inline-block; padding:3px 8px; border:1px solid var(--bd); border-radius:999px; font-size:12px; }
+  input[type="file"]{ display:none; }
+  .inline-input { padding:6px 8px; border:1px solid var(--bd); border-radius:8px; }
+  .pill { border-radius:999px; }
+</style>
+</head>
+<body>
+  <h2>複数QRスキャン + 写真アップロード / 位置更新</h2>
+
+  <div class="row">
+    <div class="panel">
+      <video id="v" autoplay playsinline></video>
+      <canvas id="c"></canvas>
+      <div class="controls">
+        <button id="btnStart">カメラ開始</button>
+        <button id="btnStop" disabled>停止</button>
+        <button id="btnClear" class="pill">一覧クリア</button>
+        <span class="muted" id="status">準備中…</span>
+      </div>
+      <div class="muted">
+        ・QRをかざすと一覧に自動追加（同じ抜型は重複しません）<br>
+        ・オンラインならスキャン直後に「位置（LastSeen/ShelfLabel）」を即時更新します<br>
+        ・オフラインなら更新を端末にキューし、再接続で自動送信します
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="controls">
+        <input id="labelInput" class="inline-input" placeholder="棚ラベル（任意）" />
+        <button id="applyAll">一覧の全件を“棚ラベル”で位置更新</button>
+      </div>
+      <div id="list" class="list"></div>
+    </div>
+  </div>
+
+  <!-- jsQR (pure JS) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js" integrity="sha512-1wF1fNn5r8ZdH1wz8f6+G4uXc3Q3hVtnKkD5U8QJgK4i8fW4f5Q8JkqW6k3Y3p7G8JxTn4vZc1nD2O2U9m6sRA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script>
+  // --- Service Worker 登録（ルート /sw.js をスコープに） ---
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(console.warn);
+  }
+
+  // --- 簡易ユーティリティ ---
+  const $ = (q)=>document.querySelector(q);
+  const statusEl = $("#status");
+  const v = $("#v");
+  const c = $("#c");
+  const ctx = c.getContext("2d");
+  const listEl = $("#list");
+  const labelInput = $("#labelInput");
+
+  // 既定棚ラベル（必要に応じて適宜変更）
+  labelInput.value = "scan-multi";
+
+  const scanned = new Map(); // key = `${bn}-${wc}`, val = row data object
+  const QUEUE_KEY = "die-seen-queue-v1"; // オフライン位置更新キュー
+
+  const setStatus = (t)=> statusEl.textContent = t;
+
+  // #d=BASE64URL(JSON) を復号
+  function parseHashData(url) {
+    try {
+      const u = new URL(url);
+      const h = u.hash || "";
+      const m = h.match(/[#&]d=([A-Za-z0-9_\-]+)/);
+      if (!m) return null;
+      const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
+      const pad = "=".repeat((4 - b64.length % 4) % 4);
+      const json = atob(b64 + pad);
+      return JSON.parse(json);
+    } catch { return null; }
+  }
+
+  // QR文字列（URL or プレーン）から項目を抽出
+  function parseFromQr(text) {
+    // 1) #d にオフライン情報があるなら最優先
+    const d = parseHashData(text);
+    if (d) {
+      return {
+        src: text,
+        wc: (d.wc||"").trim(),
+        wn: (d.wn||"").trim(),   // WorkName
+        bn: (d.bn||"").trim(),   // BookName
+        kn: (d.kn||"").trim(),
+        ps: (d.ps||"").trim(),
+        cs: (d.cs||"").trim(),
+      };
+    }
+    // 2) 通常のクエリ ?book=&wc= から抽出
+    try {
+      const u = new URL(text);
+      const p = u.searchParams;
+      return {
+        src:text,
+        wc:(p.get("wc")||"").trim(),
+        wn:"", // 取れないので空
+        bn:(p.get("book")||"").trim(),
+        kn:"",
+        ps:"",
+        cs:"",
+      };
+    } catch {
+      // 3) プレーンテキストは暫定的に WorkName に入れて保持
+      return { src:text, wc:"", wn:text, bn:"", kn:"", ps:"", cs:"" };
+    }
+  }
+
+  function keyOf(row) {
+    if (row.bn && row.wc) return `${row.bn}-${row.wc}`;
+    return row.src; // フォールバック
+  }
+
+  // --- 位置更新（オンラインなら即、オフラインはキュー） ---
+  function enqueue(job) {
+    const q = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
+    q.push(job);
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  }
+  async function flushQueue() {
+    if (!navigator.onLine) return;
+    const q = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
+    const rest = [];
+    for (const job of q) {
+      try {
+        const r = await fetch("/api/seen", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify(job),
+        });
+        if (!r.ok) throw new Error("fail");
+      } catch {
+        rest.push(job);
+      }
+    }
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(rest));
+    if (rest.length === 0) setStatus("キュー送信完了");
+  }
+  window.addEventListener("online", flushQueue);
+
+  async function updateSeen(book, wc, label) {
+    const payload = { book, wc, label };
+    if (navigator.onLine) {
+      try {
+        const r = await fetch("/api/seen", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error("bad");
+        setStatus(`位置更新: ${book}-${wc} (${label||"-"})`);
+      } catch {
+        enqueue(payload);
+        setStatus("オフライン扱いでキューに保存");
+      }
+    } else {
+      enqueue(payload);
+      setStatus("オフライン：キューに保存");
+    }
+  }
+
+  // --- 一覧レンダリング ---
+  function render() {
+    listEl.innerHTML = "";
+    for (const [k,row] of scanned) {
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `
+        <div class="head">${row.wn || "(WorkName なし)"} <span class="sub">[${row.wc || "-"}]</span></div>
+        <div class="kv">BookName: ${row.bn || "-"}</div>
+        <div class="kv">Kname: ${row.kn || "-"}</div>
+        <div class="kv">Paper_Size: ${row.ps || "-"}</div>
+        <div class="kv">Cut_Size: ${row.cs || "-"}</div>
+        <div class="actions">
+          <label class="btn">写真を撮る<input type="file" accept="image/*" capture="environment"></label>
+          <button class="btn btnSeen">位置だけ更新</button>
+          <span class="chip">${row.src.length>60 ? row.src.slice(0,60)+"…" : row.src}</span>
+        </div>
+      `;
+      // 写真アップロード
+      const fileInput = el.querySelector('input[type="file"]');
+      fileInput.addEventListener("change", async (ev)=>{
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        if (!row.bn || !row.wc) { alert("BookName / WorkCord が足りません"); return; }
+        const dieId = `${row.bn}-${row.wc}`;
+
+        try {
+          const tRes = await fetch("/api/photo-token", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ dieId, purpose:"scan-multi" })
+          }).then(r=>r.json());
+          if (!tRes.token) throw new Error("token error");
+
+          const fd = new FormData();
+          fd.append("token", tRes.token);
+          fd.append("dieId", dieId);
+          fd.append("label", labelInput.value || "scan-multi");
+          fd.append("file", file, file.name || "photo.jpg");
+
+          const up = await fetch("/api/upload", { method:"POST", body: fd }).then(r=>r.json());
+          if (up && up.ok) alert("写真アップロード完了（位置も更新済み）");
+          else throw new Error(up && up.error || "upload error");
+        } catch (e) {
+          alert("アップロード失敗: " + e.message);
+        } finally {
+          ev.target.value = ""; // 同じファイルでも再選択可に
+        }
+      });
+
+      // 位置だけ更新
+      el.querySelector(".btnSeen").addEventListener("click", ()=>{
+        if (!row.bn || !row.wc) { alert("BookName / WorkCord が足りません"); return; }
+        updateSeen(row.bn, row.wc, labelInput.value || "scan-multi");
+      });
+
+      listEl.appendChild(el);
+    }
+  }
+
+  // --- カメラ & スキャンループ ---
+  let stream = null, rafId = null;
+  async function startCam() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
+      v.srcObject = stream;
+      $("#btnStart").disabled = true;
+      $("#btnStop").disabled = false;
+      setStatus("スキャン中…");
+      tick();
+    } catch (e) {
+      alert("カメラを開けませんでした: " + e.message);
+      setStatus("カメラ起動失敗");
+    }
+  }
+  function stopCam() {
+    if (rafId) cancelAnimationFrame(rafId);
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    stream = null;
+    $("#btnStart").disabled = false;
+    $("#btnStop").disabled = true;
+    setStatus("停止中");
+  }
+  async function tick() {
+    if (!stream) return;
+    if (v.readyState === v.HAVE_ENOUGH_DATA) {
+      c.width = v.videoWidth;
+      c.height = v.videoHeight;
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      const imageData = ctx.getImageData(0, 0, c.width, c.height);
+      const code = jsQR(imageData.data, c.width, c.height);
+      if (code && code.data) {
+        const text = code.data.trim();
+        const row = parseFromQr(text);
+        const key = keyOf(row);
+        if (!scanned.has(key)) {
+          scanned.set(key, row);
+          render();
+          // スキャン直後に位置更新（オンライン時）/ オフラインはキュー
+          if (row.bn && row.wc) {
+            updateSeen(row.bn, row.wc, labelInput.value || "scan-multi");
+          }
+        }
+      }
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  // --- ボタン ---
+  $("#btnStart").addEventListener("click", startCam);
+  $("#btnStop").addEventListener("click", stopCam);
+  $("#btnClear").addEventListener("click", ()=>{
+    scanned.clear(); render(); setStatus("一覧をクリアしました");
+  });
+  $("#applyAll").addEventListener("click", async ()=>{
+    const label = labelInput.value || "scan-multi";
+    for (const [,row] of scanned) {
+      if (row.bn && row.wc) await updateSeen(row.bn, row.wc, label);
+    }
+  });
+
+  // 起動時処理：可能なら即カメラ、未送キュー送信
+  (async ()=>{
+    await flushQueue();
+    if (navigator.mediaDevices?.getUserMedia) startCam();
+  })();
+  </script>
+</body>
+</html>

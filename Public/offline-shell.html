@@ -1,0 +1,45 @@
+<!doctype html><html lang="ja"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>抜型 基本情報（簡易表示）</title>
+<style>
+ body{font-family:system-ui,"Noto Sans JP",sans-serif;margin:16px}
+ .card{border:1px solid #ddd;border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+ .title{font-weight:700;margin-bottom:8px}
+ .grid{display:grid;grid-template-columns:120px 1fr;gap:8px 12px}
+ .k{color:#666}.v{font-weight:600}.hint{margin-top:10px;color:#666;font-size:12px}
+</style>
+<body>
+<div class="card">
+  <div class="title">抜型 基本情報</div>
+  <div class="grid">
+    <div class="k">WorkCord</div><div class="v" id="wc">-</div>
+    <div class="k">WorkName</div><div class="v" id="wn">-</div>
+    <div class="k">Kname</div><div class="v" id="kn">-</div>
+    <div class="k">BookName</div><div class="v" id="bn">-</div>
+    <div class="k">Paper_Size</div><div class="v" id="ps">-</div>
+    <div class="k">Cut_Size</div><div class="v" id="cs">-</div>
+  </div>
+  <div class="hint">※QR内の #d= に含まれるデータのみで表示。オンラインなら詳細画面に自動で移動します。</div>
+</div>
+<script>
+function fromHash(){
+  try{
+    const m = (location.hash||"").match(/[#&]d=([A-Za-z0-9_\-]+)/);
+    if(!m) return {};
+    const b64=m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad="=".repeat((4-b64.length%4)%4);
+    return JSON.parse(atob(b64+pad));
+  }catch(e){return {}}
+}
+const d = fromHash();
+({wc:"wc",wn:"wn",kn:"kn",bn:"bn",ps:"ps",cs:"cs"}).forEach?.(()=>{});
+for (const [k,id] of Object.entries({wc:"wc",wn:"wn",kn:"kn",bn:"bn",ps:"ps",cs:"cs"})) {
+  document.getElementById(id).textContent = d[k] || "-";
+}
+// オンラインなら 0.9秒後に本来のURLへ（?live=1 を付加してSWバイパス）
+if (navigator.onLine) {
+  const u = new URL(location.href);
+  u.searchParams.set("live","1");
+  setTimeout(()=>location.replace(u.toString()), 900);
+}
+</script>
+</body>
