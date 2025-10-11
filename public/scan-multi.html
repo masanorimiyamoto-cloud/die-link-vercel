@@ -317,6 +317,8 @@
 
       if(found.length){
         drawBoxes(found.map(f=>f.corners));
+        // ★このフレームの検出結果だけを使う：前フレームの座標を捨てる
+       scanned.clear();
         handleFound(found);
       }
       info.textContent = `w×h: ${c.width}×${c.height} / found: ${found.length}`;
