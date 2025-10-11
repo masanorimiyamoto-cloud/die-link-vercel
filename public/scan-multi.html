@@ -59,8 +59,14 @@
 
     <div class="panel">
       <div class="controls">
-        <button id="btnAssign">検出結果から「最寄り棚」を一括推定 → Google Sheets 更新</button>
-      </div>
+      <button id="btnAssign">検出結果から「最寄り棚」を一括推定 → Google Sheets 更新</button>
+      <label class="muted" style="display:flex;align-items:center;gap:6px">
+        閾値
+        <input id="thresh" type="range" min="50" max="1000" step="10" value="0">
+        <span id="threshVal" class="badge">短辺×20%</span>
+      </label>
+    </div>
+
       <div id="list" class="list"></div>
     </div>
   </div>
@@ -81,7 +87,9 @@
   const v = $("#v"), c = $("#c"), ctx = c.getContext("2d", { willReadFrequently: true });
   const selDevice = $("#selDevice"), cap = $("#cap"), statusEl = $("#status"), errEl = $("#err");
   const listEl = $("#list"), info = $("#info");
-
+ const thresh = document.getElementById('thresh');
+ const threshVal = document.getElementById('threshVal');
+ 
   function setStatus(t){ statusEl.textContent = t; }
   function setError(t){ errEl.textContent = t || ""; }
 
@@ -114,6 +122,38 @@
     if(row.loc) return `loc:${row.loc}`;
     return row.src;
   }
+ 
+
+// found[] から瞬時に割当（このフレーム内限定）
+function assignNearestFromFound(found) {
+  const dies = [], locs = [];
+  for (const f of found) {
+    const kind = classify((f.raw||'').trim());
+    const cent = centroid(f.corners || []);
+    if (kind === 'die') dies.push({ ...parseFromQr(f.raw), _cx:cent.x, _cy:cent.y });
+    if (kind === 'loc') locs.push({ ...parseFromQr(f.raw), _cx:cent.x, _cy:cent.y });
+  }
+  const MAX_NEAR_PX = getThresholdPx();
+  const pairs = [];
+  for (const d of dies) {
+    let best=null, bestDist=Infinity;
+    for (const l of locs) {
+      const dx=d._cx-l._cx, dy=d._cy-l._cy;
+      const dist=Math.hypot(dx,dy);
+      if (dist < bestDist) { bestDist = dist; best = l; }
+    }
+    if (best && bestDist <= MAX_NEAR_PX) {
+      pairs.push({
+        book: d.bn, wc: d.wc, wn: d.wn || "",
+        loc: best.loc,
+        dist: Math.round(bestDist),
+        captured_at: new Date().toISOString(),
+        _cx1:d._cx, _cy1:d._cy, _cx2:best._cx, _cy2:best._cy // 可視化用
+      });
+    }
+  }
+  return pairs;
+}
 
   // ========= 状態 & 表示 =========
   const scanned = new Map();
@@ -334,9 +374,17 @@
   window.addEventListener("pagehide", stopCam);
   window.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==='hidden') stopCam(); });
 
-  $("#btnAssign").addEventListener("click", async ()=>{
-    const pairs = assignNearest();
-    if(!pairs.length){ alert("die/loc の組み合わせが見つかりません。QRサイズや距離を調整してください。"); return; }
+   $("#btnAssign").addEventListener("click", async ()=>{
+   // 1) 現フレームをその場で再検出（毎フレーム流動していても、この瞬間だけで判定）
+   const found = await detectFromCanvas(c);
+   // 2) そのフレーム内でのみ最近傍マッチ
+   const pairs = assignNearestFromFound(found);
+    if(!pairs.length){ 
+      alert("die/loc の組み合わせが見つかりません。QRサイズや距離を調整してください。"); 
+      return; 
+    }
+   // 3) 画面に「どことどこが結びついたか」線で可視化
+   for (const p of pairs) line(p._cx1, p._cy1, p._cx2, p._cy2, 'rgba(255,64,0,0.85)');
     const msg = pairs.map(p=>`• ${p.book}-${p.wc} → ${p.loc} (${p.dist}px)`).join("\n");
     if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
     try{
