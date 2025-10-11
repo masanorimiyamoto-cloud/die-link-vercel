@@ -1,11 +1,11 @@
 {
   "name": "die-link-vercel",
-  "version": "1.0.0",
   "private": true,
   "type": "module",
   "engines": { "node": "20.x" },
-  "scripts": {
-    "build": "echo \"static\""
-  },
-  "dependencies": {}
+  "scripts": { "build": "echo \"static\"" },
+  "dependencies": {
+    "googleapis": "^140.0.0",
+    "google-auth-library": "^9.0.0"
+  }
 }
