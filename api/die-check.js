@@ -254,7 +254,7 @@ async function fetchSheetRowByBookWc(book, wc) {
       return {
         WorkCord : rcWc,
         BookName : rcBook,
-        ItemName : get(row,'ItemName'),
+        ItemName : get(row,'WorkName'),
         Kname    : get(row,'Kname'),
         Material : get(row,'Material'),
         Paper_Size: get(row,'Paper_Size'),
