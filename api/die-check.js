@@ -353,16 +353,36 @@ export default async function handler(req) {
 
     // Airtable（受注ヒット & 添付）
     const recs = await fetchByBookAndWcAll(book, wc, limit);
-    if (recs.length === 0) {
-      const msg = `該当なし：${BOOK_FIELD}='${book}' / ${WORKCORD_FIELD}='${wc}'`;
-      const htmlNo = gsRow
-        ? `<div style="margin:10px 0;color:#444"><b>Google Sheets 情報は見つかりました</b>（受注は0件）</div>
-           <div><b>Location:</b> ${escapeHtml(gsRow.Location||'')}</div>
-           <div><b>LastSeen:</b> ${escapeHtml(gsRow.LastSeen||'')}</div>`
-        : `<div style="color:#666">（Google Sheets でも一致行なし）</div>`;
+     if (recs.length === 0) {
+     // 受注は0件でも、Google Sheets の全情報を丁寧に出す（200で返す）
+      if (gsRow) {
+         const htmlGs = `
+          <div style="margin-bottom:8px">
+            <b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(book)}　
+            <b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(wc)}
+          </div>
+          <div style="margin:6px 0 12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafcff">
+            <div style="font-weight:700;margin-bottom:6px">Google Sheets 情報（wsTableCD）</div>
+            <div><b>ItemName:</b> ${escapeHtml(gsRow.ItemName || '')}</div>
+            <div><b>Kname:</b> ${escapeHtml(gsRow.Kname || '')}</div>
+            <div><b>Material:</b> ${escapeHtml(gsRow.Material || '')}</div>
+            <div><b>Paper_Size:</b> ${escapeHtml(gsRow.Paper_Size || '')}</div>
+            <div><b>Cut_Size:</b> ${escapeHtml(gsRow.Cut_Size || '')}</div>
+            <div><b>Location:</b> ${escapeHtml(gsRow.Location || '')}</div>
+            <div><b>LastSeen:</b> ${escapeHtml(gsRow.LastSeen || '')}</div>
+            <div><b>Ndate:</b> ${escapeHtml(gsRow.Ndate || '')}</div>
+          </div>
+          <div style="color:#b36; font-weight:700">この抜型に紐づく受注は見つかりませんでした（Airtable 0件）。</div>
+        `;
       return wantJSON
-        ? renderJSON({ ok:false, error: msg, gs: gsRow || null }, 404)
-        : renderHTML({ ok:false, title:'該当なし', html:`<pre>${escapeHtml(msg)}</pre>${htmlNo}`, code:404 });
+          ? renderJSON({ ok:true, count:0, book, workcord: wc, gs: gsRow, hits: [] }, 200)
+          : renderHTML({ ok:true, title:'受注なし（Google Sheets 情報のみ）', html: htmlGs, code:200 });
+      }
+      // Sheets にも無い場合だけ従来通りの「該当なし」
+      const msg = `該当なし：${BOOK_FIELD}='${book}' / ${WORKCORD_FIELD}='${wc}'`;
+      return wantJSON
+        ? renderJSON({ ok:false, error: msg, gs: null }, 404)
+        : renderHTML({ ok:false, title:'該当なし', html:`<pre>${escapeHtml(msg)}</pre><div style="color:#666;margin-top:6px">（Google Sheets でも一致行なし）</div>`, code:404 });
     }
 
     const rows = recs.map(mapRecord).sort(byDateAsc);
