@@ -302,12 +302,14 @@ export default async function handler(req) {
 
       if (wantJSON) return renderJSON({ ok:true, hits:[row], gs }, 200);
 
+      
       const gsHtml = gs ? `
         <h3 style="margin:14px 0 6px">Google Sheets 情報</h3>
         <div><b>Location:</b> ${escapeHtml(gs.Location || '')}</div>
         <div><b>LastSeen:</b> ${escapeHtml(gs.LastSeen || '')}</div>
         <div><b>ItemName:</b> ${escapeHtml(gs.ItemName || '')}</div>
         <div><b>Kname:</b> ${escapeHtml(gs.Kname || '')}</div>
+        <div><b>Material:</b> ${escapeHtml(gs.Material || '')}</div>
         <div><b>Paper_Size:</b> ${escapeHtml(gs.Paper_Size || '')}</div>
         <div><b>Cut_Size:</b> ${escapeHtml(gs.Cut_Size || '')}</div>
       ` : `<div style="color:#666">（Google Sheets に一致行なし）</div>`;
@@ -412,6 +414,7 @@ export default async function handler(req) {
         <div style="font-weight:700;margin-bottom:6px">Google Sheets 情報（wsTableCD）</div>
         <div><b>ItemName:</b> ${escapeHtml(gsRow.ItemName || '')}</div>
         <div><b>Kname:</b> ${escapeHtml(gsRow.Kname || '')}</div>
+        <div><b>Material:</b> ${escapeHtml(gsRow.Material || '')}</div>
         <div><b>Paper_Size:</b> ${escapeHtml(gsRow.Paper_Size || '')}</div>
         <div><b>Cut_Size:</b> ${escapeHtml(gsRow.Cut_Size || '')}</div>
         <div><b>Location:</b> ${escapeHtml(gsRow.Location || '')}</div>
