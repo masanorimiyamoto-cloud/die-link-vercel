@@ -24,6 +24,7 @@
   .chip { display:inline-block; padding:3px 8px; border:1px solid var(--bd); border-radius:999px; font-size:12px; }
   .badge { display:inline-block; background:#eef; color:#224; padding:2px 6px; border-radius:4px; font-size:12px; }
   #err { color:#b00020; white-space:pre-wrap; }
+  #info { position: fixed; left: 10px; bottom: 10px; background:#fff; border:1px solid var(--bd); padding:6px 8px; border-radius:8px; font-size:12px; }
 </style>
 </head>
 <body>
@@ -38,6 +39,7 @@
         <button id="btnStart">カメラ開始</button>
         <button id="btnStop" disabled>停止</button>
         <button id="btnClear" style="border-radius:999px">一覧クリア</button>
+        <label class="btn">画像からテスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
       </div>
 
       <div class="controls">
@@ -50,7 +52,7 @@
       <div id="err" class="muted"></div>
 
       <div class="muted" style="margin-top:8px">
-        ・棚QR：プレーン文字 <b>loc-LOC-…</b> / 抜型QR：<b>die-BookName-WorkCord</b><br>
+        ・棚QR：プレーン文字 <b>loc-LOC-…</b> / 抜型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
         ・1枚の画像に映った QR の中心距離で最近傍の棚を推定→<b>Google Sheets(wsTableCD)</b>へ一括更新
       </div>
     </div>
@@ -63,6 +65,8 @@
     </div>
   </div>
 
+  <div id="info">w×h: - × - / found: 0</div>
+
   <!-- jsQR（フォールバック用） -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" integrity="sha256-0KpQz5M6v9f2PitmT8mH1g2S7T0wj6Q5U8Xy5NIVl9c=" crossorigin="anonymous"></script>
 
@@ -74,7 +78,7 @@
   const $ = (q)=>document.querySelector(q);
   const v = $("#v"), c = $("#c"), ctx = c.getContext("2d", { willReadFrequently: true });
   const selDevice = $("#selDevice"), cap = $("#cap"), statusEl = $("#status"), errEl = $("#err");
-  const listEl = $("#list");
+  const listEl = $("#list"), info = $("#info");
 
   const params = new URLSearchParams(location.search);
   const FORCE_LEGACY = params.get("legacy")==="1";
@@ -94,16 +98,13 @@
     return "other";
   }
 
-  // 既存形式のパース
   function parseFromQr(text){
     // 1) die-Book-WorkCord
     const m = /^die-([^-\n]+)-(.+)$/.exec(text);
-    if(m){
-      return { src:text, bn:m[1].trim(), wc:m[2].trim(), wn:"" };
-    }
+    if(m){ return { src:text, bn:m[1].trim(), wc:m[2].trim(), wn:"" }; }
     // 2) URL ?book=&wc=
     try{
-      const u=new URL(text);
+      const u = new URL(text);
       const book=(u.searchParams.get("book")||"").trim();
       const wc=(u.searchParams.get("wc")||"").trim();
       if(book||wc){ return { src:text, bn:book, wc:wc, wn:"" }; }
@@ -161,11 +162,8 @@
       }
       if(best && bestDist<=MAX_NEAR_PX){
         pairs.push({
-          book: d.bn,           // BookName
-          wc: d.wc,             // WorkCord
-          wn: d.wn || "",       // WorkName（QRに入っていない場合は空）
-          loc: best.loc,        // LocationID（LOC-...）
-          dist: Math.round(bestDist),
+          book: d.bn, wc: d.wc, wn: d.wn || "",
+          loc: best.loc, dist: Math.round(bestDist),
           captured_at: new Date().toISOString()
         });
       }
@@ -176,7 +174,7 @@
   // ============ カメラ・スキャン ============
   let stream=null, rafId=null, detector=null, useBarcodeDetector=('BarcodeDetector' in window) && !FORCE_LEGACY;
   let currentDeviceId=null;
-  cap.textContent = useBarcodeDetector ? "BarcodeDetector" : "jsQR(legacy)";
+  cap.textContent = useBarcodeDetector ? "BarcodeDetector + jsQR" : "jsQR only (legacy)";
 
   async function listCameras(){
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -212,10 +210,12 @@
 
   async function startCam(){
     stopCam(); setError("");
+    const idealW = FORCE_LEGACY ? 640 : 1280;
+    const idealH = FORCE_LEGACY ? 480 : 720;
     const constraints = {
       video: currentDeviceId
-        ? { deviceId:{ exact: currentDeviceId }, width:{ideal: FORCE_LEGACY?320:640}, height:{ideal: FORCE_LEGACY?240:480} }
-        : { facingMode:{ ideal:'environment' }, width:{ideal: FORCE_LEGACY?320:640}, height:{ideal: FORCE_LEGACY?240:480} },
+        ? { deviceId:{ exact: currentDeviceId }, width:{ideal: idealW}, height:{ideal: idealH} }
+        : { facingMode:{ ideal:'environment' }, width:{ideal: idealW}, height:{ideal: idealH} },
       audio:false
     };
     try{
@@ -223,7 +223,7 @@
     }catch(e){
       showError(e);
       try{
-        stream = await navigator.mediaDevices.getUserMedia({ video:{ width:320, height:240 }, audio:false });
+        stream = await navigator.mediaDevices.getUserMedia({ video:{ width:640, height:480 }, audio:false });
       }catch(e2){
         showError(e2); setStatus("カメラ起動失敗"); return;
       }
@@ -260,6 +260,18 @@
     render();
   }
 
+  function jsqrDetect() {
+    const img=ctx.getImageData(0,0,c.width,c.height);
+    const hit=jsQR(img.data,img.width,img.height,{ inversionAttempts:'attemptBoth' });
+    if(hit){
+      return [{
+        raw: hit.data,
+        corners: [hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner]
+      }];
+    }
+    return [];
+  }
+
   async function tick(){
     if(!stream) return;
     if(v.videoWidth){
@@ -267,28 +279,53 @@
       ctx.drawImage(v,0,0,c.width,c.height);
 
       let found=[];
+      // 1) BarcodeDetector（あれば）
       if(useBarcodeDetector && detector){
         try{
           const barcodes=await detector.detect(c);
           for(const b of barcodes){ found.push({ raw:b.rawValue, corners:b.cornerPoints }); }
-        }catch{ useBarcodeDetector=false; }
-      }
-      if(!useBarcodeDetector){
-        const img=ctx.getImageData(0,0,c.width,c.height);
-        const hit=jsQR(img.data,img.width,img.height,{ inversionAttempts:'attemptBoth' });
-        if(hit){
-          found.push({
-            raw: hit.data,
-            corners: [hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner]
-          });
+        }catch{
+          useBarcodeDetector=false; detector=null;
         }
       }
+      // 2) jsQR も常に併用（BDが0件でも拾えるように）
+      const viaJsqr = jsqrDetect();
+      if (viaJsqr.length) {
+        // 同じ raw を重複登録しない
+        const raws = new Set(found.map(f=>f.raw));
+        for (const f of viaJsqr) if (!raws.has(f.raw)) found.push(f);
+      }
+
       if(found.length){
         drawBoxes(found.map(f=>f.corners));
         handleFound(found);
       }
+      info.textContent = `w×h: ${c.width}×${c.height} / found: ${found.length}`;
     }
     rafId=requestAnimationFrame(tick);
+  }
+
+  // ============ 一括更新 ============
+  function assignNearest(){
+    const dies=[], locs=[];
+    for(const [,row] of scanned){
+      if(row._kind==="die" && row.bn && row.wc && row._cx!=null) dies.push(row);
+      if(row._kind==="loc" && row.loc && row._cx!=null) locs.push(row);
+    }
+    const MAX_NEAR_PX = 500;
+    const pairs=[];
+    for(const d of dies){
+      let best=null, bestDist=Infinity;
+      for(const l of locs){
+        const dx=d._cx-l._cx, dy=d._cy-l._cy;
+        const dist=Math.hypot(dx,dy);
+        if(dist<bestDist){ bestDist=dist; best=l; }
+      }
+      if(best && bestDist<=MAX_NEAR_PX){
+        pairs.push({ book:d.bn, wc:d.wc, wn:d.wn||"", loc:best.loc, dist:Math.round(bestDist), captured_at:new Date().toISOString() });
+      }
+    }
+    return pairs;
   }
 
   // ============ イベント ============
@@ -299,26 +336,40 @@
   window.addEventListener("pagehide", stopCam);
   window.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==='hidden') stopCam(); });
 
-  // 一括推定 → Google Sheets 更新
   $("#btnAssign").addEventListener("click", async ()=>{
     const pairs = assignNearest();
     if(!pairs.length){ alert("die/loc の組み合わせが見つかりません。棚QRと抜型QRが同じ写真に入るよう撮影してください。"); return; }
     const msg = pairs.map(p=>`• ${p.book}-${p.wc} → ${p.loc} (${p.dist}px)`).join("\n");
     if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
-
     try{
-      const r = await fetch(SHEET_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify({ items: pairs })
-      });
+      const r = await fetch("/api/gsheet-seen-bulk", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ items: pairs }) });
       if(!r.ok) throw new Error(await r.text());
       const j = await r.json();
       if(!j.ok) throw new Error(JSON.stringify(j));
       alert("Google Sheets を更新しました。");
-    }catch(e){
-      alert("更新に失敗しました: " + (e.message||e));
-    }
+    }catch(e){ alert("更新に失敗しました: " + (e.message||e)); }
+  });
+
+  // 画像からのテスト
+  $("#fileTest").addEventListener("change", async (ev)=>{
+    const file = ev.target.files?.[0]; if(!file) return;
+    const img = new Image();
+    img.onload = ()=>{
+      c.width = img.width; c.height = img.height;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      let found = [];
+      if (useBarcodeDetector) { /* 画像ではBD未使用 */ }
+      found = jsqrDetect();
+      if(found.length){
+        drawBoxes(found.map(f=>f.corners));
+        handleFound(found);
+        info.textContent = `w×h: ${c.width}×${c.height} / found: ${found.length} (file)`;
+      } else {
+        alert("画像からは検出できませんでした。解像度・コントラストを上げて再試行してください。");
+      }
+      ev.target.value = "";
+    };
+    img.src = URL.createObjectURL(file);
   });
 
   // 初期
