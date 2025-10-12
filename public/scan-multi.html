@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚を固定 → 型を追加（ロック枠＋サウンド）</title>
+<title>棚をタップで固定 → 型をタップで追加（枠ロック＋WorkName）</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root { --bd:#ddd; --tx:#222; --sub:#666; }
@@ -12,7 +12,7 @@
   .view { position:relative; width: 360px; max-width: 100%; }
   video { width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; display:block; }
   canvas#det { display:none; }          /* 解析用(非表示) */
-  canvas#ov  { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  canvas#ov  { position:absolute; inset:0; width:100%; height:100%; touch-action:manipulation; }
   .panel { flex:1 1 340px; min-width:320px; }
   .controls { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; align-items:center; }
   button, .btn { padding: 11px 15px; border-radius: 12px; border:1px solid var(--bd); background:#fff; cursor:pointer; font-size: 1.2rem; line-height: 1.1; }
@@ -31,15 +31,13 @@
   .locBox { padding:10px; border:2px solid #0a0; border-radius:12px; background:#f7fff7; }
   .dieBox { padding:10px; border:1px solid #aaa; border-radius:10px; }
   .del { color:#b00; border-color:#f0c; }
-
-  /* トースト */
   .toastWrap { position:fixed; right:10px; top:10px; display:flex; flex-direction:column; gap:8px; z-index:1000; }
   .toast { background:#111; color:#fff; padding:8px 12px; border-radius:10px; font-size:14px; opacity:.95; box-shadow:0 4px 16px rgba(0,0,0,.2); }
   .toast small{ color:#9cc; margin-left:6px; }
 </style>
 </head>
 <body>
-  <h2>棚を固定 → 型を追加 → 個別削除 → Google Sheets 更新</h2>
+  <h2>棚を固定 → 型を追加（タップでロック） → 個別削除 → Google Sheets 更新</h2>
 
   <div class="row">
     <div class="panel">
@@ -56,12 +54,12 @@
         <span id="cap" class="badge"></span>
       </div>
 
-      <div class="muted" id="status">準備中…</div>
+      <div class="muted" id="status">準備中…（棚/型の枠をタップしてロック）</div>
       <div id="err" class="muted"></div>
 
       <div class="muted" style="margin-top:8px">
         ・棚QR：<b>loc-LOC-…</b>（プレーン） / 型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
-        ・棚を固定 → 型を追加（ロック時に枠＆音＆バイブ） → 不要な型は削除 → 一括更新
+        ・枠が出たらタップでロック → 不要な型は削除 → 一括更新
       </div>
     </div>
 
@@ -96,8 +94,9 @@
 
   // ========= 状態 =========
   let fixedLoc = null;                   // {loc, raw}
-  const fixedDies = new Map();           // key=book-wc -> {bn,wc,raw,addedAt}
-  const flashes = [];                    // [{kind:'loc'|'die', corners:[{x,y}*4], until:ms}]
+  const fixedDies = new Map();           // key=book-wc -> {bn,wc,wn?,raw,addedAt}
+  const flashes = [];                    // ロック確定時のフラッシュ
+  let candidates = [];                   // 検出候補（タップでロック）[{kind,raw,parsed,corners,until}]
 
   // ========= ユーティリティ =========
   const $ = (q)=>document.querySelector(q);
@@ -110,6 +109,21 @@
   function setError(t){ errEl.textContent = t || ""; }
   const dieKey = (bn,wc)=>`${bn}-${wc}`;
 
+  // WorkName 取得：URL の #d= の base64url JSON から wn を抽出
+  function tryExtractWN(raw){
+    try{
+      const u = new URL(raw);
+      const frag = u.hash || "";
+      const m = /[#&]d=([^&]+)/.exec(frag);
+      if(!m) return "";
+      const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
+      const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : '';
+      const json = atob(b64 + pad);
+      const obj = JSON.parse(json);
+      return (obj.wn||"").trim();
+    }catch{ return ""; }
+  }
+
   function classify(s){
     if(/^loc-/i.test(s)) return "loc";
     if(/^die-/i.test(s)) return "die";
@@ -118,12 +132,12 @@
   }
   function parse(text){
     const m = /^die-([^-\n]+)-(.+)$/.exec(text);
-    if(m){ return { bn:m[1].trim(), wc:m[2].trim() }; }
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; }
     try{
       const u=new URL(text);
       const book=(u.searchParams.get("book")||"").trim();
       const wc=(u.searchParams.get("wc")||"").trim();
-      if(book||wc){ return { bn:book, wc:wc }; }
+      if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; }
     }catch{}
     const l=/^loc-(.+)$/i.exec(text);
     if(l){ return { loc:l[1].trim() }; }
@@ -156,27 +170,52 @@
   }
   function buzz(ms=60){ if(navigator.vibrate) navigator.vibrate(ms); }
 
-  // 描画（ロック時フラッシュ）
+  // ========= 描画 =========
+  function drawPolygon(ctx, points){
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+  }
+
   function drawOverlays(){
-    octx.clearRect(0,0,ov.width,ov.height);
     const now = performance.now();
+    octx.clearRect(0,0,ov.width,ov.height);
+
+    // 候補（タップ待ち）薄色の枠＋ラベル
+    for(const c of candidates){
+      if(c.until < now) continue;
+      const color = c.kind==='loc' ? 'rgba(0,180,0,0.25)' : 'rgba(0,90,255,0.25)';
+      const stroke= c.kind==='loc' ? 'rgba(0,140,0,0.7)'  : 'rgba(0,60,220,0.7)';
+      octx.fillStyle = color;
+      octx.strokeStyle = stroke;
+      octx.lineWidth = 2;
+      drawPolygon(octx, c.corners);
+      octx.stroke(); octx.fill();
+
+      // ラベル
+      const xs=c.corners.map(p=>p.x), ys=c.corners.map(p=>p.y);
+      const x=(Math.min(...xs)+Math.max(...xs))/2, y=Math.min(...ys)-6;
+      const label = c.kind==='loc' ? '棚（タップで固定）' : '型（タップで追加）';
+      octx.fillStyle = 'rgba(0,0,0,0.7)';
+      octx.font = '14px system-ui, sans-serif';
+      octx.textAlign='center';
+      octx.fillText(label, x, Math.max(14,y));
+    }
+
+    // フラッシュ（ロック確定）
     for(let i=flashes.length-1; i>=0; i--){
       const f = flashes[i];
       const remain = f.until - now;
       if(remain <= 0){ flashes.splice(i,1); continue; }
-      const t = Math.max(0, Math.min(1, remain/1200)); // 1.2秒でフェード
+      const t = Math.max(0, Math.min(1, remain/1200));
       const color = f.kind==='loc' ? `rgba(0,180,0,${0.2+0.6*t})` : `rgba(0,90,255,${0.2+0.6*t})`;
       const stroke = f.kind==='loc' ? `rgba(0,140,0,${0.6+0.4*t})` : `rgba(0,60,220,${0.6+0.4*t})`;
       octx.fillStyle = color;
       octx.strokeStyle = stroke;
       octx.lineWidth = 4 + 4*t;
-      octx.beginPath();
-      const cs = f.corners;
-      octx.moveTo(cs[0].x,cs[0].y);
-      for(let k=1;k<cs.length;k++) octx.lineTo(cs[k].x,cs[k].y);
-      octx.closePath();
-      octx.stroke();
-      octx.fill();
+      drawPolygon(octx, f.corners);
+      octx.stroke(); octx.fill();
     }
   }
 
@@ -189,11 +228,12 @@
     const box = $("#dieList");
     const rows = [...fixedDies.values()].map(d=>{
       const key = dieKey(d.bn,d.wc);
+      const wn = d.wn ? ` / <span class="sub">WorkName: ${escapeHtml(d.wn)}</span>` : '';
       return `<div class="item dieBox" data-key="${key}">
-        <div class="head">抜型 <span class="sub">${d.bn}</span> [<b>${d.wc}</b>]</div>
+        <div class="head">抜型 <span class="sub">${escapeHtml(d.bn)}</span> [<b>${escapeHtml(d.wc)}</b>]${wn}</div>
         <div class="actions">
           <button class="btn del" data-del="${key}">この型を削除</button>
-          <span class="chip">${d.raw.length>70?d.raw.slice(0,70)+"…":d.raw}</span>
+          <span class="chip">${d.raw.length>70?escapeHtml(d.raw.slice(0,70))+"…":escapeHtml(d.raw)}</span>
         </div>
       </div>`;
     }).join("") || `<div class="muted">（まだ型はありません）</div>`;
@@ -203,7 +243,9 @@
     });
   }
 
-  // ========= 検出系（角つきで返す） =========
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+  // ========= 検出 =========
   let stream=null, rafId=null, detector=null, useBD=('BarcodeDetector' in window) && !FORCE_LEGACY;
   cap.textContent = useBD ? "BarcodeDetector + jsQR" : "jsQR only (legacy)";
 
@@ -227,7 +269,6 @@
     v.srcObject=stream;
     try{ await v.play(); }catch(e){ showError(e); return; }
 
-    // キャンバス寸法を動画に追随
     const w = v.videoWidth || idealW, h = v.videoHeight || idealH;
     ov.width = w; ov.height = h;
     det.width = Math.floor(w); det.height = Math.floor(h);
@@ -259,7 +300,6 @@
   }
 
   async function detectOnce(){
-    // 解析用オフスクリーン（拡大）
     const ow = det.width * SCAN_SCALE, oh = det.height * SCAN_SCALE;
     const off = new OffscreenCanvas(ow, oh);
     const octx2 = off.getContext("2d", { willReadFrequently:true });
@@ -282,7 +322,6 @@
       }catch{ useBD=false; detector=null; }
     }
 
-    // jsQR 反復
     const imgData=octx2.getImageData(0,0,ow,oh);
     for(const h of jsqrMulti(imgData, ow, oh, 14)){
       const raw=h.raw.trim();
@@ -294,78 +333,107 @@
     return found;
   }
 
-  async function tick(){
-    if(!stream) return;
-
-    // 検出
-    const hits = await detectOnce();
-
-    // ロジック：棚→型
+  function refreshCandidates(hits){
+    const now = performance.now();
+    const LIFE = 1500; // 1.5秒表示
+    // 新規を追加、古いのは自然消滅
+    const next=[];
     for(const h of hits){
       const kind = classify(h.raw);
-      const p = parse(h.raw);
-      if(kind==="loc" && p.loc){
-        if(!fixedLoc || fixedLoc.loc !== p.loc){
-          fixedLoc = { loc:p.loc, raw:h.raw };
-          renderLoc();
-          addFlash('loc', h.corners);
-          playBeep(660,130); buzz(40);
-          toast("棚を固定", p.loc);
-          setStatus(`棚を固定: ${p.loc}`);
-        }
-      }else if(kind==="die" && p.bn && p.wc){
-        const key = dieKey(p.bn,p.wc);
-        if(!fixedDies.has(key)){
-          if(!fixedLoc){ setStatus("先に棚QR（loc-...）を読み取ってください"); continue; }
-          fixedDies.set(key, { bn:p.bn, wc:p.wc, raw:h.raw, addedAt:Date.now() });
-          renderDies();
-          addFlash('die', h.corners);
-          playBeep(880,120); buzz(30);
-          toast("型を追加", `${p.bn}-${p.wc}`);
-          setStatus(`型を追加: ${p.bn}-${p.wc}`);
-        }
+      const parsed = parse(h.raw);
+      if(kind==='loc' && parsed.loc){
+        next.push({ kind, raw:h.raw, parsed, corners:h.corners, until: now + LIFE });
+      }else if(kind==='die' && parsed.bn && parsed.wc){
+        next.push({ kind, raw:h.raw, parsed, corners:h.corners, until: now + LIFE });
       }
     }
+    candidates = next;
+  }
 
+  function pointInPoly(pt, poly){
+    // ray casting
+    let inside=false;
+    for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+      const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+      const intersect = ((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-9)+xi);
+      if(intersect) inside=!inside;
+    }
+    return inside;
+  }
+
+  function canvasPointFromEvent(e){
+    const rect = ov.getBoundingClientRect();
+    const scaleX = ov.width / rect.width;
+    const scaleY = ov.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    return {x,y};
+  }
+
+  ov.addEventListener('click', (e)=>{
+    const pt = canvasPointFromEvent(e);
+    const now = performance.now();
+    // 表示中の候補から、点を含むものを優先度高く（最後に描いた＝配列後方から）
+    for(let i=candidates.length-1;i>=0;i--){
+      const c = candidates[i];
+      if(c.until < now) continue;
+      if(pointInPoly(pt, c.corners)){
+        if(c.kind==='loc'){
+          fixedLoc = { loc:c.parsed.loc, raw:c.raw };
+          renderLoc();
+          addFlash('loc', c.corners);
+          playBeep(660,130); buzz(40);
+          toast("棚を固定", c.parsed.loc);
+        }else if(c.kind==='die'){
+          if(!fixedLoc){ setStatus("先に棚QR（loc-...）をロックしてください"); return; }
+          const wn = c.parsed.wn || tryExtractWN(c.raw) || "";
+          const key = dieKey(c.parsed.bn, c.parsed.wc);
+          if(!fixedDies.has(key)){
+            fixedDies.set(key, { bn:c.parsed.bn, wc:c.parsed.wc, wn, raw:c.raw, addedAt:Date.now() });
+            renderDies();
+            addFlash('die', c.corners);
+            playBeep(880,120); buzz(30);
+            toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
+          }
+        }
+        return; // 1つ確定で終了
+    } }
+  });
+
+  async function tick(){
+    if(!stream) return;
+    const hits = await detectOnce();
+    refreshCandidates(hits);
     drawOverlays();
     rafId=requestAnimationFrame(tick);
   }
 
-  // ========= 画像からテスト（枠はロック時のみフラッシュ） =========
+  // ========= 画像からテスト（タップロックは不可。自動で候補→確定にします） =========
   $("#fileTest").addEventListener("change", async (ev)=>{
     const f = ev.target.files?.[0]; if(!f) return;
     const img = new Image();
     img.onload = async ()=>{
-      // キャンバス寸法
       ov.width = img.width; ov.height = img.height;
       det.width = img.width; det.height = img.height;
-
       const off = new OffscreenCanvas(img.width, img.height);
-      off.getContext("2d").drawImage(img,0,0);
-      // 一度だけ検出
-      const bitmap = await createImageBitmap(img);
-      // reuse detectOnce path by drawing to video? -> 簡易：直接描画して jsQR だけ使う
       const ctx0 = off.getContext("2d");
+      ctx0.drawImage(img,0,0);
       const imgData = ctx0.getImageData(0,0,img.width,img.height);
-      // jsQR
       const list = jsqrMulti(imgData, img.width, img.height, 14).map(h=>({
         raw:h.raw.trim(),
         corners:[h.corners?.[0]||h.location?.topLeftCorner,h.corners?.[1]||h.location?.topRightCorner,h.corners?.[2]||h.location?.bottomRightCorner,h.corners?.[3]||h.location?.bottomLeftCorner].map(p=>({x:p.x,y:p.y}))
       }));
-
+      // 画像テスト時は自動確定
       for(const h of list){
         const kind = classify(h.raw);
         const p = parse(h.raw);
         if(kind==="loc" && p.loc){
-          fixedLoc = {loc:p.loc, raw:h.raw}; renderLoc();
-          addFlash('loc', h.corners); playBeep(660,130); buzz(40); toast("棚を固定", p.loc);
+          fixedLoc={loc:p.loc, raw:h.raw}; renderLoc(); addFlash('loc', h.corners); playBeep(660,130); buzz(40); toast("棚を固定", p.loc);
         }else if(kind==="die" && p.bn && p.wc){
-          if(!fixedLoc){ continue; }
+          if(!fixedLoc) continue;
+          const wn = p.wn || tryExtractWN(h.raw) || "";
           const key=dieKey(p.bn,p.wc);
-          if(!fixedDies.has(key)){
-            fixedDies.set(key,{bn:p.bn,wc:p.wc,raw:h.raw,addedAt:Date.now()});
-            renderDies(); addFlash('die', h.corners); playBeep(880,120); buzz(30); toast("型を追加", `${p.bn}-${p.wc}`);
-          }
+          if(!fixedDies.has(key)){ fixedDies.set(key,{bn:p.bn,wc:p.wc,wn,raw:h.raw,addedAt:Date.now()}); renderDies(); addFlash('die', h.corners); playBeep(880,120); buzz(30); toast("型を追加", `${p.bn}-${p.wc}`); }
         }
       }
       ev.target.value="";
@@ -379,13 +447,13 @@
   $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
   $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
   $("#btnUpdate").addEventListener("click", async ()=>{
-    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を読み取ってください。"); return; }
-    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
+    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... をロックしてください。"); return; }
+    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= をロックしてください。"); return; }
     // YYYY-MM-DD で LastSeen
     const now = new Date();
     const y = now.getFullYear(), m=String(now.getMonth()+1).padStart(2,'0'), d=String(now.getDate()).padStart(2,'0');
     const captured_date = `${y}-${m}-${d}`;
-    const items = [...fixedDies.values()].map(d=>({ book:d.bn, wc:d.wc, wn:"", loc:fixedLoc.loc, captured_at: captured_date }));
+    const items = [...fixedDies.values()].map(d=>({ book:d.bn, wc:d.wc, wn:d.wn||"", loc:fixedLoc.loc, captured_at: captured_date }));
     const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
     if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
     try{
@@ -400,7 +468,7 @@
   });
 
   // ========= 初期 =========
-  (async ()=>{ setStatus("棚を先にスキャンしてください（loc-...）。ロック時は枠＆音＆バイブで通知します。"); })();
+  (async ()=>{ setStatus("枠が出たら『タップでロック』できます。棚→型の順でどうぞ。"); })();
   </script>
 </body>
 </html>
