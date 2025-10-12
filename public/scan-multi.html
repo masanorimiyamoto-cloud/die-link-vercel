@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>複数QRスキャン → Google Sheets 位置更新（安定リンク版）</title>
+<title>棚を先に固定→型を追加→個別削除→Google Sheets更新</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root { --bd:#ddd; --tx:#222; --sub:#666; }
@@ -25,10 +25,14 @@
   .badge { display:inline-block; background:#eef; color:#224; padding:2px 6px; border-radius:4px; font-size:12px; }
   #err { color:#b00020; white-space:pre-wrap; }
   #info { position: fixed; left: 10px; bottom: 10px; background:#fff; border:1px solid var(--bd); padding:6px 8px; border-radius:8px; font-size:12px; }
+  .pill { border-radius:999px; }
+  .locBox { padding:10px; border:2px solid #0a0; border-radius:12px; background:#f7fff7; }
+  .dieBox { padding:10px; border:1px solid #aaa; border-radius:10px; }
+  .del { color:#b00; border-color:#f0c; }
 </style>
 </head>
 <body>
-  <h2>複数QRスキャン → Google Sheets 位置更新（安定リンク版）</h2>
+  <h2>棚を固定 → 型を追加 → 個別削除 → Google Sheets 更新</h2>
 
   <div class="row">
     <div class="panel">
@@ -38,30 +42,36 @@
       <div class="controls">
         <button id="btnStart">カメラ開始</button>
         <button id="btnStop" disabled>停止</button>
-        <button id="btnClear" style="border-radius:999px">一覧クリア</button>
         <label class="btn">画像からテスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
-      </div>
-
-      <div class="controls">
-        <select id="selDevice"></select>
         <span id="cap" class="badge"></span>
-        <span class="muted">※真っ黒時はカメラ切替か <code>?legacy=1</code> をURL末尾に付与</span>
       </div>
 
       <div class="muted" id="status">準備中…</div>
       <div id="err" class="muted"></div>
 
       <div class="muted" style="margin-top:8px">
-        ・棚QR：<b>loc-LOC-…</b>（プレーン） / 抜型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
-        ・同一フレーム or 数フレーム内での最近傍棚に**安定リンク** → <b>Google Sheets(wsTableCD)</b>へ一括更新
+        ・棚QR：<b>loc-LOC-…</b>（プレーン）<br>
+        ・型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
+        ・まず棚を1つ固定 → その後に対象棚の型を次々読み取り → 不要な型は個別削除 → 一括更新
       </div>
     </div>
 
     <div class="panel">
-      <div class="controls">
-        <button id="btnAssign">確定リンクを一括反映 → Google Sheets 更新</button>
+      <div class="locBox">
+        <div><b>固定中の棚（LOC）</b></div>
+        <div id="locLabel" class="kv" style="margin:6px 0 8px">（未選択）</div>
+        <div class="controls">
+          <button id="btnClearLoc" class="pill">棚を解除</button>
+        </div>
       </div>
-      <div id="list" class="list"></div>
+
+      <div style="margin:12px 0 6px"><b>固定した型（DIE）</b></div>
+      <div id="dieList" class="list"></div>
+
+      <div class="controls">
+        <button id="btnUpdate" class="pill">確定リンクを Google Sheets に更新</button>
+        <button id="btnClearDies" class="pill">型リストを全消去</button>
+      </div>
     </div>
   </div>
 
@@ -73,24 +83,19 @@
   const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
   const params = new URLSearchParams(location.search);
   const FORCE_LEGACY = params.get("legacy")==="1";
-  const SCAN_SCALE = 2;             // 解析用オフスクリーン拡大率
-  const KEEP_MS = 3000;             // 検出の寿命（消えるまで）
-  const ARM_FRAMES = 2;             // 確定まで必要な連続フレーム
-  const UNLINK_MS = 1500;           // リンク解除までの猶予
-  const MAX_NEAR_RATIO = 0.22;      // 近傍しきい値（短辺比）
-  const SMOOTH = 0.35;              // 座標スムージング
+  const SCAN_SCALE = 2;
+
+  // ========= 状態 =========
+  let fixedLoc = null; // {loc, raw}
+  const fixedDies = new Map(); // key=book-wc -> {bn,wc,raw,addedAt}
 
   // ========= ユーティリティ =========
   const $ = (q)=>document.querySelector(q);
   const v = $("#v"), c = $("#c"), ctx = c.getContext("2d", { willReadFrequently: true });
-  const selDevice = $("#selDevice"), cap = $("#cap"), statusEl = $("#status"), errEl = $("#err");
-  const listEl = $("#list"), info = $("#info");
-
-  const now = ()=>performance.now();
+  const cap = $("#cap"), statusEl = $("#status"), errEl = $("#err"), info = $("#info");
   function setStatus(t){ statusEl.textContent = t; }
   function setError(t){ errEl.textContent = t || ""; }
 
-  function centroid(cs){ const xs=cs.map(p=>p.x), ys=cs.map(p=>p.y); return { x:(Math.min(...xs)+Math.max(...xs))/2, y:(Math.min(...ys)+Math.max(...ys))/2 }; }
   function classify(s){
     if(/^loc-/i.test(s)) return "loc";
     if(/^die-/i.test(s)) return "die";
@@ -98,188 +103,69 @@
     return "other";
   }
   function parse(text){
-    // die-Book-WorkCord
     const m = /^die-([^-\n]+)-(.+)$/.exec(text);
     if(m){ return { bn:m[1].trim(), wc:m[2].trim() }; }
-    // URL ?book=&wc=
     try{
       const u=new URL(text);
       const book=(u.searchParams.get("book")||"").trim();
       const wc=(u.searchParams.get("wc")||"").trim();
       if(book||wc){ return { bn:book, wc:wc }; }
     }catch{}
-    // loc-LOC-...
     const l=/^loc-(.+)$/i.exec(text);
     if(l){ return { loc:l[1].trim() }; }
     return {};
   }
-  const dieKey = (bn,wc)=>`die:${bn}-${wc}`;
-  const locKey = (loc)=>`loc:${loc}`;
+  const dieKey = (bn,wc)=>`${bn}-${wc}`;
 
-  // ========= 状態（永続トラッキング） =========
-  const tracks = new Map(); // key -> {kind, src, bn, wc, loc, x,y, last, seen, armed, linkTo?, linkSince, rawCorners}
-  function upsertTrack(found){
-    const t = now();
-    for(const f of found){
-      const raw = (f.raw||"").trim();
-      const kind = classify(raw);
-      if(kind==="other") continue;
-
-      const p = parse(raw);
-      let key;
-      if(kind==="die" && p.bn && p.wc) key = dieKey(p.bn, p.wc);
-      else if(kind==="loc" && p.loc)   key = locKey(p.loc);
-      else continue;
-
-      const cen = centroid(f.corners);
-      const prev = tracks.get(key);
-      if(prev){
-        // 位置スムージング + 連続カウント
-        prev.x = prev.x*(1-SMOOTH) + cen.x*SMOOTH;
-        prev.y = prev.y*(1-SMOOTH) + cen.y*SMOOTH;
-        prev.last = t;
-        prev.seen = prev.seen + 1;
-        if(prev.seen >= ARM_FRAMES) prev.armed = true;
-        prev.rawCorners = f.corners;
-      }else{
-        tracks.set(key, {
-          key, kind, src: raw, ...p,
-          x: cen.x, y: cen.y, last: t,
-          seen: 1, armed: false, linkTo: null, linkSince: 0,
-          rawCorners: f.corners
-        });
-      }
-    }
-    // 期限切れ削除
-    for(const [k,tr] of [...tracks]){
-      if(t - tr.last > KEEP_MS) tracks.delete(k);
-    }
+  function renderLoc(){
+    $("#locLabel").textContent = fixedLoc ? fixedLoc.loc : "（未選択）";
+  }
+  function renderDies(){
+    const box = $("#dieList");
+    const rows = [...fixedDies.values()].map(d=>{
+      const key = dieKey(d.bn,d.wc);
+      return `<div class="item dieBox" data-key="${key}">
+        <div class="head">抜型 <span class="sub">${d.bn}</span> [<b>${d.wc}</b>]</div>
+        <div class="actions">
+          <button class="btn del" data-del="${key}">この型を削除</button>
+          <span class="chip">${d.raw.length>70?d.raw.slice(0,70)+"…":d.raw}</span>
+        </div>
+      </div>`;
+    }).join("") || `<div class="muted">（まだ型はありません）</div>`;
+    box.innerHTML = rows;
+    box.querySelectorAll("button[data-del]").forEach(b=>{
+      b.onclick = ()=>{ fixedDies.delete(b.dataset.del); renderDies(); };
+    });
   }
 
-  function currentDies(){ return [...tracks.values()].filter(t=>t.kind==="die" && t.bn && t.wc); }
-  function currentLocs(){ return [...tracks.values()].filter(t=>t.kind==="loc" && t.loc); }
-
-  function tryLinkAll(){
-    if(!c.width) return [];
-    const dies = currentDies();
-    const locs = currentLocs();
-    if(!dies.length || !locs.length) return [];
-
-    const maxNear = Math.round(Math.min(c.width, c.height) * MAX_NEAR_RATIO);
-    const t = now();
-    const confirmed = [];
-
-    for(const d of dies){
-      // 近傍探索
-      let best=null, bestDist=Infinity;
-      for(const l of locs){
-        const dist = Math.hypot(d.x-l.x, d.y-l.y);
-        if(dist < bestDist){ bestDist=dist; best=l; }
-      }
-      if(!best || bestDist>maxNear) {
-        // 距離外：しばらく保つ
-        if(d.linkTo && (t - d.linkSince) > UNLINK_MS){ d.linkTo=null; d.linkSince=0; }
-        continue;
-      }
-
-      // 2フレーム以上 “armed” の両者だけ確定
-      if(d.armed && best.armed){
-        if(!d.linkTo || d.linkTo!==best.key){
-          d.linkTo = best.key;
-          d.linkSince = t;
-        }
-        confirmed.push({ d, l:best, dist:Math.round(bestDist) });
-      }
-    }
-    return confirmed;
-  }
-
-  // ========= 表示 =========
-  function renderList(){
-    const arr = [...tracks.values()].sort((a,b)=>a.kind.localeCompare(b.kind));
-    listEl.innerHTML = arr.map(tr=>{
-      if(tr.kind==="die"){
-        const linked = tr.linkTo ? ` → <b>${tr.linkTo.replace(/^loc:/,'')}</b>` : "";
-        return `<div class="item">
-          <div class="head">抜型 <span class="sub">${tr.bn || "-"}</span> [<b>${tr.wc || "-"}</b>] ${linked}</div>
-          <div class="kv">安定: ${tr.armed ? "✓" : "-" } / 連続 ${tr.seen}</div>
-          <div class="actions"><span class="chip">${tr.src.length>60?tr.src.slice(0,60)+"…":tr.src}</span></div>
-        </div>`;
-      }else{
-        return `<div class="item">
-          <div class="head">棚 <span class="sub">${tr.loc || "-"}</span></div>
-          <div class="kv">安定: ${tr.armed ? "✓" : "-" } / 連続 ${tr.seen}</div>
-          <div class="actions"><span class="chip">${tr.src.length>60?tr.src.slice(0,60)+"…":tr.src}</span></div>
-        </div>`;
-      }
-    }).join("");
-  }
-
-  function drawScene(links){
-    // 枠
-    for(const tr of tracks.values()){
-      if(!tr.rawCorners) continue;
-      ctx.beginPath();
-      const cs = tr.rawCorners;
-      ctx.moveTo(cs[0].x, cs[0].y); for(let i=1;i<cs.length;i++) ctx.lineTo(cs[i].x, cs[i].y);
-      ctx.closePath();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = tr.kind==="die" ? "rgba(0,160,255,0.85)" : "rgba(0,200,0,0.85)";
-      ctx.stroke();
-    }
-    // リンク線
-    for(const {d,l} of links){
-      const confirmed = d.linkTo===l.key && (now()-d.linkSince)>=0;
-      ctx.setLineDash(confirmed ? [] : [6,6]);
-      ctx.lineWidth = confirmed ? 3 : 2;
-      ctx.strokeStyle = confirmed ? "rgba(255,120,0,0.95)" : "rgba(255,120,0,0.65)";
-      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(l.x, l.y); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-  }
-
-  // ========= 検出（強化） =========
+  // ========= 検出系 =========
   let stream=null, rafId=null, detector=null, useBD=('BarcodeDetector' in window) && !FORCE_LEGACY;
-  let currentDeviceId=null;
   cap.textContent = useBD ? "BarcodeDetector + jsQR" : "jsQR only (legacy)";
 
-  function showError(e){
-    console.error(e);
-    setError(`❌ ${e.name||''} ${e.message||e}`);
-    if(e.name==='NotAllowedError') setError(errEl.textContent+'\nカメラ権限を許可してください。');
-    if(e.name==='NotReadableError') setError(errEl.textContent+'\n他アプリがカメラ使用中の可能性。');
-  }
   function stopCam(){ cancelAnimationFrame(rafId); rafId=null; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } $("#btnStart").disabled=false; $("#btnStop").disabled=true; setStatus("停止中"); }
-  async function listCameras(){
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = devices.filter(d=>d.kind==='videoinput');
-    selDevice.innerHTML = "";
-    cams.forEach((c,i)=>{ const opt=document.createElement("option"); opt.value=c.deviceId; opt.textContent=c.label || `カメラ ${i+1}`; selDevice.appendChild(opt); });
-    if(!currentDeviceId && cams.length){ currentDeviceId=cams[0].deviceId; selDevice.value=currentDeviceId; }
-    else if(currentDeviceId){ const m=[...selDevice.options].find(o=>o.value===currentDeviceId); if(m) selDevice.value=currentDeviceId; }
-  }
+  function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
+
   async function startCam(){
     stopCam(); setError("");
     const idealW = FORCE_LEGACY ? 640 : 1280;
     const idealH = FORCE_LEGACY ? 480 : 720;
-    const constraints = {
-      video: currentDeviceId ? { deviceId:{ exact: currentDeviceId }, width:{ideal:idealW}, height:{ideal:idealH} }
-                             : { facingMode:{ ideal:'environment' }, width:{ideal:idealW}, height:{ideal:idealH} },
-      audio:false
-    };
-    try{ stream = await navigator.mediaDevices.getUserMedia(constraints); }
-    catch(e){ showError(e); try{ stream = await navigator.mediaDevices.getUserMedia({ video:{width:640,height:480}, audio:false }); } catch(e2){ showError(e2); setStatus("カメラ起動失敗"); return; } }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode:{ ideal:'environment' }, width:{ideal:idealW}, height:{ideal:idealH} }, audio:false
+      });
+    }catch(e){
+      showError(e); return;
+    }
     v.srcObject=stream;
-    try{ await v.play(); }catch(e){ showError(e); setStatus("再生失敗"); return; }
+    try{ await v.play(); }catch(e){ showError(e); return; }
     $("#btnStart").disabled=true; $("#btnStop").disabled=false;
-    await listCameras(); setStatus("スキャン中…");
     detector=null; if(useBD){ try{ detector=new BarcodeDetector({ formats:['qr_code'] }); }catch{ useBD=false; detector=null; } }
     tick();
   }
 
-  function jsqrMulti(imgData, w, h, max=12){
-    const out=[], data = new Uint8ClampedArray(imgData.data); // コピー
-    const maskRect = (loc)=>{
+  function jsqrMulti(imgData, w, h, max=10){
+    const out=[], data = new Uint8ClampedArray(imgData.data);
+    const maskRect = loc=>{
       const xs=[loc.topLeftCorner.x,loc.topRightCorner.x,loc.bottomRightCorner.x,loc.bottomLeftCorner.x];
       const ys=[loc.topLeftCorner.y,loc.topRightCorner.y,loc.bottomRightCorner.y,loc.bottomLeftCorner.y];
       const x0=Math.max(0,Math.min(...xs)|0), x1=Math.min(w,Math.max(...xs)|0);
@@ -294,61 +180,93 @@
     return out;
   }
 
-  async function detectFromCanvas(baseCanvas){
+  async function detectOnce(baseCanvas){
     const ow = baseCanvas.width * SCAN_SCALE;
     const oh = baseCanvas.height * SCAN_SCALE;
     const off = new OffscreenCanvas(ow, oh);
     const octx = off.getContext("2d", { willReadFrequently:true });
-    octx.imageSmoothingEnabled = false;
-    // 軽いコントラスト（γ補正っぽい）
+    octx.imageSmoothingEnabled=false;
     octx.filter = "contrast(120%) brightness(105%)";
-    octx.drawImage(baseCanvas, 0, 0, ow, oh);
+    octx.drawImage(baseCanvas,0,0,ow,oh);
 
-    let found=[];
+    const found=[];
     if(useBD && detector){
       try{
         const codes=await detector.detect(off);
-        for(const b of codes){
-          const cs=b.cornerPoints.map(p=>({x:p.x/SCAN_SCALE, y:p.y/SCAN_SCALE}));
-          found.push({ raw:b.rawValue, corners:cs });
-        }
+        for(const b of codes){ found.push(b.rawValue.trim()); }
       }catch{ useBD=false; detector=null; }
     }
     const imgData=octx.getImageData(0,0,ow,oh);
     const hits = jsqrMulti(imgData, ow, oh, 14);
-    const raws=new Set(found.map(f=>f.raw));
-    for(const h of hits){
-      if(raws.has(h.data)) continue;
-      const cs=[h.location.topLeftCorner,h.location.topRightCorner,h.location.bottomRightCorner,h.location.bottomLeftCorner]
-               .map(p=>({x:p.x/SCAN_SCALE, y:p.y/SCAN_SCALE}));
-      found.push({ raw:h.data, corners:cs });
-    }
-    return found;
+    for(const h of hits){ found.push(h.data.trim()); }
+    return [...new Set(found)];
   }
 
   async function tick(){
     if(!stream) return;
     if(v.videoWidth){
       c.width=v.videoWidth; c.height=v.videoHeight;
-      ctx.imageSmoothingEnabled=false;
       ctx.drawImage(v,0,0,c.width,c.height);
 
-      const found = await detectFromCanvas(c);
-      upsertTrack(found);
-      const links = tryLinkAll();
-      drawScene(links);
-      renderList();
-      info.textContent = `w×h: ${c.width}×${c.height} / found: ${found.length} / tracks: ${tracks.size} / links: ${links.length}`;
+      const raws = await detectOnce(c);
+      if(raws.length){
+        for(const raw of raws){
+          const kind = classify(raw);
+          const p = parse(raw);
+          if(kind==="loc" && p.loc){
+            // ① 棚を固定（上書き）
+            if(!fixedLoc || fixedLoc.loc !== p.loc){
+              fixedLoc = { loc:p.loc, raw };
+              renderLoc();
+              setStatus(`棚を固定: ${p.loc}`);
+            }
+          }else if(kind==="die" && p.bn && p.wc){
+            // ② 型を固定（重複しない）
+            const key = dieKey(p.bn,p.wc);
+            if(!fixedDies.has(key)){
+              if(!fixedLoc){ setStatus("先に棚QR（loc-...）を読み取ってください"); continue; }
+              fixedDies.set(key, { bn:p.bn, wc:p.wc, raw, addedAt:Date.now() });
+              renderDies();
+              setStatus(`型を追加: ${p.bn}-${p.wc}`);
+            }
+          }
+        }
+      }
+      info.textContent = `w×h: ${c.width}×${c.height} / found: ${raws.length}`;
     }
     rafId=requestAnimationFrame(tick);
   }
 
-  // ========= 送信 =========
-  $("#btnAssign").addEventListener("click", async ()=>{
-    const links = tryLinkAll();
-    if(!links.length){ alert("確定リンクがありません。棚QRと型QRが画面内で重なるようにしてください。"); return; }
-    const items = links.map(({d,l,dist})=>({ book:d.bn, wc:d.wc, wn:"", loc:l.loc, dist, captured_at:new Date().toISOString() }));
-    const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc} (${p.dist}px)`).join("\n");
+  // ========= 画像からテスト =========
+  $("#fileTest").addEventListener("change", async (ev)=>{
+    const f = ev.target.files?.[0]; if(!f) return;
+    const img = new Image();
+    img.onload = async ()=>{
+      c.width = img.width; c.height = img.height;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const raws = await detectOnce(c);
+      for(const raw of raws){
+        const kind=classify(raw); const p=parse(raw);
+        if(kind==="loc" && p.loc){ fixedLoc={loc:p.loc,raw}; }
+        else if(kind==="die" && p.bn && p.wc){ fixedDies.set(dieKey(p.bn,p.wc), {bn:p.bn,wc:p.wc,raw,addedAt:Date.now()}); }
+      }
+      renderLoc(); renderDies();
+      info.textContent = `w×h: ${c.width}×${c.height} / file found: ${raws.length}`;
+      ev.target.value="";
+    };
+    img.src = URL.createObjectURL(f);
+  });
+
+  // ========= ボタン =========
+  $("#btnStart").addEventListener("click", startCam);
+  $("#btnStop").addEventListener("click", stopCam);
+  $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
+  $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
+  $("#btnUpdate").addEventListener("click", async ()=>{
+    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を読み取ってください。"); return; }
+    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
+    const items = [...fixedDies.values()].map(d=>({ book:d.bn, wc:d.wc, wn:"", loc:fixedLoc.loc, captured_at:new Date().toISOString() }));
+    const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
     if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
     try{
       const r = await fetch(SHEET_ENDPOINT, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ items }) });
@@ -359,33 +277,8 @@
     }catch(e){ alert("更新に失敗しました: " + (e.message||e)); }
   });
 
-  // ========= 画像テスト =========
-  $("#fileTest").addEventListener("change", async (ev)=>{
-    const file = ev.target.files?.[0]; if(!file) return;
-    const img = new Image();
-    img.onload = async ()=>{
-      c.width = img.width; c.height = img.height;
-      ctx.imageSmoothingEnabled=false;
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      const found = await detectFromCanvas(c);
-      upsertTrack(found);
-      const links = tryLinkAll();
-      drawScene(links);
-      renderList();
-      info.textContent = `w×h: ${c.width}×${c.height} / found: ${found.length} (file) / links: ${links.length}`;
-      ev.target.value = "";
-    };
-    img.src = URL.createObjectURL(file);
-  });
-
-  // ========= ボタン / 初期 =========
-  $("#btnStart").addEventListener("click", startCam);
-  $("#btnStop").addEventListener("click", stopCam);
-  $("#btnClear").addEventListener("click", ()=>{ tracks.clear(); renderList(); setStatus("一覧をクリアしました"); });
-  selDevice.addEventListener("change", async (e)=>{ currentDeviceId=e.target.value||null; await startCam(); });
-  window.addEventListener("pagehide", stopCam);
-  window.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==='hidden') stopCam(); });
-  (async ()=>{ if(navigator.mediaDevices?.enumerateDevices) await listCameras(); })();
+  // ========= 初期 =========
+  (async ()=>{ setStatus("棚を先にスキャンしてください（loc-...）"); })();
   </script>
 </body>
 </html>
