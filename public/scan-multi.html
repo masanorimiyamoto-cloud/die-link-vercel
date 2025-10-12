@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚をタップで固定 → 型をタップで追加（枠ロック＋WorkName）</title>
+<title>棚を先に固定 → 型を自動追加（登録済み枠表示）</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root { --bd:#ddd; --tx:#222; --sub:#666; }
@@ -12,7 +12,7 @@
   .view { position:relative; width: 360px; max-width: 100%; }
   video { width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; display:block; }
   canvas#det { display:none; }          /* 解析用(非表示) */
-  canvas#ov  { position:absolute; inset:0; width:100%; height:100%; touch-action:manipulation; }
+  canvas#ov  { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
   .panel { flex:1 1 340px; min-width:320px; }
   .controls { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; align-items:center; }
   button, .btn { padding: 11px 15px; border-radius: 12px; border:1px solid var(--bd); background:#fff; cursor:pointer; font-size: 1.2rem; line-height: 1.1; }
@@ -37,7 +37,7 @@
 </style>
 </head>
 <body>
-  <h2>棚を固定 → 型を追加（タップでロック） → 個別削除 → Google Sheets 更新</h2>
+  <h2>棚を固定 → 型を自動追加（“登録済み”枠表示） → 個別削除 → Google Sheets 更新</h2>
 
   <div class="row">
     <div class="panel">
@@ -54,12 +54,12 @@
         <span id="cap" class="badge"></span>
       </div>
 
-      <div class="muted" id="status">準備中…（棚/型の枠をタップしてロック）</div>
+      <div class="muted" id="status">準備中…（棚→型の順で、検出すると自動で固定されます）</div>
       <div id="err" class="muted"></div>
 
       <div class="muted" style="margin-top:8px">
         ・棚QR：<b>loc-LOC-…</b>（プレーン） / 型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
-        ・枠が出たらタップでロック → 不要な型は削除 → 一括更新
+        ・検出すると自動ロック。不一致は「棚を解除」、不要な型は「この型を削除」へ。
       </div>
     </div>
 
@@ -95,8 +95,8 @@
   // ========= 状態 =========
   let fixedLoc = null;                   // {loc, raw}
   const fixedDies = new Map();           // key=book-wc -> {bn,wc,wn?,raw,addedAt}
-  const flashes = [];                    // ロック確定時のフラッシュ
-  let candidates = [];                   // 検出候補（タップでロック）[{kind,raw,parsed,corners,until}]
+  const flashes = [];                    // ロック確定時フラッシュ
+  let candidates = [];                   // 現在フレーム候補 [{kind,raw,parsed,corners,registered}]
 
   // ========= ユーティリティ =========
   const $ = (q)=>document.querySelector(q);
@@ -123,6 +123,8 @@
       return (obj.wn||"").trim();
     }catch{ return ""; }
   }
+
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
   function classify(s){
     if(/^loc-/i.test(s)) return "loc";
@@ -182,22 +184,28 @@
     const now = performance.now();
     octx.clearRect(0,0,ov.width,ov.height);
 
-    // 候補（タップ待ち）薄色の枠＋ラベル
+    // 候補：未登録は薄色、登録済みは太めの点線＆ラベル
     for(const c of candidates){
-      if(c.until < now) continue;
-      const color = c.kind==='loc' ? 'rgba(0,180,0,0.25)' : 'rgba(0,90,255,0.25)';
-      const stroke= c.kind==='loc' ? 'rgba(0,140,0,0.7)'  : 'rgba(0,60,220,0.7)';
-      octx.fillStyle = color;
-      octx.strokeStyle = stroke;
-      octx.lineWidth = 2;
+      const isLoc = c.kind==='loc';
+      if(c.registered){
+        octx.setLineDash([8,6]);
+        octx.lineWidth = 4;
+        octx.strokeStyle = isLoc ? 'rgba(0,160,0,0.95)' : 'rgba(0,80,240,0.95)';
+        octx.fillStyle   = isLoc ? 'rgba(0,200,0,0.15)' : 'rgba(0,120,255,0.15)';
+      }else{
+        octx.setLineDash([]);
+        octx.lineWidth = 2;
+        octx.strokeStyle = isLoc ? 'rgba(0,140,0,0.7)' : 'rgba(0,60,220,0.7)';
+        octx.fillStyle   = isLoc ? 'rgba(0,180,0,0.22)' : 'rgba(0,90,255,0.22)';
+      }
       drawPolygon(octx, c.corners);
       octx.stroke(); octx.fill();
 
       // ラベル
       const xs=c.corners.map(p=>p.x), ys=c.corners.map(p=>p.y);
       const x=(Math.min(...xs)+Math.max(...xs))/2, y=Math.min(...ys)-6;
-      const label = c.kind==='loc' ? '棚（タップで固定）' : '型（タップで追加）';
-      octx.fillStyle = 'rgba(0,0,0,0.7)';
+      const label = c.registered ? '登録済み' : (isLoc ? '棚' : '型');
+      octx.fillStyle = 'rgba(0,0,0,0.72)';
       octx.font = '14px system-ui, sans-serif';
       octx.textAlign='center';
       octx.fillText(label, x, Math.max(14,y));
@@ -242,8 +250,6 @@
       b.onclick = ()=>{ fixedDies.delete(b.dataset.del); renderDies(); };
     });
   }
-
-  function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
   // ========= 検出 =========
   let stream=null, rafId=null, detector=null, useBD=('BarcodeDetector' in window) && !FORCE_LEGACY;
@@ -334,81 +340,58 @@
   }
 
   function refreshCandidates(hits){
-    const now = performance.now();
-    const LIFE = 1500; // 1.5秒表示
-    // 新規を追加、古いのは自然消滅
     const next=[];
     for(const h of hits){
       const kind = classify(h.raw);
       const parsed = parse(h.raw);
       if(kind==='loc' && parsed.loc){
-        next.push({ kind, raw:h.raw, parsed, corners:h.corners, until: now + LIFE });
+        const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
+        next.push({ kind, raw:h.raw, parsed, corners:h.corners, registered });
       }else if(kind==='die' && parsed.bn && parsed.wc){
-        next.push({ kind, raw:h.raw, parsed, corners:h.corners, until: now + LIFE });
+        const key = dieKey(parsed.bn, parsed.wc);
+        const registered = fixedDies.has(key);
+        next.push({ kind, raw:h.raw, parsed, corners:h.corners, registered });
       }
     }
     candidates = next;
   }
 
-  function pointInPoly(pt, poly){
-    // ray casting
-    let inside=false;
-    for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-      const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
-      const intersect = ((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-9)+xi);
-      if(intersect) inside=!inside;
+  // 自動ロック：棚→型の順
+  function autoLock(){
+    // 棚
+    if(!fixedLoc){
+      const cLoc = candidates.find(c=>c.kind==='loc' && !c.registered);
+      if(cLoc){
+        fixedLoc = { loc:cLoc.parsed.loc, raw:cLoc.raw };
+        renderLoc();
+        addFlash('loc', cLoc.corners); playBeep(660,130); buzz(40); toast("棚を固定", cLoc.parsed.loc);
+      }
     }
-    return inside;
-  }
-
-  function canvasPointFromEvent(e){
-    const rect = ov.getBoundingClientRect();
-    const scaleX = ov.width / rect.width;
-    const scaleY = ov.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    return {x,y};
-  }
-
-  ov.addEventListener('click', (e)=>{
-    const pt = canvasPointFromEvent(e);
-    const now = performance.now();
-    // 表示中の候補から、点を含むものを優先度高く（最後に描いた＝配列後方から）
-    for(let i=candidates.length-1;i>=0;i--){
-      const c = candidates[i];
-      if(c.until < now) continue;
-      if(pointInPoly(pt, c.corners)){
-        if(c.kind==='loc'){
-          fixedLoc = { loc:c.parsed.loc, raw:c.raw };
-          renderLoc();
-          addFlash('loc', c.corners);
-          playBeep(660,130); buzz(40);
-          toast("棚を固定", c.parsed.loc);
-        }else if(c.kind==='die'){
-          if(!fixedLoc){ setStatus("先に棚QR（loc-...）をロックしてください"); return; }
+    // 型（棚が固定済みのときのみ）
+    if(fixedLoc){
+      for(const c of candidates){
+        if(c.kind!=='die') continue;
+        const key = dieKey(c.parsed.bn, c.parsed.wc);
+        if(!fixedDies.has(key)){
           const wn = c.parsed.wn || tryExtractWN(c.raw) || "";
-          const key = dieKey(c.parsed.bn, c.parsed.wc);
-          if(!fixedDies.has(key)){
-            fixedDies.set(key, { bn:c.parsed.bn, wc:c.parsed.wc, wn, raw:c.raw, addedAt:Date.now() });
-            renderDies();
-            addFlash('die', c.corners);
-            playBeep(880,120); buzz(30);
-            toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
-          }
+          fixedDies.set(key, { bn:c.parsed.bn, wc:c.parsed.wc, wn, raw:c.raw, addedAt:Date.now() });
+          renderDies();
+          addFlash('die', c.corners); playBeep(880,120); buzz(30); toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
         }
-        return; // 1つ確定で終了
-    } }
-  });
+      }
+    }
+  }
 
   async function tick(){
     if(!stream) return;
     const hits = await detectOnce();
     refreshCandidates(hits);
+    autoLock();
     drawOverlays();
     rafId=requestAnimationFrame(tick);
   }
 
-  // ========= 画像からテスト（タップロックは不可。自動で候補→確定にします） =========
+  // ========= 画像からテスト =========
   $("#fileTest").addEventListener("change", async (ev)=>{
     const f = ev.target.files?.[0]; if(!f) return;
     const img = new Image();
@@ -423,19 +406,20 @@
         raw:h.raw.trim(),
         corners:[h.corners?.[0]||h.location?.topLeftCorner,h.corners?.[1]||h.location?.topRightCorner,h.corners?.[2]||h.location?.bottomRightCorner,h.corners?.[3]||h.location?.bottomLeftCorner].map(p=>({x:p.x,y:p.y}))
       }));
-      // 画像テスト時は自動確定
+      // 画像テスト時も自動ロック
+      const cand = [];
       for(const h of list){
         const kind = classify(h.raw);
         const p = parse(h.raw);
-        if(kind==="loc" && p.loc){
-          fixedLoc={loc:p.loc, raw:h.raw}; renderLoc(); addFlash('loc', h.corners); playBeep(660,130); buzz(40); toast("棚を固定", p.loc);
-        }else if(kind==="die" && p.bn && p.wc){
-          if(!fixedLoc) continue;
-          const wn = p.wn || tryExtractWN(h.raw) || "";
-          const key=dieKey(p.bn,p.wc);
-          if(!fixedDies.has(key)){ fixedDies.set(key,{bn:p.bn,wc:p.wc,wn,raw:h.raw,addedAt:Date.now()}); renderDies(); addFlash('die', h.corners); playBeep(880,120); buzz(30); toast("型を追加", `${p.bn}-${p.wc}`); }
+        if(kind==="loc" && p.loc){ cand.push({kind, raw:h.raw, parsed:p, corners:h.corners, registered:false}); }
+        else if(kind==="die" && p.bn && p.wc){
+          const key=dieKey(p.bn,p.wc); const reg=fixedDies.has(key);
+          cand.push({kind, raw:h.raw, parsed:p, corners:h.corners, registered:reg});
         }
       }
+      candidates = cand;
+      autoLock();
+      drawOverlays();
       ev.target.value="";
     };
     img.src = URL.createObjectURL(f);
@@ -447,8 +431,8 @@
   $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
   $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
   $("#btnUpdate").addEventListener("click", async ()=>{
-    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... をロックしてください。"); return; }
-    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= をロックしてください。"); return; }
+    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を固定してください。"); return; }
+    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
     // YYYY-MM-DD で LastSeen
     const now = new Date();
     const y = now.getFullYear(), m=String(now.getMonth()+1).padStart(2,'0'), d=String(now.getDate()).padStart(2,'0');
@@ -468,7 +452,7 @@
   });
 
   // ========= 初期 =========
-  (async ()=>{ setStatus("枠が出たら『タップでロック』できます。棚→型の順でどうぞ。"); })();
+  (async ()=>{ setStatus("棚→型の順でカメラにかざしてください。登録済みは点線枠で表示します。"); })();
   </script>
 </body>
 </html>
