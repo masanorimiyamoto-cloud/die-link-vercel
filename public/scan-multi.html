@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚を先に固定 → 型を自動追加（登録済み枠表示）</title>
+<title>棚→型の順でスキャン（自動登録）</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root { --bd:#ddd; --tx:#222; --sub:#666; }
@@ -34,10 +34,21 @@
   .toastWrap { position:fixed; right:10px; top:10px; display:flex; flex-direction:column; gap:8px; z-index:1000; }
   .toast { background:#111; color:#fff; padding:8px 12px; border-radius:10px; font-size:14px; opacity:.95; box-shadow:0 4px 16px rgba(0,0,0,.2); }
   .toast small{ color:#9cc; margin-left:6px; }
+
+  /* === モーダル === */
+  .modalMask { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; z-index:1200; }
+  .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px, 92vw); max-height:88vh; background:#fff; border-radius:14px; box-shadow:0 20px 80px rgba(0,0,0,.25); display:none; z-index:1300; overflow:auto; }
+  .modalHdr { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--bd); padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .modalBody { padding:12px 14px; }
+  .modalHdr h3 { margin:0; font-size:18px; }
+  .closeX { border:none; background:#f4f4f4; border-radius:10px; padding:8px 10px; cursor:pointer; }
 </style>
 </head>
 <body>
-  <h2>棚を固定 → 型を自動追加（“登録済み”枠表示） → 個別削除 → Google Sheets 更新</h2>
+  <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    棚→型の順でスキャン（自動登録）
+    <button id="btnOpenList" class="pill">登録一覧を確認する</button>
+  </h2>
 
   <div class="row">
     <div class="panel">
@@ -54,13 +65,8 @@
         <span id="cap" class="badge"></span>
       </div>
 
-      <div class="muted" id="status">準備中…（棚→型の順で、検出すると自動で固定されます）</div>
+      <div class="muted" id="status">棚を先に、次に型をかざすと自動で固定されます。</div>
       <div id="err" class="muted"></div>
-
-      <div class="muted" style="margin-top:8px">
-        ・棚QR：<b>loc-LOC-…</b>（プレーン） / 型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
-        ・検出すると自動ロック。不一致は「棚を解除」、不要な型は「この型を削除」へ。
-      </div>
     </div>
 
     <div class="panel">
@@ -82,6 +88,32 @@
     </div>
   </div>
 
+  <!-- モーダル：登録一覧 -->
+  <div id="mask" class="modalMask"></div>
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modalHdr">
+      <h3 id="modalTitle">登録一覧</h3>
+      <button id="btnCloseList" class="closeX">閉じる</button>
+    </div>
+    <div class="modalBody">
+      <div class="locBox" style="margin-bottom:10px">
+        <div><b>固定中の棚（LOC）</b></div>
+        <div id="locLabel2" class="kv" style="margin:6px 0 8px">（未選択）</div>
+        <div class="controls">
+          <button id="btnClearLoc2" class="pill">棚を解除</button>
+        </div>
+      </div>
+
+      <div style="margin:12px 0 6px"><b>固定した型（DIE）</b></div>
+      <div id="dieList2" class="list"></div>
+
+      <div class="controls" style="position:sticky;bottom:0;background:#fff;padding-bottom:12px">
+        <button id="btnUpdate2" class="pill">確定リンクを Google Sheets に更新</button>
+        <button id="btnClearDies2" class="pill">型リストを全消去</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toastWrap" id="toasts"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
@@ -96,7 +128,8 @@
   let fixedLoc = null;                   // {loc, raw}
   const fixedDies = new Map();           // key=book-wc -> {bn,wc,wn?,raw,addedAt}
   const flashes = [];                    // ロック確定時フラッシュ
-  let candidates = [];                   // 現在フレーム候補 [{kind,raw,parsed,corners,registered}]
+  const bubbles = [];                    // 近接バブル [{text,x,y,until,color,stroke}]
+  let candidates = [];                   // [{kind,raw,parsed,corners,registered}]
 
   // ========= ユーティリティ =========
   const $ = (q)=>document.querySelector(q);
@@ -105,16 +138,17 @@
   const dctx = det.getContext("2d", { willReadFrequently: true });
   const cap = $("#cap"), statusEl = $("#status"), errEl = $("#err");
   const toasts = $("#toasts");
-  function setStatus(t){ statusEl.textContent = t; }
-  function setError(t){ errEl.textContent = t || ""; }
   const dieKey = (bn,wc)=>`${bn}-${wc}`;
 
-  // WorkName 取得：URL の #d= の base64url JSON から wn を抽出
+  function setStatus(t){ statusEl.textContent = t; }
+  function setError(t){ errEl.textContent = t || ""; }
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&gt;','>':'&gt;','"':'&quot;' }[c])); }
+
+  // WorkName を URL の #d= base64url JSON から抽出
   function tryExtractWN(raw){
     try{
       const u = new URL(raw);
-      const frag = u.hash || "";
-      const m = /[#&]d=([^&]+)/.exec(frag);
+      const m = /[#&]d=([^&]+)/.exec(u.hash||"");
       if(!m) return "";
       const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
       const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : '';
@@ -123,8 +157,6 @@
       return (obj.wn||"").trim();
     }catch{ return ""; }
   }
-
-  function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
   function classify(s){
     if(/^loc-/i.test(s)) return "loc";
@@ -180,41 +212,46 @@
     ctx.closePath();
   }
 
+  function centroid(corners){
+    const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y);
+    return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) };
+  }
+
+  function roundedRect(ctx, x,y,w,h,r=10){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
   function drawOverlays(){
-    const now = performance.now();
     octx.clearRect(0,0,ov.width,ov.height);
 
-    // 候補：未登録は薄色、登録済みは太めの点線＆ラベル
+    // 候補：未登録は薄色、登録済みは点線
     for(const c of candidates){
       const isLoc = c.kind==='loc';
       if(c.registered){
         octx.setLineDash([8,6]);
         octx.lineWidth = 4;
         octx.strokeStyle = isLoc ? 'rgba(0,160,0,0.95)' : 'rgba(0,80,240,0.95)';
-        octx.fillStyle   = isLoc ? 'rgba(0,200,0,0.15)' : 'rgba(0,120,255,0.15)';
+        octx.fillStyle   = isLoc ? 'rgba(0,200,0,0.12)' : 'rgba(0,120,255,0.12)';
       }else{
         octx.setLineDash([]);
         octx.lineWidth = 2;
         octx.strokeStyle = isLoc ? 'rgba(0,140,0,0.7)' : 'rgba(0,60,220,0.7)';
-        octx.fillStyle   = isLoc ? 'rgba(0,180,0,0.22)' : 'rgba(0,90,255,0.22)';
+        octx.fillStyle   = isLoc ? 'rgba(0,180,0,0.18)' : 'rgba(0,90,255,0.18)';
       }
       drawPolygon(octx, c.corners);
       octx.stroke(); octx.fill();
-
-      // ラベル
-      const xs=c.corners.map(p=>p.x), ys=c.corners.map(p=>p.y);
-      const x=(Math.min(...xs)+Math.max(...xs))/2, y=Math.min(...ys)-6;
-      const label = c.registered ? '登録済み' : (isLoc ? '棚' : '型');
-      octx.fillStyle = 'rgba(0,0,0,0.72)';
-      octx.font = '14px system-ui, sans-serif';
-      octx.textAlign='center';
-      octx.fillText(label, x, Math.max(14,y));
     }
 
     // フラッシュ（ロック確定）
     for(let i=flashes.length-1; i>=0; i--){
       const f = flashes[i];
-      const remain = f.until - now;
+      const remain = f.until - performance.now();
       if(remain <= 0){ flashes.splice(i,1); continue; }
       const t = Math.max(0, Math.min(1, remain/1200));
       const color = f.kind==='loc' ? `rgba(0,180,0,${0.2+0.6*t})` : `rgba(0,90,255,${0.2+0.6*t})`;
@@ -225,17 +262,63 @@
       drawPolygon(octx, f.corners);
       octx.stroke(); octx.fill();
     }
+
+    // 近接バブル（枠の近くにメッセージ）
+    for(let i=bubbles.length-1; i>=0; i--){
+      const b = bubbles[i];
+      const remain = b.until - performance.now();
+      if(remain <= 0){ bubbles.splice(i,1); continue; }
+      const t = Math.max(0, Math.min(1, remain/1600));
+      const alpha = 0.9 * t;
+      const padX=10, padY=6;
+
+      octx.font = '16px system-ui, sans-serif';
+      const metrics = octx.measureText(b.text);
+      const w = metrics.width + padX*2;
+      const h = 24 + padY*2;
+
+      // 位置（画面外に出ないように調整）
+      let x = b.x - w/2;
+      let y = b.y - h - 8;
+      x = Math.max(6, Math.min(x, ov.width - w - 6));
+      y = Math.max(6, Math.min(y, ov.height - h - 6));
+
+      octx.globalAlpha = alpha;
+      octx.fillStyle = b.color;
+      octx.strokeStyle = b.stroke;
+      octx.lineWidth = 2;
+      roundedRect(octx, x, y, w, h, 10);
+      octx.fill();
+      octx.stroke();
+
+      // テキスト
+      octx.fillStyle = '#fff';
+      octx.textBaseline='middle';
+      octx.textAlign='center';
+      octx.fillText(b.text, x + w/2, y + h/2);
+      octx.globalAlpha = 1;
+    }
   }
 
   function addFlash(kind, corners){
     flashes.push({ kind, corners, until: performance.now()+1200 });
   }
 
-  function renderLoc(){ $("#locLabel").textContent = fixedLoc ? fixedLoc.loc : "（未選択）"; }
+  function addBubble(kind, corners, text){
+    const c = centroid(corners);
+    const color = kind==='loc' ? 'rgba(10,140,10,0.92)' : 'rgba(20,80,200,0.92)';
+    const stroke= kind==='loc' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.9)';
+    bubbles.push({ text, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 });
+  }
+
+  function renderLoc(){
+    $("#locLabel").textContent  = fixedLoc ? fixedLoc.loc : "（未選択）";
+    $("#locLabel2").textContent = fixedLoc ? fixedLoc.loc : "（未選択）";
+  }
+
   function renderDies(){
-    const box = $("#dieList");
-    const rows = [...fixedDies.values()].map(d=>{
-      const key = dieKey(d.bn,d.wc);
+    const build = () => [...fixedDies.values()].map(d=>{
+      const key = `${d.bn}-${d.wc}`;
       const wn = d.wn ? ` / <span class="sub">WorkName: ${escapeHtml(d.wn)}</span>` : '';
       return `<div class="item dieBox" data-key="${key}">
         <div class="head">抜型 <span class="sub">${escapeHtml(d.bn)}</span> [<b>${escapeHtml(d.wc)}</b>]${wn}</div>
@@ -245,10 +328,20 @@
         </div>
       </div>`;
     }).join("") || `<div class="muted">（まだ型はありません）</div>`;
-    box.innerHTML = rows;
-    box.querySelectorAll("button[data-del]").forEach(b=>{
-      b.onclick = ()=>{ fixedDies.delete(b.dataset.del); renderDies(); };
-    });
+
+    $("#dieList").innerHTML  = build();
+    $("#dieList2").innerHTML = build();
+
+    const bind = (rootSel) => {
+      document.querySelectorAll(`${rootSel} button[data-del]`).forEach(b=>{
+        b.onclick = ()=>{
+          fixedDies.delete(b.dataset.del);
+          renderDies();
+        };
+      });
+    };
+    bind("#dieList");
+    bind("#dieList2");
   }
 
   // ========= 検出 =========
@@ -364,7 +457,9 @@
       if(cLoc){
         fixedLoc = { loc:cLoc.parsed.loc, raw:cLoc.raw };
         renderLoc();
-        addFlash('loc', cLoc.corners); playBeep(660,130); buzz(40); toast("棚を固定", cLoc.parsed.loc);
+        addFlash('loc', cLoc.corners);
+        addBubble('loc', cLoc.corners, '棚を固定');
+        playBeep(660,130); buzz(40); toast("棚を固定", cLoc.parsed.loc);
       }
     }
     // 型（棚が固定済みのときのみ）
@@ -376,7 +471,9 @@
           const wn = c.parsed.wn || tryExtractWN(c.raw) || "";
           fixedDies.set(key, { bn:c.parsed.bn, wc:c.parsed.wc, wn, raw:c.raw, addedAt:Date.now() });
           renderDies();
-          addFlash('die', c.corners); playBeep(880,120); buzz(30); toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
+          addFlash('die', c.corners);
+          addBubble('die', c.corners, '型を登録');
+          playBeep(880,120); buzz(30); toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
         }
       }
     }
@@ -406,7 +503,6 @@
         raw:h.raw.trim(),
         corners:[h.corners?.[0]||h.location?.topLeftCorner,h.corners?.[1]||h.location?.topRightCorner,h.corners?.[2]||h.location?.bottomRightCorner,h.corners?.[3]||h.location?.bottomLeftCorner].map(p=>({x:p.x,y:p.y}))
       }));
-      // 画像テスト時も自動ロック
       const cand = [];
       for(const h of list){
         const kind = classify(h.raw);
@@ -425,15 +521,10 @@
     img.src = URL.createObjectURL(f);
   });
 
-  // ========= ボタン =========
-  $("#btnStart").addEventListener("click", startCam);
-  $("#btnStop").addEventListener("click", stopCam);
-  $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
-  $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
-  $("#btnUpdate").addEventListener("click", async ()=>{
+  // ========= YYYY-MM-DD 送信共通 =========
+  async function submitUpdate(){
     if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を固定してください。"); return; }
     if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
-    // YYYY-MM-DD で LastSeen
     const now = new Date();
     const y = now.getFullYear(), m=String(now.getMonth()+1).padStart(2,'0'), d=String(now.getDate()).padStart(2,'0');
     const captured_date = `${y}-${m}-${d}`;
@@ -449,10 +540,29 @@
       setStatus("更新しました。");
       playBeep(520,140);
     }catch(e){ alert("更新に失敗しました: " + (e.message||e)); }
-  });
+  }
+
+  // ========= ボタン =========
+  $("#btnStart").addEventListener("click", startCam);
+  $("#btnStop").addEventListener("click", stopCam);
+  $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
+  $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
+  $("#btnUpdate").addEventListener("click", submitUpdate);
+
+  // ========= モーダル =========
+  const mask  = $("#mask");
+  const modal = $("#modal");
+  function openList(){ renderLoc(); renderDies(); mask.style.display = "block"; modal.style.display = "block"; }
+  function closeList(){ mask.style.display = "none"; modal.style.display = "none"; }
+  $("#btnOpenList").addEventListener("click", openList);
+  $("#btnCloseList").addEventListener("click", closeList);
+  mask.addEventListener("click", closeList);
+  $("#btnClearLoc2").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
+  $("#btnClearDies2").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
+  $("#btnUpdate2").addEventListener("click", submitUpdate);
 
   // ========= 初期 =========
-  (async ()=>{ setStatus("棚→型の順でカメラにかざしてください。登録済みは点線枠で表示します。"); })();
+  (async ()=>{ setStatus("棚→型の順でカメラにかざしてください。登録済みは点線枠、ロック時は枠の近くにバブル表示。"); })();
   </script>
 </body>
 </html>
