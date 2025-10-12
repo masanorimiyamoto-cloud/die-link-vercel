@@ -428,9 +428,10 @@ $("#fileTest").addEventListener("change", async (ev) => {
 // ========= 送信 =========
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
-
-  const items = [...fixedDies.values()].map(d => ({ book: d.bn, wc: d.wc, wn: d.wn || "", loc: fixedLoc.loc }));
-  const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
+   const now = new Date(); const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0'), d = String(now.getDate()).padStart(2, '0');
+   const captured_date = `${y}-${m}-${d}`;
+   const items = [...fixedDies.values()].map(d => ({ book: d.bn, wc: d.wc, wn: d.wn || "", loc: fixedLoc.loc }));
+   const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
   
   // 標準のconfirmの代わりに、UIで確認を促す（今回は簡易的にconfirmを使用）
   if (!confirm(`以下の内容をGoogle Sheetsに反映しますか？\n\n${msg}`)) return;
