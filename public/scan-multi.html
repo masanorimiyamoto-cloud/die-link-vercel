@@ -5,120 +5,118 @@
 <title>棚→型の順でスキャン（自動登録）</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  :root { --bd:#ddd; --tx:#222; --sub:#666; }
+  :root { --bd:#ddd; --tx:#222; --sub:#666; --green:#0a7a0a; --blue:#2458e8; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 12px; color: var(--tx); }
-  h2 { margin: 6px 0 12px; }
+  h2 { margin: 6px 0 12px; font-size: 20px; }
   .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
-  .view { position:relative; width: 360px; max-width: 100%; }
-  video { width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; display:block; }
-  canvas#det { display:none; }
-  canvas#ov  { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
-  .panel { flex:1 1 340px; min-width:320px; }
-  .controls { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; align-items:center; }
-  button, .btn { padding: 11px 15px; border-radius: 12px; border:1px solid var(--bd); background:#fff; cursor:pointer; font-size: 1.2rem; line-height: 1.1; }
-  .btn input[type="file"]{ display:none }
-  .muted { color: var(--sub); font-size: 12px; }
-  .list { margin-top:8px; }
-  .item { border:1px solid var(--bd); border-radius:12px; padding:10px; margin-bottom:10px; }
-  .head { font-weight:700; margin-bottom:6px; }
-  .kv { font-size: 13px; }
-  .sub { color: var(--sub); font-size:12px; }
-  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; align-items:center; }
-  .chip { display:inline-block; padding:4px 10px; border:1px solid var(--bd); border-radius:999px; font-size:12px; }
-  .badge { display:inline-block; background:#eef; color:#224; padding:4px 8px; border-radius:6px; font-size:12px; }
-  #err { color:#b00020; white-space:pre-wrap; }
-  .pill { border-radius:999px; }
-  .locBox { padding:10px; border:2px solid #0a0; border-radius:12px; background:#f7fff7; }
-  .dieBox { padding:10px; border:1px solid #aaa; border-radius:10px; }
-  .del { color:#b00; border-color:#f0c; }
-  .toastWrap { position:fixed; right:10px; top:10px; display:flex; flex-direction:column; gap:8px; z-index:1000; }
-  .toast { background:#111; color:#fff; padding:8px 12px; border-radius:10px; font-size:14px; opacity:.95; box-shadow:0 4px 16px rgba(0,0,0,.2); }
-  .toast small{ color:#9cc; margin-left:6px; }
+  .left  { flex: 1 1 360px; min-width: 320px; }
+  .right { flex: 1 1 360px; min-width: 320px; }
 
-  .modalMask { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; z-index:1200; }
-  .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px, 92vw); max-height:88vh; background:#fff; border-radius:14px; box-shadow:0 20px 80px rgba(0,0,0,.25); display:none; z-index:1300; overflow:auto; }
-  .modalHdr { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--bd); padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  .modalBody { padding:12px 14px; }
-  .modalHdr h3 { margin:0; font-size:18px; }
-  .closeX { border:none; background:#f4f4f4; border-radius:10px; padding:8px 10px; cursor:pointer; }
-  /* ヘッダー操作ボタンを横並びで見やすく */
-  .hdrActions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .cameraBox { position: relative; display:inline-block; }
+  video { width: 360px; max-width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; display:block; }
+  canvas#c { display:none; } /* 処理用（非表示） */
+  canvas#ov { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; }
+
+  .controlsTop { display:flex; gap:10px; flex-wrap:wrap; margin:8px 0 12px; align-items:center; }
+  .controlsTop .btn { font-size:16px; padding: 12px 16px; border-radius: 12px; border:1px solid var(--bd); background:#fff; cursor:pointer; }
+  .controlsTop .btn.primary { background:#0a0; color:#fff; border-color:#0a0; }
+  .controlsTop .btn.alt     { background:#f6f8ff; color:#123; border-color:#cbd5ff; }
+
+  .muted { color: var(--sub); font-size: 12px; }
+  .panel { border:1px solid var(--bd); border-radius:12px; padding:10px; }
+  .item  { border:1px solid var(--bd); border-radius:10px; padding:10px; margin-bottom:10px; }
+  .head  { font-weight:700; margin-bottom:6px; }
+  .kv    { font-size: 13px; }
+  .sub   { color: var(--sub); font-size:12px; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  .btn { padding: 10px 14px; border-radius: 10px; border:1px solid var(--bd); background:#fff; cursor:pointer; }
+  .btn.del { color:#b00; border-color:#f0c; }
+  .chip { display:inline-block; padding:3px 8px; border:1px solid var(--bd); border-radius:999px; font-size:12px; }
+
+  /* 固定棚バッジ（左上） */
+  #fixedBadge {
+    position: absolute; left: 10px; top: 10px;
+    background: rgba(8,120,8,0.95); color:#fff;
+    padding: 8px 12px; border-radius: 10px;
+    font-size: 18px; font-weight: 700; /* 2倍相当の強調 */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    pointer-events:none;
+  }
+
+  /* フローティングトースト */
+  #toast {
+    position: fixed; left:50%; transform: translateX(-50%);
+    bottom: 18px; background: rgba(32,32,32,0.92); color:#fff;
+    padding:10px 14px; border-radius:10px; font-size:14px;
+    opacity:0; transition: opacity .2s ease;
+    z-index: 50;
+  }
+
+  /* 上部の説明＆ボタン */
+  .topbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .topbar .title { font-size:18px; font-weight:700; }
+  .topbar .group { display:flex; gap:10px; flex-wrap:wrap; }
+
+  /* 右側の登録リスト */
+  .titleSec { display:flex; align-items:center; gap:10px; margin: 0 0 8px; }
+  .titleSec h3 { margin:0; font-size:16px; }
 </style>
 </head>
 <body>
-  <h2 style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-    <span>棚→型の順でスキャン（自動登録）</span>
-    <span class="hdrActions">
-      <button id="btnOpenList" class="pill">スキャン結果確認</button>
-      <button id="btnStart" class="pill">カメラ開始</button>
-      <button id="btnStop"  class="pill" disabled>停止</button>
-    </span>
-  </h2>
+
+  <!-- 上部：説明と主要ボタン -->
+  <div class="topbar">
+    <div class="title">棚→型の順でスキャン（自動登録）</div>
+    <div class="group">
+      <button id="btnShowList" class="btn alt">スキャン結果確認</button>
+      <button id="btnStart" class="btn primary">カメラ開始</button>
+      <button id="btnStop" class="btn">停止</button>
+    </div>
+  </div>
 
   <div class="row">
-    <div class="panel">
-      <div class="view">
+    <!-- 左：カメラ -->
+    <div class="left panel">
+      <div id="status" class="muted" style="margin-bottom:6px">棚QR（loc-...）を先にスキャンしてください。</div>
+
+      <div class="cameraBox" id="camBox">
         <video id="v" playsinline muted></video>
+        <canvas id="c"></canvas>
         <canvas id="ov"></canvas>
-      </div>
-      <canvas id="det"></canvas>
-
-      <div class="controls">
-        <!-- Start/Stopはヘッダーへ移動。ここはテスト画像のみ残す -->
-        <label class="btn">画像からテスト<input id="fileTest" type="file" accept="image/*"></label>
-        <span id="cap" class="badge"></span>
+        <div id="fixedBadge" style="display:none"></div>
       </div>
 
-      <div class="muted" id="status">棚を先に、次に型をかざすと自動で固定されます。</div>
-      <div id="err" class="muted"></div>
-    </div>
-
-    <div class="panel">
-      <div class="locBox">
-        <div><b>固定中の棚（LOC）</b></div>
-        <div id="locLabel" class="kv" style="margin:6px 0 8px">（未選択）</div>
-        <div class="controls">
-          <button id="btnClearLoc" class="pill">棚を解除</button>
-        </div>
+      <div class="muted" style="margin-top:8px">
+        ・棚QR：<b>loc-LOC-…</b>（プレーン）／ 型QR：<b>die-BookName-WorkCord</b> または <b>?book=&wc=</b><br>
+        ・棚を固定したら、型を読み込むたびに自動登録されます（登録済み枠は破線）。
       </div>
 
-      <div style="margin:12px 0 6px"><b>固定した型（DIE）</b></div>
-      <div id="dieList" class="list"></div>
-
-      <div class="controls">
-        <button id="btnUpdate" class="pill">確定リンクを Google Sheets に更新</button>
-        <button id="btnClearDies" class="pill">型リストを全消去</button>
+      <div class="actions" style="margin-top:10px">
+        <label class="btn">画像からテスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
       </div>
     </div>
-  </div>
 
-  <!-- モーダル：スキャン結果確認 -->
-  <div id="mask" class="modalMask"></div>
-  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modalHdr">
-      <h3 id="modalTitle">スキャン結果確認</h3>
-      <button id="btnCloseList" class="closeX">閉じる</button>
-    </div>
-    <div class="modalBody">
-      <div class="locBox" style="margin-bottom:10px">
-        <div><b>固定中の棚（LOC）</b></div>
-        <div id="locLabel2" class="kv" style="margin:6px 0 8px">（未選択）</div>
-        <div class="controls">
-          <button id="btnClearLoc2" class="pill">棚を解除</button>
-        </div>
+    <!-- 右：登録リスト -->
+    <div class="right panel" id="listPanel">
+      <div class="titleSec">
+        <h3>固定した棚</h3>
+        <div id="locLabel" class="kv sub">（未選択）</div>
+        <button id="btnClearLoc" class="btn">棚を解除</button>
       </div>
 
-      <div style="margin:12px 0 6px"><b>固定した型（DIE）</b></div>
-      <div id="dieList2" class="list"></div>
+      <div class="titleSec" style="margin-top:8px">
+        <h3>固定した型（登録済み）</h3>
+        <button id="btnClearDies" class="btn">型リストを全消去</button>
+      </div>
+      <div id="dieList"></div>
 
-      <div class="controls" style="position:sticky;bottom:0;background:#fff;padding-bottom:12px">
-        <button id="btnUpdate2" class="pill">確定リンクを Google Sheets に更新</button>
-        <button id="btnClearDies2" class="pill">型リストを全消去</button>
+      <div class="actions" style="margin-top:10px">
+        <button id="btnUpdate" class="btn primary">確定リンクを Google Sheets に更新</button>
       </div>
     </div>
   </div>
 
-  <div class="toastWrap" id="toasts"></div>
+  <div id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
   <script>
@@ -129,137 +127,159 @@
   const SCAN_SCALE = 2;
 
   // ========= 状態 =========
-  let fixedLoc = null;                   // {loc, raw}
-  const fixedDies = new Map();           // key=book-wc -> {bn,wc,wn?,raw,addedAt}
-  const flashes = [];                    // ロック確定時フラッシュ
-  const bubbles = [];                    // 近接バブル
-  let candidates = [];                   // [{kind,raw,parsed,corners,registered}]
+  let fixedLoc = null; // {loc, raw}
+  const fixedDies = new Map(); // key=book-wc -> {bn,wc,wn,raw,addedAt}
 
-  // ========= ユーティリティ =========
+  // ========= DOM =========
   const $ = (q)=>document.querySelector(q);
-  const v = $("#v"), det = $("#det"), ov = $("#ov");
-  const octx = ov.getContext("2d");
-  const dctx = det.getContext("2d", { willReadFrequently: true });
-  const cap = $("#cap"), statusEl = $("#status"), errEl = $("#err");
-  const toasts = $("#toasts");
-  const dieKey = (bn,wc)=>`${bn}-${wc}`;
+  const v = $("#v"), c = $("#c"), ctx = c.getContext("2d", { willReadFrequently: true });
+  const ov = $("#ov"), octx = ov.getContext("2d");
+  const capBox = $("#camBox");
+  const statusEl = $("#status");
+  const toastEl = $("#toast");
+  const fixedBadge = $("#fixedBadge");
 
   function setStatus(t){ statusEl.textContent = t; }
-  function setError(t){ errEl.textContent = t || ""; }
-  function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&gt;','>':'&gt;','"':'&quot;' }[c])); }
-
-  function tryExtractWN(raw){
-    try{
-      const u = new URL(raw);
-      const m = /[#&]d=([^&]+)/.exec(u.hash||"");
-      if(!m) return "";
-      const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
-      const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : '';
-      const json = atob(b64 + pad);
-      const obj = JSON.parse(json);
-      return (obj.wn||"").trim();
-    }catch{ return ""; }
+  function toast(t){
+    toastEl.textContent = t;
+    toastEl.style.opacity = 1;
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(()=>{ toastEl.style.opacity = 0; }, 1400);
   }
 
+  // ========= 解析ユーティリティ =========
   function classify(s){
     if(/^loc-/i.test(s)) return "loc";
     if(/^die-/i.test(s)) return "die";
     try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{}
     return "other";
   }
-  function parse(text){
+  function parsePayload(text){
     const m = /^die-([^-\n]+)-(.+)$/.exec(text);
-    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; }
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim() }; }
     try{
       const u=new URL(text);
       const book=(u.searchParams.get("book")||"").trim();
       const wc=(u.searchParams.get("wc")||"").trim();
-      if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; }
+      // #d= base64url JSON に wn がある場合は抽出
+      let wn = "";
+      const hash = u.hash || "";
+      const mm = /[#&]d=([^&]+)/.exec(hash);
+      if(mm){
+        try{
+          const b64 = mm[1].replace(/-/g,'+').replace(/_/g,'/');
+          const json = JSON.parse(decodeURIComponent(escape(atob(b64))));
+          wn = (json.wn||"").trim();
+        }catch{}
+      }
+      if(book||wc){ return { bn:book, wc:wc, wn }; }
     }catch{}
     const l=/^loc-(.+)$/i.exec(text);
     if(l){ return { loc:l[1].trim() }; }
     return {};
   }
+  const dieKey = (bn,wc)=>`${bn}-${wc}`;
 
-  function toast(msg, sub=""){
-    const el = document.createElement("div");
-    el.className = "toast";
-    el.innerHTML = `${msg}${sub?` <small>${sub}</small>`:""}`;
-    toasts.appendChild(el);
-    setTimeout(()=>{ el.style.opacity="0"; el.style.transform="translateY(-6px)"; }, 1200);
-    setTimeout(()=>{ el.remove(); }, 1800);
+  // ========= UIレンダリング =========
+  function renderLoc(){
+    $("#locLabel").textContent = fixedLoc ? fixedLoc.loc : "（未選択）";
+    if(fixedLoc){
+      fixedBadge.style.display = "block";
+      fixedBadge.textContent = `固定棚: ${fixedLoc.loc}`;
+    }else{
+      fixedBadge.style.display = "none";
+    }
+  }
+  function escapeHtml(s){ return String(s??"").replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+  function renderDies(){
+    const html = [...fixedDies.values()].map(d=>{
+      const key = dieKey(d.bn,d.wc);
+      const wnTxt = d.wn ? escapeHtml(d.wn) : "(WorkNameなし)";
+      return `<div class="item">
+        <div class="head">抜型 <span class="sub">${escapeHtml(d.bn)}</span> [<b>${escapeHtml(d.wc)}</b>] / <span class="sub">WorkName: ${wnTxt}</span></div>
+        <div class="actions">
+          <button class="btn del" data-del="${key}">この型を削除</button>
+          <span class="chip">${escapeHtml(d.raw.length>70 ? d.raw.slice(0,70)+'…' : d.raw)}</span>
+        </div>
+      </div>`;
+    }).join("") || `<div class="muted">（まだ型はありません）</div>`;
+    $("#dieList").innerHTML = html;
+    $("#dieList").querySelectorAll("button[data-del]").forEach(b=>{
+      b.onclick = ()=>{ fixedDies.delete(b.dataset.del); renderDies(); };
+    });
   }
 
-  let AC=null;
+  // ========= 枠描画・ラベル描画 =========
+  function drawPolygon(g, pts){
+    g.beginPath(); g.moveTo(pts[0].x, pts[0].y);
+    for(let i=1;i<pts.length;i++) g.lineTo(pts[i].x, pts[i].y);
+    g.closePath();
+  }
+  function roundedRect(g, x,y,w,h,r){
+    g.beginPath();
+    g.moveTo(x+r,y);
+    g.arcTo(x+w,y,x+w,y+h,r);
+    g.arcTo(x+w,y+h,x,y+h,r);
+    g.arcTo(x,y+h,x,y,r);
+    g.arcTo(x,y,x+w,y,r);
+    g.closePath();
+  }
+  function drawLabelNearCorners(g, corners, line1, line2, theme){
+    const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y);
+    const cx=(Math.min(...xs)+Math.max(...xs))/2;
+    const topY=Math.min(...ys);
+
+    const padX=10, padY=6;
+    g.save();
+    g.font = '14px system-ui, sans-serif';
+    const w1 = g.measureText(line1).width;
+    const w2 = line2 ? g.measureText(line2).width : 0;
+    const w  = Math.max(w1, w2) + padX*2;
+    const h  = (line2? (14+4) : 14) + padY*2;
+
+    let x = cx - w/2;
+    let y = topY - h - 8;
+    x = Math.max(6, Math.min(x, ov.width - w - 6));
+    y = Math.max(6, Math.min(y, ov.height - h - 6));
+
+    const fill = theme==='loc' ? 'rgba(10,140,10,0.92)' : 'rgba(20,80,200,0.92)';
+    const stroke='rgba(255,255,255,0.9)';
+
+    g.fillStyle = fill; g.strokeStyle = stroke; g.lineWidth = 2;
+    roundedRect(g, x, y, w, h, 10);
+    g.fill(); g.stroke();
+
+    g.fillStyle = '#fff'; g.textBaseline='top'; g.textAlign='left';
+    g.fillText(line1, x+padX, y+padY);
+    if(line2){ g.fillText(line2, x+padX, y+padY+14+4); }
+    g.restore();
+  }
+
+  // ========= フィードバック（枠フラッシュ/バブル/音/振動） =========
+  const flashes=[]; // {kind,corners,t,ttl}
+  const bubbles=[]; // {kind,corners,text,t,ttl}
+  function addFlash(kind, corners){ flashes.push({ kind, corners, t:performance.now(), ttl:420 }); }
+  function addBubble(kind, corners, text){ bubbles.push({ kind, corners, text, t:performance.now(), ttl:1200 }); }
   function playBeep(freq=880, dur=120){
     try{
-      if(!AC) AC = new (window.AudioContext||window.webkitAudioContext)();
-      const o=AC.createOscillator(), g=AC.createGain();
-      o.type="sine"; o.frequency.value=freq;
-      g.gain.value=0.0001;
-      o.connect(g); g.connect(AC.destination);
-      const t=AC.currentTime;
-      g.gain.exponentialRampToValueAtTime(0.08, t+0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t+dur/1000);
-      o.start(); o.stop(t+dur/1000+0.02);
+      const ac = new (window.AudioContext||window.webkitAudioContext)();
+      const o = ac.createOscillator(); const g = ac.createGain();
+      o.type='sine'; o.frequency.value=freq; o.connect(g); g.connect(ac.destination);
+      o.start(); g.gain.setValueAtTime(0.25, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur/1000);
+      setTimeout(()=>{ o.stop(); ac.close(); }, dur+50);
     }catch{}
   }
-  function buzz(ms=60){ if(navigator.vibrate) navigator.vibrate(ms); }
+  function buzz(ms=30){ if(navigator.vibrate) try{ navigator.vibrate(ms); }catch{} }
 
-  // ========= 描画 =========
-  function drawPolygon(ctx, points){
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y);
-    ctx.closePath();
-  }
-  function centroid(corners){
-    const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y);
-    return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) };
-  }
-  function roundedRect(ctx, x,y,w,h,r=10){
-    ctx.beginPath();
-    ctx.moveTo(x+r,y);
-    ctx.arcTo(x+w,y,x+w,y+h,r);
-    ctx.arcTo(x+w,y+h,x,y+h,r);
-    ctx.arcTo(x,y+h,x,y,r);
-    ctx.arcTo(x,y,x+w,y,r);
-    ctx.closePath();
-  }
-
-  // ★ 固定棚バッジ（2倍・濃い緑・白字）
-  function drawFixedLocBadge(){
-    if(!fixedLoc) return;
-    const text = `固定棚: ${fixedLoc.loc}`;
-    const t = performance.now()/800;
-    const pulse = 0.9 + 0.1*Math.abs(Math.sin(t)); // わずかに脈動
-    // フォント/サイズを約2倍へ
-    octx.font = '700 32px system-ui, sans-serif';
-    const w = octx.measureText(text).width + 28*2;
-    const h = 56; // 高さも拡大
-    const x = 10, y = 10;
-
-    // 濃い緑の背景+ストローク
-    octx.globalAlpha = 1;
-    octx.fillStyle   = `rgba(3,90,20,${0.75 + 0.15*pulse})`;  // 濃い緑
-    octx.strokeStyle = `rgba(2,77,12,0.95)`;
-    octx.lineWidth = 3.5;
-    roundedRect(octx, x, y, w, h, 14);
-    octx.fill(); octx.stroke();
-
-    // 白字
-    octx.fillStyle = '#fff';
-    octx.textBaseline='middle'; octx.textAlign='left';
-    octx.fillText(text, x+28, y+h/2+0.5);
-  }
-
-  function drawOverlays(){
+  function drawOverlays(candidates){
     octx.clearRect(0,0,ov.width,ov.height);
 
     // 候補枠
     for(const c of candidates){
       const isLoc = c.kind==='loc';
-      if(c.registered){
+      const reg   = c.registered;
+      if(reg){
         octx.setLineDash([8,6]);
         octx.lineWidth = 4;
         octx.strokeStyle = isLoc ? 'rgba(0,160,0,0.95)' : 'rgba(0,80,240,0.95)';
@@ -272,105 +292,58 @@
       }
       drawPolygon(octx, c.corners);
       octx.stroke(); octx.fill();
+
+      // ラベル（DIEは2行目にWorkName）
+      if(isLoc){
+        drawLabelNearCorners(octx, c.corners, `LOC: ${c.parsed.loc}`, '', 'loc');
+      }else{
+        const title = `${c.parsed.bn}-${c.parsed.wc}`;
+        const wn    = (c.parsed.wn||"").trim() || "(WorkNameなし)";
+        drawLabelNearCorners(octx, c.corners, title, `WorkName: ${wn}`, 'die');
+      }
     }
 
     // フラッシュ
-    for(let i=flashes.length-1; i>=0; i--){
-      const f = flashes[i];
-      const remain = f.until - performance.now();
-      if(remain <= 0){ flashes.splice(i,1); continue; }
-      const t = Math.max(0, Math.min(1, remain/1200));
-      const color = f.kind==='loc' ? `rgba(0,180,0,${0.2+0.6*t})` : `rgba(0,90,255,${0.2+0.6*t})`;
-      const stroke = f.kind==='loc' ? `rgba(0,140,0,${0.6+0.4*t})` : `rgba(0,60,220,${0.6+0.4*t})`;
-      octx.fillStyle = color;
-      octx.strokeStyle = stroke;
-      octx.lineWidth = 4 + 4*t;
-      drawPolygon(octx, f.corners);
-      octx.stroke(); octx.fill();
+    for(let i=flashes.length-1;i>=0;i--){
+      const f=flashes[i];
+      const el = (performance.now()-f.t)/f.ttl;
+      if(el>=1){ flashes.splice(i,1); continue; }
+      octx.save();
+      octx.setLineDash([]);
+      octx.lineWidth = 6*(1-el);
+      octx.strokeStyle = f.kind==='loc' ? `rgba(0,180,0,${1-el})` : `rgba(40,100,255,${1-el})`;
+      drawPolygon(octx, f.corners); octx.stroke();
+      octx.restore();
     }
 
-    // 近接バブル
-    for(let i=bubbles.length-1; i>=0; i--){
+    // バブル
+    for(let i=bubbles.length-1;i>=0;i--){
       const b = bubbles[i];
-      const remain = b.until - performance.now();
-      if(remain <= 0){ bubbles.splice(i,1); continue; }
-      const t = Math.max(0, Math.min(1, remain/1600));
-      const alpha = 0.9 * t;
-      const padX=10, padY=6;
+      const el=(performance.now()-b.t)/b.ttl;
+      if(el>=1){ bubbles.splice(i,1); continue; }
+      const alpha = 1-Math.min(1, Math.max(0, el));
+      const xs=b.corners.map(p=>p.x), ys=b.corners.map(p=>p.y);
+      const cx=(Math.min(...xs)+Math.max(...xs))/2;
+      const cy=(Math.min(...ys)+Math.max(...ys))/2;
 
-      octx.font = '16px system-ui, sans-serif';
-      const metrics = octx.measureText(b.text);
-      const w = metrics.width + padX*2;
-      const h = 24 + padY*2;
-
-      let x = b.x - w/2;
-      let y = b.y - h - 8;
-      x = Math.max(6, Math.min(x, ov.width - w - 6));
-      y = Math.max(6, Math.min(y, ov.height - h - 6));
-
+      const pad=8;
+      octx.save();
+      octx.font='14px system-ui, sans-serif';
+      const tw = octx.measureText(b.text).width + pad*2;
+      const th = 14 + pad*2;
+      let x = cx - tw/2, y = cy - 40 - th;
+      x = Math.max(6, Math.min(x, ov.width - tw - 6));
+      y = Math.max(6, Math.min(y, ov.height - th - 6));
       octx.globalAlpha = alpha;
-      octx.fillStyle = b.color;
-      octx.strokeStyle = b.stroke;
-      octx.lineWidth = 2;
-      roundedRect(octx, x, y, w, h, 10);
-      octx.fill(); octx.stroke();
-
-      octx.fillStyle = '#fff';
-      octx.textBaseline='middle';
-      octx.textAlign='center';
-      octx.fillText(b.text, x + w/2, y + h/2);
-      octx.globalAlpha = 1;
+      octx.fillStyle = 'rgba(32,32,32,0.92)'; octx.strokeStyle='rgba(255,255,255,0.9)'; octx.lineWidth=2;
+      roundedRect(octx, x,y,tw,th,10); octx.fill(); octx.stroke();
+      octx.fillStyle='#fff'; octx.textBaseline='top'; octx.fillText(b.text, x+pad, y+pad);
+      octx.restore();
     }
-
-    // ★ 固定棚バッジ（前面）
-    drawFixedLocBadge();
   }
 
-  function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
-  function addBubble(kind, corners, text){
-    const c = centroid(corners);
-    const msg = (kind==='die' && fixedLoc) ? `${text} → 固定棚: ${fixedLoc.loc}` : text;
-    const color = kind==='loc' ? 'rgba(10,140,10,0.92)' : 'rgba(20,80,200,0.92)';
-    const stroke= 'rgba(255,255,255,0.9)';
-    bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 });
-  }
-
-  function renderLoc(){
-    $("#locLabel").textContent  = fixedLoc ? fixedLoc.loc : "（未選択）";
-    $("#locLabel2").textContent = fixedLoc ? fixedLoc.loc : "（未選択）";
-  }
-
-  function renderDies(){
-    const build = () => [...fixedDies.values()].map(d=>{
-      const key = `${d.bn}-${d.wc}`;
-      const wn = d.wn ? ` / <span class="sub">WorkName: ${escapeHtml(d.wn)}</span>` : '';
-      return `<div class="item dieBox" data-key="${key}">
-        <div class="head">抜型 <span class="sub">${escapeHtml(d.bn)}</span> [<b>${escapeHtml(d.wc)}</b>]${wn}</div>
-        <div class="actions">
-          <button class="btn del" data-del="${key}">この型を削除</button>
-          <span class="chip">${d.raw.length>70?escapeHtml(d.raw.slice(0,70))+"…":escapeHtml(d.raw)}</span>
-        </div>
-      </div>`;
-    }).join("") || `<div class="muted">（まだ型はありません）</div>`;
-
-    $("#dieList").innerHTML  = build();
-    $("#dieList2").innerHTML = build();
-
-    const bind = (rootSel) => {
-      document.querySelectorAll(`${rootSel} button[data-del]`).forEach(b=>{
-        b.onclick = ()=>{
-          fixedDies.delete(b.dataset.del);
-          renderDies();
-        };
-      });
-    };
-    bind("#dieList");
-    bind("#dieList2");
-  }
-
-  // ========= 検出 =========
+  // ========= 検出系 =========
   let stream=null, rafId=null, detector=null, useBD=('BarcodeDetector' in window) && !FORCE_LEGACY;
-  cap.textContent = useBD ? "BarcodeDetector + jsQR" : "jsQR only (legacy)";
 
   function stopCam(){
     cancelAnimationFrame(rafId); rafId=null;
@@ -378,26 +351,33 @@
     $("#btnStart").disabled=false; $("#btnStop").disabled=true;
     setStatus("停止中");
   }
-  function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
 
   async function startCam(){
-    stopCam(); setError("");
-    const idealW = FORCE_LEGACY ? 640 : 1280;
-    const idealH = FORCE_LEGACY ? 480 : 720;
+    stopCam();
+    setStatus("カメラ起動中…");
     try{
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:{ ideal:'environment' }, width:{ideal:idealW}, height:{ideal:idealH} }, audio:false
+        video: { facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} },
+        audio:false
       });
-    }catch(e){ showError(e); return; }
-    v.srcObject=stream;
-    try{ await v.play(); }catch(e){ showError(e); return; }
-
-    const w = v.videoWidth || idealW, h = v.videoHeight || idealH;
-    ov.width = w; ov.height = h;
-    det.width = Math.floor(w); det.height = Math.floor(h);
-
+    }catch(e){
+      setStatus("カメラ起動失敗: 権限/他アプリ使用中をご確認ください。");
+      return;
+    }
+    v.srcObject=stream; await v.play().catch(()=>{});
     $("#btnStart").disabled=true; $("#btnStop").disabled=false;
+
+    // 描画サイズ同期
+    const syncSize=()=>{
+      const rect = v.getBoundingClientRect();
+      ov.width  = v.videoWidth;  ov.height = v.videoHeight;
+      c.width   = v.videoWidth;  c.height  = v.videoHeight;
+      ov.style.width = rect.width+'px'; ov.style.height = rect.height+'px';
+    };
+    syncSize(); window.addEventListener('resize', syncSize);
+
     detector=null; if(useBD){ try{ detector=new BarcodeDetector({ formats:['qr_code'] }); }catch{ useBD=false; detector=null; } }
+    setStatus("棚QR（loc-...）を先にスキャンしてください。");
     tick();
   }
 
@@ -413,88 +393,77 @@
     for(let k=0;k<max;k++){
       const hit = jsQR(data, w, h, { inversionAttempts:'attemptBoth' });
       if(!hit) break;
-      out.push({
-        raw: hit.data,
-        corners: [hit.location.topLeftCorner,hit.location.topRightCorner,hit.location.bottomRightCorner,hit.location.bottomLeftCorner]
-      });
-      maskRect(hit.location);
+      out.push(hit); maskRect(hit.location);
     }
     return out;
   }
 
-  async function detectOnce(){
-    const ow = det.width * SCAN_SCALE, oh = det.height * SCAN_SCALE;
+  async function detectOnce(baseCanvas){
+    // オフスクリーンで拡大＆コントラスト調整
+    const ow = baseCanvas.width * SCAN_SCALE;
+    const oh = baseCanvas.height * SCAN_SCALE;
     const off = new OffscreenCanvas(ow, oh);
     const octx2 = off.getContext("2d", { willReadFrequently:true });
     octx2.imageSmoothingEnabled=false;
-    octx2.filter = "contrast(120%) brightness(105%)";
-    octx2.drawImage(v,0,0,ow,oh);
+    octx2.filter="contrast(120%) brightness(105%)";
+    octx2.drawImage(baseCanvas,0,0,ow,oh);
 
-    const found=[]; const seen=new Set();
+    const results=[];
 
+    // BarcodeDetector
     if(useBD && detector){
       try{
         const codes=await detector.detect(off);
         for(const b of codes){
-          const raw=b.rawValue.trim();
-          if(seen.has(raw)) continue;
-          seen.add(raw);
-          const cs=b.cornerPoints.map(p=>({x:p.x/SCAN_SCALE, y:p.y/SCAN_SCALE}));
-          found.push({ raw, corners:cs });
+          const corners = (b.cornerPoints||[]).map(p=>({ x:p.x/SCAN_SCALE, y:p.y/SCAN_SCALE }));
+          results.push({ raw:b.rawValue.trim(), corners });
         }
       }catch{ useBD=false; detector=null; }
     }
-
+    // jsQR（複数）
     const imgData=octx2.getImageData(0,0,ow,oh);
-    for(const h of jsqrMulti(imgData, ow, oh, 14)){
-      const raw=h.raw.trim();
-      if(seen.has(raw)) continue;
-      seen.add(raw);
-      const cs=h.corners.map(p=>({x:p.x/SCAN_SCALE, y:p.y/SCAN_SCALE}));
-      found.push({ raw, corners:cs });
-    }
-    return found;
-  }
-
-  function refreshCandidates(hits){
-    const next=[];
+    const hits = jsqrMulti(imgData, ow, oh, 14);
+    // 重複排除
+    const seenRaw = new Set(results.map(r=>r.raw));
     for(const h of hits){
-      const kind = classify(h.raw);
-      const parsed = parse(h.raw);
-      if(kind==='loc' && parsed.loc){
-        const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
-        next.push({ kind, raw:h.raw, parsed, corners:h.corners, registered });
-      }else if(kind==='die' && parsed.bn && parsed.wc){
-        const key = dieKey(parsed.bn, parsed.wc);
-        const registered = fixedDies.has(key);
-        next.push({ kind, raw:h.raw, parsed, corners:h.corners, registered });
-      }
+      const raw = h.data.trim();
+      if(seenRaw.has(raw)) continue;
+      const loc = h.location;
+      const corners = [loc.topLeftCorner,loc.topRightCorner,loc.bottomRightCorner,loc.bottomLeftCorner]
+        .map(p=>({ x:p.x/SCAN_SCALE, y:p.y/SCAN_SCALE }));
+      results.push({ raw, corners });
     }
-    candidates = next;
+    return results;
   }
 
-  function autoLock(){
-    if(!fixedLoc){
-      const cLoc = candidates.find(c=>c.kind==='loc' && !c.registered);
-      if(cLoc){
-        fixedLoc = { loc:cLoc.parsed.loc, raw:cLoc.raw };
-        renderLoc();
-        addFlash('loc', cLoc.corners);
-        addBubble('loc', cLoc.corners, '棚を固定');
-        playBeep(660,130); buzz(40); toast("棚を固定", cLoc.parsed.loc);
+  function autoLock(candidates){
+    // 棚を優先ロック
+    for(const c of candidates){
+      if(c.kind==='loc' && c.parsed.loc){
+        if(!fixedLoc || fixedLoc.loc !== c.parsed.loc){
+          fixedLoc = { loc:c.parsed.loc, raw:c.raw };
+          renderLoc();
+          addFlash('loc', c.corners);
+          addBubble('loc', c.corners, `棚を固定: ${c.parsed.loc}`);
+          playBeep(660,120); buzz(30);
+          toast(`棚を固定: ${c.parsed.loc}`);
+        }
       }
     }
+    // 棚が決まっていれば、型を自動登録
     if(fixedLoc){
       for(const c of candidates){
-        if(c.kind!=='die') continue;
+        if(c.kind!=='die' || !c.parsed.bn || !c.parsed.wc) continue;
         const key = dieKey(c.parsed.bn, c.parsed.wc);
         if(!fixedDies.has(key)){
-          const wn = c.parsed.wn || tryExtractWN(c.raw) || "";
+          const wn = (c.parsed.wn||"").trim();
           fixedDies.set(key, { bn:c.parsed.bn, wc:c.parsed.wc, wn, raw:c.raw, addedAt:Date.now() });
           renderDies();
           addFlash('die', c.corners);
-          addBubble('die', c.corners, '型を登録');
-          playBeep(880,120); buzz(30); toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
+          const title = `${c.parsed.bn}-${c.parsed.wc}`;
+          addBubble('die', c.corners, `${title} / WorkName: ${wn || '(なし)'}`);
+          playBeep(880,120); buzz(30);
+          toast(`型を追加: ${title}`);
         }
       }
     }
@@ -502,11 +471,50 @@
 
   async function tick(){
     if(!stream) return;
-    const hits = await detectOnce();
-    refreshCandidates(hits);
-    autoLock();
-    drawOverlays();
-    rafId=requestAnimationFrame(tick);
+    if(v.videoWidth){
+      // 描画
+      ctx.drawImage(v,0,0,c.width,c.height);
+
+      // 検出
+      const rs = await detectOnce(c);
+      // 候補に整形（既登録かフラグ付）
+      const candidates = rs.map(r=>{
+        const kind = classify(r.raw);
+        const parsed = parsePayload(r.raw);
+        let registered = false;
+        if(kind==='loc' && fixedLoc && parsed.loc === fixedLoc.loc) registered = true;
+        if(kind==='die' && parsed.bn && parsed.wc && fixedDies.has(dieKey(parsed.bn, parsed.wc))) registered = true;
+        return { raw:r.raw, kind, parsed, corners:r.corners, registered };
+      });
+
+      // 自動ロック
+      autoLock(candidates);
+
+      // オーバーレイ描画
+      drawOverlays(candidates);
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  // ========= 送信 =========
+  async function submitUpdate(){
+    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を読み取ってください。"); return; }
+    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
+    // LastSeen は日付のみ（YYYY-MM-DD）
+    const ymd = new Date().toISOString().slice(0,10);
+    const items = [...fixedDies.values()].map(d=>({ book:d.bn, wc:d.wc, wn:d.wn||"", loc:fixedLoc.loc, captured_at: ymd }));
+    const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
+    if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
+    try{
+      const r = await fetch(SHEET_ENDPOINT, {
+        method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ items })
+      });
+      if(!r.ok) throw new Error(await r.text());
+      const j = await r.json();
+      if(!j.ok) throw new Error(JSON.stringify(j));
+      toast("Google Sheets を更新しました");
+      alert("Google Sheets を更新しました。");
+    }catch(e){ alert("更新に失敗しました: " + (e.message||e)); }
   }
 
   // ========= 画像からテスト =========
@@ -514,76 +522,39 @@
     const f = ev.target.files?.[0]; if(!f) return;
     const img = new Image();
     img.onload = async ()=>{
+      c.width = img.width; c.height = img.height;
       ov.width = img.width; ov.height = img.height;
-      det.width = img.width; det.height = img.height;
-      const off = new OffscreenCanvas(img.width, img.height);
-      const ctx0 = off.getContext("2d");
-      ctx0.drawImage(img,0,0);
-      const imgData = ctx0.getImageData(0,0,img.width,img.height);
-      const list = jsqrMulti(imgData, img.width, img.height, 14).map(h=>({
-        raw:h.raw.trim(),
-        corners:[h.corners?.[0]||h.location?.topLeftCorner,h.corners?.[1]||h.location?.topRightCorner,h.corners?.[2]||h.location?.bottomRightCorner,h.corners?.[3]||h.location?.bottomLeftCorner].map(p=>({x:p.x,y:p.y}))
-      }));
-      const cand = [];
-      for(const h of list){
-        const kind = classify(h.raw);
-        const p = parse(h.raw);
-        if(kind==="loc" && p.loc){ cand.push({kind, raw:h.raw, parsed:p, corners:h.corners, registered:false}); }
-        else if(kind==="die" && p.bn && p.wc){
-          const key=dieKey(p.bn,p.wc); const reg=fixedDies.has(key);
-          cand.push({kind, raw:h.raw, parsed:p, corners:h.corners, registered:reg});
-        }
-      }
-      candidates = cand;
-      autoLock();
-      drawOverlays();
+      const rect = v.getBoundingClientRect();
+      ov.style.width = rect.width+'px'; ov.style.height = rect.height+'px';
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+
+      const rs = await detectOnce(c);
+      const candidates = rs.map(r=>{
+        const kind = classify(r.raw);
+        const parsed = parsePayload(r.raw);
+        let registered=false;
+        if(kind==='loc' && fixedLoc && parsed.loc===fixedLoc.loc) registered=true;
+        if(kind==='die' && parsed.bn && parsed.wc && fixedDies.has(dieKey(parsed.bn,parsed.wc))) registered=true;
+        return { raw:r.raw, kind, parsed, corners:r.corners, registered };
+      });
+      autoLock(candidates);
+      drawOverlays(candidates);
       ev.target.value="";
     };
     img.src = URL.createObjectURL(f);
   });
 
-  // ========= YYYY-MM-DD 送信共通 =========
-  async function submitUpdate(){
-    if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を固定してください。"); return; }
-    if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
-    const now = new Date();
-    const y = now.getFullYear(), m=String(now.getMonth()+1).padStart(2,'0'), d=String(now.getDate()).padStart(2,'0');
-    const captured_date = `${y}-${m}-${d}`;
-    const items = [...fixedDies.values()].map(d=>({ book:d.bn, wc:d.wc, wn:d.wn||"", loc:fixedLoc.loc, captured_at: captured_date }));
-    const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
-    if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
-    try{
-      const r = await fetch(SHEET_ENDPOINT, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ items }) });
-      if(!r.ok) throw new Error(await r.text());
-      const j = await r.json();
-      if(!j.ok) throw new Error(JSON.stringify(j));
-      toast("Google Sheets 更新完了");
-      setStatus("更新しました。");
-      playBeep(520,140);
-    }catch(e){ alert("更新に失敗しました: " + (e.message||e)); }
-  }
-
   // ========= ボタン =========
   $("#btnStart").addEventListener("click", startCam);
   $("#btnStop").addEventListener("click", stopCam);
-  $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
-  $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
+  $("#btnShowList").addEventListener("click", ()=>{ $("#listPanel").scrollIntoView({behavior:'smooth', block:'start'}); });
+  $("#btnClearLoc").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); toast("棚を解除しました"); });
+  $("#btnClearDies").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); toast("型リストを全消去しました"); });
   $("#btnUpdate").addEventListener("click", submitUpdate);
 
-  // ========= モーダル =========
-  const mask  = $("#mask");
-  const modal = $("#modal");
-  function openList(){ renderLoc(); renderDies(); mask.style.display = "block"; modal.style.display = "block"; }
-  function closeList(){ mask.style.display = "none"; modal.style.display = "none"; }
-  $("#btnOpenList").addEventListener("click", openList);
-  $("#btnCloseList").addEventListener("click", closeList);
-  mask.addEventListener("click", closeList);
-  $("#btnClearLoc2").addEventListener("click", ()=>{ fixedLoc=null; renderLoc(); });
-  $("#btnClearDies2").addEventListener("click", ()=>{ fixedDies.clear(); renderDies(); });
-  $("#btnUpdate2").addEventListener("click", submitUpdate);
-
   // ========= 初期 =========
-  (async ()=>{ setStatus("棚→型の順でカメラにかざしてください。左上の濃緑バッジに“固定棚”を常時表示します。"); })();
+  setStatus("棚QR（loc-...）を先にスキャンしてください。");
+  $("#btnStop").disabled = true;
   </script>
 </body>
 </html>
