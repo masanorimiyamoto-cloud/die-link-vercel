@@ -12,19 +12,30 @@
   video { width: 360px; max-width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; }
   canvas { display:none; }
   .panel { flex:1 1 340px; min-width:320px; }
-  .controls { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; align-items:center; }
-  button, .btn { padding: 9px 12px; border-radius: 10px; border:1px solid var(--bd); background:#fff; cursor:pointer; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; align-items:center; }
+
+  /* ← ボタンを約20%大きく */
+  button, .btn {
+    padding: 11px 15px;             /* 20%増し */
+    border-radius: 12px;
+    border:1px solid var(--bd);
+    background:#fff;
+    cursor:pointer;
+    font-size: 1.2rem;               /* 文字も拡大 */
+    line-height: 1.1;
+  }
+  .btn input[type="file"]{ display:none }
+
   .muted { color: var(--sub); font-size: 12px; }
   .list { margin-top:8px; }
   .item { border:1px solid var(--bd); border-radius:12px; padding:10px; margin-bottom:10px; }
   .head { font-weight:700; margin-bottom:6px; }
   .kv { font-size: 13px; }
   .sub { color: var(--sub); font-size:12px; }
-  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
-  .chip { display:inline-block; padding:3px 8px; border:1px solid var(--bd); border-radius:999px; font-size:12px; }
-  .badge { display:inline-block; background:#eef; color:#224; padding:2px 6px; border-radius:4px; font-size:12px; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  .chip { display:inline-block; padding:4px 10px; border:1px solid var(--bd); border-radius:999px; font-size:12px; }
+  .badge { display:inline-block; background:#eef; color:#224; padding:4px 8px; border-radius:6px; font-size:12px; }
   #err { color:#b00020; white-space:pre-wrap; }
-  #info { position: fixed; left: 10px; bottom: 10px; background:#fff; border:1px solid var(--bd); padding:6px 8px; border-radius:8px; font-size:12px; }
   .pill { border-radius:999px; }
   .locBox { padding:10px; border:2px solid #0a0; border-radius:12px; background:#f7fff7; }
   .dieBox { padding:10px; border:1px solid #aaa; border-radius:10px; }
@@ -42,7 +53,7 @@
       <div class="controls">
         <button id="btnStart">カメラ開始</button>
         <button id="btnStop" disabled>停止</button>
-        <label class="btn">画像からテスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
+        <label class="btn">画像からテスト<input id="fileTest" type="file" accept="image/*"></label>
         <span id="cap" class="badge"></span>
       </div>
 
@@ -75,8 +86,6 @@
     </div>
   </div>
 
-  <div id="info">w×h: - × - / found: 0</div>
-
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
   <script>
   // ========= 設定 =========
@@ -92,7 +101,7 @@
   // ========= ユーティリティ =========
   const $ = (q)=>document.querySelector(q);
   const v = $("#v"), c = $("#c"), ctx = c.getContext("2d", { willReadFrequently: true });
-  const cap = $("#cap"), statusEl = $("#status"), errEl = $("#err"), info = $("#info");
+  const cap = $("#cap"), statusEl = $("#status"), errEl = $("#err");
   function setStatus(t){ statusEl.textContent = t; }
   function setError(t){ errEl.textContent = t || ""; }
 
@@ -237,7 +246,6 @@
           }
         }
       }
-      info.textContent = `w×h: ${c.width}×${c.height} / found: ${raws.length}`;
     }
     rafId=requestAnimationFrame(tick);
   }
@@ -256,7 +264,6 @@
         else if(kind==="die" && p.bn && p.wc){ fixedDies.set(dieKey(p.bn,p.wc), {bn:p.bn,wc:p.wc,raw,addedAt:Date.now()}); }
       }
       renderLoc(); renderDies();
-      info.textContent = `w×h: ${c.width}×${c.height} / file found: ${raws.length}`;
       ev.target.value="";
     };
     img.src = URL.createObjectURL(f);
@@ -283,7 +290,7 @@
       wc: d.wc,
       wn: "",
       loc: fixedLoc.loc,
-      captured_at: captured_date   // ← 日付のみ
+      captured_at: captured_date
     }));
     const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
     if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
