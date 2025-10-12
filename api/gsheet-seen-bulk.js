@@ -87,10 +87,10 @@ export default async function handler(req, res) {
         if (wn) {
           updates.push({ range: `${GS_WORKSHEET_NAME}!B${rowNum}:B${rowNum}`, values: [[wn]] });
         }
-        updates.push({ range: `${GS_WORKSHEET_NAME}!H${rowNum}:H${rowNum}`, values: [[loc]] });
-        updates.push({ range: `${GS_WORKSHEET_NAME}!I${rowNum}:I${rowNum}`, values: [[seen]] });
+        updates.push({ range: `${GS_WORKSHEET_NAME}!I${rowNum}:J${rowNum}`, values: [[loc]] });
+        updates.push({ range: `${GS_WORKSHEET_NAME}!I${rowNum}:J${rowNum}`, values: [[seen]] });
       } else {
-        // 追加行：A,B,C, (D,E,F,G 空白), H,I
+        // 追加行：A,B,C, (D,E,F,G 空白), I,J
         appends.push([ wc, wn, book, "", "", "", "", loc, seen ]);
       }
     }
