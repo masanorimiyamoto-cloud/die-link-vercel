@@ -11,7 +11,7 @@
   .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
   .view { position:relative; width: 360px; max-width: 100%; }
   video { width: 100%; border:1px solid var(--bd); border-radius:10px; background:#000; display:block; }
-  canvas#det { display:none; }          /* 解析用(非表示) */
+  canvas#det { display:none; }
   canvas#ov  { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
   .panel { flex:1 1 340px; min-width:320px; }
   .controls { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; align-items:center; }
@@ -35,7 +35,6 @@
   .toast { background:#111; color:#fff; padding:8px 12px; border-radius:10px; font-size:14px; opacity:.95; box-shadow:0 4px 16px rgba(0,0,0,.2); }
   .toast small{ color:#9cc; margin-left:6px; }
 
-  /* === モーダル === */
   .modalMask { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; z-index:1200; }
   .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px, 92vw); max-height:88vh; background:#fff; border-radius:14px; box-shadow:0 20px 80px rgba(0,0,0,.25); display:none; z-index:1300; overflow:auto; }
   .modalHdr { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--bd); padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -128,7 +127,7 @@
   let fixedLoc = null;                   // {loc, raw}
   const fixedDies = new Map();           // key=book-wc -> {bn,wc,wn?,raw,addedAt}
   const flashes = [];                    // ロック確定時フラッシュ
-  const bubbles = [];                    // 近接バブル [{text,x,y,until,color,stroke}]
+  const bubbles = [];                    // 近接バブル
   let candidates = [];                   // [{kind,raw,parsed,corners,registered}]
 
   // ========= ユーティリティ =========
@@ -144,7 +143,6 @@
   function setError(t){ errEl.textContent = t || ""; }
   function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&gt;','>':'&gt;','"':'&quot;' }[c])); }
 
-  // WorkName を URL の #d= base64url JSON から抽出
   function tryExtractWN(raw){
     try{
       const u = new URL(raw);
@@ -187,7 +185,6 @@
     setTimeout(()=>{ el.remove(); }, 1800);
   }
 
-  // 音＆バイブ
   let AC=null;
   function playBeep(freq=880, dur=120){
     try{
@@ -211,12 +208,10 @@
     for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y);
     ctx.closePath();
   }
-
   function centroid(corners){
     const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y);
     return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) };
   }
-
   function roundedRect(ctx, x,y,w,h,r=10){
     ctx.beginPath();
     ctx.moveTo(x+r,y);
@@ -227,10 +222,33 @@
     ctx.closePath();
   }
 
+  // ★ 固定棚バッジ（常時表示・ほんのり鼓動）
+  function drawFixedLocBadge(){
+    if(!fixedLoc) return;
+    const padX=10, padY=8;
+    const text = `固定棚: ${fixedLoc.loc}`;
+    const t = performance.now()/800; // ふわっと
+    const pulse = 0.85 + 0.15*Math.abs(Math.sin(t)); // 0.85–1.0
+    octx.font = '600 18px system-ui, sans-serif';
+    const w = octx.measureText(text).width + 18*2;
+    const h = 34;
+    const x = 10, y = 10;
+    octx.globalAlpha = 0.95;
+    octx.fillStyle   = `rgba(16,120,16,${0.20 + 0.15*pulse})`;
+    octx.strokeStyle = `rgba(8,100,8,${0.7})`;
+    octx.lineWidth = 2.5;
+    roundedRect(octx, x, y, w, h, 12);
+    octx.fill(); octx.stroke();
+    octx.fillStyle = '#0a0';
+    octx.textBaseline='middle'; octx.textAlign='left';
+    octx.fillText(text, x+18, y+h/2+0.5);
+    octx.globalAlpha = 1;
+  }
+
   function drawOverlays(){
     octx.clearRect(0,0,ov.width,ov.height);
 
-    // 候補：未登録は薄色、登録済みは点線
+    // 候補枠
     for(const c of candidates){
       const isLoc = c.kind==='loc';
       if(c.registered){
@@ -248,7 +266,7 @@
       octx.stroke(); octx.fill();
     }
 
-    // フラッシュ（ロック確定）
+    // フラッシュ
     for(let i=flashes.length-1; i>=0; i--){
       const f = flashes[i];
       const remain = f.until - performance.now();
@@ -263,7 +281,7 @@
       octx.stroke(); octx.fill();
     }
 
-    // 近接バブル（枠の近くにメッセージ）
+    // 近接バブル
     for(let i=bubbles.length-1; i>=0; i--){
       const b = bubbles[i];
       const remain = b.until - performance.now();
@@ -277,7 +295,6 @@
       const w = metrics.width + padX*2;
       const h = 24 + padY*2;
 
-      // 位置（画面外に出ないように調整）
       let x = b.x - w/2;
       let y = b.y - h - 8;
       x = Math.max(6, Math.min(x, ov.width - w - 6));
@@ -288,27 +305,26 @@
       octx.strokeStyle = b.stroke;
       octx.lineWidth = 2;
       roundedRect(octx, x, y, w, h, 10);
-      octx.fill();
-      octx.stroke();
+      octx.fill(); octx.stroke();
 
-      // テキスト
       octx.fillStyle = '#fff';
       octx.textBaseline='middle';
       octx.textAlign='center';
       octx.fillText(b.text, x + w/2, y + h/2);
       octx.globalAlpha = 1;
     }
+
+    // ★ 固定棚バッジ（最後に前面へ）
+    drawFixedLocBadge();
   }
 
-  function addFlash(kind, corners){
-    flashes.push({ kind, corners, until: performance.now()+1200 });
-  }
-
+  function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
   function addBubble(kind, corners, text){
     const c = centroid(corners);
+    const msg = (kind==='die' && fixedLoc) ? `${text} → 固定棚: ${fixedLoc.loc}` : text;
     const color = kind==='loc' ? 'rgba(10,140,10,0.92)' : 'rgba(20,80,200,0.92)';
-    const stroke= kind==='loc' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.9)';
-    bubbles.push({ text, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 });
+    const stroke= 'rgba(255,255,255,0.9)';
+    bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 });
   }
 
   function renderLoc(){
@@ -378,7 +394,7 @@
   }
 
   function jsqrMulti(imgData, w, h, max=12){
-    const out=[], data = new Uint8ClampedArray(imgData.data); // コピー
+    const out=[], data = new Uint8ClampedArray(imgData.data);
     const maskRect = loc=>{
       const xs=[loc.topLeftCorner.x,loc.topRightCorner.x,loc.bottomRightCorner.x,loc.bottomLeftCorner.x];
       const ys=[loc.topLeftCorner.y,loc.topRightCorner.y,loc.bottomRightCorner.y,loc.bottomLeftCorner.y];
@@ -449,9 +465,8 @@
     candidates = next;
   }
 
-  // 自動ロック：棚→型の順
+  function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
   function autoLock(){
-    // 棚
     if(!fixedLoc){
       const cLoc = candidates.find(c=>c.kind==='loc' && !c.registered);
       if(cLoc){
@@ -462,7 +477,6 @@
         playBeep(660,130); buzz(40); toast("棚を固定", cLoc.parsed.loc);
       }
     }
-    // 型（棚が固定済みのときのみ）
     if(fixedLoc){
       for(const c of candidates){
         if(c.kind!=='die') continue;
@@ -562,7 +576,7 @@
   $("#btnUpdate2").addEventListener("click", submitUpdate);
 
   // ========= 初期 =========
-  (async ()=>{ setStatus("棚→型の順でカメラにかざしてください。登録済みは点線枠、ロック時は枠の近くにバブル表示。"); })();
+  (async ()=>{ setStatus("棚→型の順でカメラにかざしてください。上部の緑バッジに“固定棚”を常時表示します。"); })();
   </script>
 </body>
 </html>
