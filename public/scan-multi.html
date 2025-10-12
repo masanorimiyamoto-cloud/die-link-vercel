@@ -142,7 +142,12 @@
   let stream=null, rafId=null, detector=null, useBD=('BarcodeDetector' in window) && !FORCE_LEGACY;
   cap.textContent = useBD ? "BarcodeDetector + jsQR" : "jsQR only (legacy)";
 
-  function stopCam(){ cancelAnimationFrame(rafId); rafId=null; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } $("#btnStart").disabled=false; $("#btnStop").disabled=true; setStatus("停止中"); }
+  function stopCam(){
+    cancelAnimationFrame(rafId); rafId=null;
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    $("#btnStart").disabled=false; $("#btnStop").disabled=true;
+    setStatus("停止中");
+  }
   function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
 
   async function startCam(){
@@ -265,11 +270,29 @@
   $("#btnUpdate").addEventListener("click", async ()=>{
     if(!fixedLoc){ alert("棚（LOC）が未選択です。先に loc-... を読み取ってください。"); return; }
     if(!fixedDies.size){ alert("型が1件もありません。die-... または ?book=&wc= を読み取ってください。"); return; }
-    const items = [...fixedDies.values()].map(d=>({ book:d.bn, wc:d.wc, wn:"", loc:fixedLoc.loc, captured_at:new Date().toISOString() }));
+
+    // LastSeen を YYYY-MM-DD に固定
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth()+1).padStart(2,'0');
+    const d = String(now.getDate()).padStart(2,'0');
+    const captured_date = `${y}-${m}-${d}`;
+
+    const items = [...fixedDies.values()].map(d=>({
+      book: d.bn,
+      wc: d.wc,
+      wn: "",
+      loc: fixedLoc.loc,
+      captured_at: captured_date   // ← 日付のみ
+    }));
     const msg = items.map(p=>`• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
     if(!confirm(`以下を Google Sheets に反映します。\n\n${msg}\n\n実行しますか？`)) return;
     try{
-      const r = await fetch(SHEET_ENDPOINT, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ items }) });
+      const r = await fetch(SHEET_ENDPOINT, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ items })
+      });
       if(!r.ok) throw new Error(await r.text());
       const j = await r.json();
       if(!j.ok) throw new Error(JSON.stringify(j));
