@@ -148,7 +148,7 @@
   <div class="actions">
     <button id="btnUpdate" class="btn btn-primary" disabled>
       <svg class="icon-upload" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-      <span id="btnUpdateLabel">Google Sheets に更新</span>
+      <span id="btnUpdateLabel">データベースに登録</span>
     </button>
   </div>
 </main>
@@ -206,7 +206,7 @@ function updateUIState() {
     });
     dieSection.style.display = 'block';
   } else {
-    step1.classList.add('active'); // 最初は常にアクティブ
+    step1.classList.add('active');
     step2.classList.remove('active');
     locContent.innerHTML = `<div class="placeholder">カメラで棚のQRコードをかざしてください</div>`;
     dieSection.style.display = 'none';
@@ -240,7 +240,7 @@ function renderDies() {
             <span class="sub">${escapeHtml(d.bn)}</span>
             <span class="wc">[<b>${escapeHtml(d.wc)}</b>]</span>
           </div>
-          <div class="sub">RAW: ${escapeHtml(d.raw.length>70?d.raw.slice(0,70)+"…":d.raw)}</div>
+          <div class="sub">RAW: ${escapeHtml(d.raw.length > 70 ? d.raw.slice(0, 70) + "…" : d.raw)}</div>
         </div>
         <button class="btn btn-danger btn-sm" data-del="${key}">
            <svg class="icon-trash" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -248,7 +248,6 @@ function renderDies() {
       </div>`;
     }).join("");
   }
-  // イベントリスナーを再バインド
   dieListEl.querySelectorAll('button[data-del]').forEach(b => {
     b.onclick = () => {
       fixedDies.delete(b.dataset.del);
@@ -261,90 +260,30 @@ function renderDies() {
 
 // ========= ユーティリティ =========
 const dieKey = (bn, wc) => `${bn}-${wc}`;
-function setError(t) {
-  errEl.textContent = t || "";
-  errEl.style.display = t ? 'block' : 'none';
-}
+function setError(t) { errEl.textContent = t || ""; errEl.style.display = t ? 'block' : 'none'; }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-
-function toast(msg, sub = "") {
-  const el = document.createElement("div");
-  el.className = "toast";
-  el.innerHTML = `${msg}${sub ? ` <small>${sub}</small>` : ""}`;
-  toasts.appendChild(el);
-  setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, 1200);
-  setTimeout(() => { el.remove(); }, 1800);
-}
+function toast(msg, sub = "") { const el = document.createElement("div"); el.className = "toast"; el.innerHTML = `${msg}${sub ? ` <small>${sub}</small>` : ""}`; toasts.appendChild(el); setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, 1200); setTimeout(() => { el.remove(); }, 1800); }
 let AC = null;
-function playBeep(freq = 880, dur = 120) {
-  try {
-    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
-    const o = AC.createOscillator(), g = AC.createGain();
-    o.type = "sine"; o.frequency.value = freq;
-    g.gain.value = 0.0001;
-    o.connect(g); g.connect(AC.destination);
-    const t = AC.currentTime;
-    g.gain.exponentialRampToValueAtTime(0.08, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur / 1000);
-    o.start(); o.stop(t + dur / 1000 + 0.02);
-  } catch { }
-}
+function playBeep(freq = 880, dur = 120) { try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); const o = AC.createOscillator(), g = AC.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.value = 0.0001; o.connect(g); g.connect(AC.destination); const t = AC.currentTime; g.gain.exponentialRampToValueAtTime(0.08, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur / 1000); o.start(); o.stop(t + dur / 1000 + 0.02); } catch { } }
 function buzz(ms = 60) { if (navigator.vibrate) navigator.vibrate(ms); }
-
-// ... (classify, parse, tryExtractWN functions remain the same)
 function classify(s){ if(/^loc-/i.test(s)) return "loc"; if(/^die-/i.test(s)) return "die"; try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{} return "other"; }
 function parse(text){ const m = /^die-([^-\n]+)-(.+)$/.exec(text); if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; } try{ const u=new URL(text); const book=(u.searchParams.get("book")||"").trim(); const wc=(u.searchParams.get("wc")||"").trim(); if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; } }catch{} const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } return {}; }
 function tryExtractWN(raw){ try{ const u = new URL(raw); const m = /[#&]d=([^&]+)/.exec(u.hash||""); if(!m) return ""; const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : ''; const json = atob(b64 + pad); const obj = JSON.parse(json); return (obj.wn||"").trim(); }catch{ return ""; } }
 
-
 // ========= 描画 (Canvas overlays) =========
-// ... (drawPolygon, roundedRect, drawOverlays, etc. remain the same with minor adjustments for clarity)
 function drawPolygon(ctx, points){ ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y); ctx.closePath(); }
 function roundedRect(ctx, x,y,w,h,r=10){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function centroid(corners){ const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y); return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) }; }
 function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
 function addBubble(kind, corners, text){ const c = centroid(corners); const msg = (kind==='die' && fixedLoc) ? `${text} → ${fixedLoc.loc}` : text; const color = kind==='loc' ? 'rgba(42, 157, 143, 0.92)' : 'rgba(0, 95, 115, 0.92)'; const stroke= 'rgba(255,255,255,0.9)'; bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 }); }
-
 function drawOverlays(){
   octx.clearRect(0,0,ov.width,ov.height);
-  // 候補枠
-  for(const c of candidates){
-    const isLoc = c.kind==='loc';
-    octx.setLineDash(c.registered ? [8,6] : []);
-    octx.lineWidth = c.registered ? 4 : 2;
-    octx.strokeStyle = isLoc ? 'rgba(42, 157, 143,0.95)' : 'rgba(0, 95, 115,0.95)';
-    octx.fillStyle   = isLoc ? 'rgba(42, 157, 143,0.18)' : 'rgba(0, 95, 115,0.18)';
-    drawPolygon(octx, c.corners); octx.stroke(); octx.fill();
-  }
-  // フラッシュ
-  for(let i=flashes.length-1; i>=0; i--){
-    const f = flashes[i]; const remain = f.until - performance.now();
-    if(remain <= 0){ flashes.splice(i,1); continue; }
-    const t = Math.max(0, Math.min(1, remain/1200));
-    const color = f.kind==='loc' ? `rgba(42, 157, 143,${0.2+0.6*t})` : `rgba(0, 95, 115,${0.2+0.6*t})`;
-    const stroke = f.kind==='loc' ? `rgba(42, 157, 143,${0.6+0.4*t})` : `rgba(0, 95, 115,${0.6+0.4*t})`;
-    octx.fillStyle = color; octx.strokeStyle = stroke; octx.lineWidth = 4 + 4*t;
-    drawPolygon(octx, f.corners); octx.stroke(); octx.fill();
-  }
-  // 近接バブル
-  for(let i=bubbles.length-1; i>=0; i--){
-    const b = bubbles[i]; const remain = b.until - performance.now();
-    if(remain <= 0){ bubbles.splice(i,1); continue; }
-    const t = Math.max(0, Math.min(1, remain/1600));
-    octx.globalAlpha = 0.9 * t; octx.font = '16px system-ui, sans-serif';
-    const w = octx.measureText(b.text).width + 20; const h = 36;
-    let x = b.x - w/2, y = b.y - h - 8;
-    x = Math.max(6, Math.min(x, ov.width - w - 6)); y = Math.max(6, Math.min(y, ov.height - h - 6));
-    octx.fillStyle = b.color; octx.strokeStyle = b.stroke; octx.lineWidth = 2;
-    roundedRect(octx, x, y, w, h, 10); octx.fill(); octx.stroke();
-    octx.fillStyle = '#fff'; octx.textBaseline='middle'; octx.textAlign='center';
-    octx.fillText(b.text, x + w/2, y + h/2); octx.globalAlpha = 1;
-  }
+  for(const c of candidates){ const isLoc = c.kind==='loc'; octx.setLineDash(c.registered ? [8,6] : []); octx.lineWidth = c.registered ? 4 : 2; octx.strokeStyle = isLoc ? 'rgba(42, 157, 143,0.95)' : 'rgba(0, 95, 115,0.95)'; octx.fillStyle = isLoc ? 'rgba(42, 157, 143,0.18)' : 'rgba(0, 95, 115,0.18)'; drawPolygon(octx, c.corners); octx.stroke(); octx.fill(); }
+  for(let i=flashes.length-1; i>=0; i--){ const f = flashes[i]; const remain = f.until - performance.now(); if(remain <= 0){ flashes.splice(i,1); continue; } const t = Math.max(0, Math.min(1, remain/1200)); const color = f.kind==='loc' ? `rgba(42, 157, 143,${0.2+0.6*t})` : `rgba(0, 95, 115,${0.2+0.6*t})`; const stroke = f.kind==='loc' ? `rgba(42, 157, 143,${0.6+0.4*t})` : `rgba(0, 95, 115,${0.6+0.4*t})`; octx.fillStyle = color; octx.strokeStyle = stroke; octx.lineWidth = 4 + 4*t; drawPolygon(octx, f.corners); octx.stroke(); octx.fill(); }
+  for(let i=bubbles.length-1; i>=0; i--){ const b = bubbles[i]; const remain = b.until - performance.now(); if(remain <= 0){ bubbles.splice(i,1); continue; } const t = Math.max(0, Math.min(1, remain/1600)); octx.globalAlpha = 0.9 * t; octx.font = '16px system-ui, sans-serif'; const w = octx.measureText(b.text).width + 20; const h = 36; let x = b.x - w/2, y = b.y - h - 8; x = Math.max(6, Math.min(x, ov.width - w - 6)); y = Math.max(6, Math.min(y, ov.height - h - 6)); octx.fillStyle = b.color; octx.strokeStyle = b.stroke; octx.lineWidth = 2; roundedRect(octx, x, y, w, h, 10); octx.fill(); octx.stroke(); octx.fillStyle = '#fff'; octx.textBaseline='middle'; octx.textAlign='center'; octx.fillText(b.text, x + w/2, y + h/2); octx.globalAlpha = 1; }
 }
 
-
 // ========= 検出 =========
-// ... (startCam, stopCam, detectOnce, etc. functions remain mostly the same)
 let stream=null, rafId=null, detector=null, useBD=('BarcodeDetector' in window) && !FORCE_LEGACY;
 function stopCam(){ cancelAnimationFrame(rafId); rafId=null; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } $("#btnStart").disabled=false; $("#btnStop").disabled=true; }
 function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
@@ -354,16 +293,9 @@ async function detectOnce(){ const ow = det.width*SCAN_SCALE, oh = det.height*SC
 
 function refreshCandidates(hits) {
   candidates = hits.map(h => {
-    const kind = classify(h.raw);
-    const parsed = parse(h.raw);
-    if (kind === 'loc' && parsed.loc) {
-      const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
-      return { kind, raw: h.raw, parsed, corners: h.corners, registered };
-    } else if (kind === 'die' && parsed.bn && parsed.wc) {
-      const key = dieKey(parsed.bn, parsed.wc);
-      const registered = fixedDies.has(key);
-      return { kind, raw: h.raw, parsed, corners: h.corners, registered };
-    }
+    const kind = classify(h.raw); const parsed = parse(h.raw);
+    if (kind === 'loc' && parsed.loc) { const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc); return { kind, raw: h.raw, parsed, corners: h.corners, registered }; }
+    else if (kind === 'die' && parsed.bn && parsed.wc) { const key = dieKey(parsed.bn, parsed.wc); const registered = fixedDies.has(key); return { kind, raw: h.raw, parsed, corners: h.corners, registered }; }
     return null;
   }).filter(Boolean);
 }
@@ -371,56 +303,29 @@ function refreshCandidates(hits) {
 function autoLock() {
   if (!fixedLoc) {
     const cLoc = candidates.find(c => c.kind === 'loc' && !c.registered);
-    if (cLoc) {
-      fixedLoc = { loc: cLoc.parsed.loc, raw: cLoc.raw };
-      updateUIState();
-      addFlash('loc', cLoc.corners);
-      addBubble('loc', cLoc.corners, '棚を固定');
-      playBeep(660, 130); buzz(40); toast("棚を固定", cLoc.parsed.loc);
-    }
+    if (cLoc) { fixedLoc = { loc: cLoc.parsed.loc, raw: cLoc.raw }; updateUIState(); addFlash('loc', cLoc.corners); addBubble('loc', cLoc.corners, '棚を固定'); playBeep(660, 130); buzz(40); toast("棚を固定", cLoc.parsed.loc); }
   }
   if (fixedLoc) {
     for (const c of candidates) {
       if (c.kind !== 'die' || c.registered) continue;
       const key = dieKey(c.parsed.bn, c.parsed.wc);
-      if (!fixedDies.has(key)) {
-        const wn = c.parsed.wn || tryExtractWN(c.raw) || "";
-        fixedDies.set(key, { bn: c.parsed.bn, wc: c.parsed.wc, wn, raw: c.raw, addedAt: Date.now() });
-        renderDies();
-        addFlash('die', c.corners);
-        addBubble('die', c.corners, '型を登録');
-        playBeep(880, 120); buzz(30); toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`);
-      }
+      if (!fixedDies.has(key)) { const wn = c.parsed.wn || tryExtractWN(c.raw) || ""; fixedDies.set(key, { bn: c.parsed.bn, wc: c.parsed.wc, wn, raw: c.raw, addedAt: Date.now() }); renderDies(); addFlash('die', c.corners); addBubble('die', c.corners, '型を登録'); playBeep(880, 120); buzz(30); toast("型を追加", `${c.parsed.bn}-${c.parsed.wc}`); }
     }
   }
 }
 
-async function tick() {
-  if (!stream) return;
-  const hits = await detectOnce();
-  refreshCandidates(hits);
-  autoLock();
-  drawOverlays();
-  rafId = requestAnimationFrame(tick);
-}
+async function tick() { if (!stream) return; const hits = await detectOnce(); refreshCandidates(hits); autoLock(); drawOverlays(); rafId = requestAnimationFrame(tick); }
 
 // ========= 画像からテスト =========
 $("#fileTest").addEventListener("change", async (ev) => {
     const f = ev.target.files?.[0]; if (!f) return;
     const img = new Image();
     img.onload = async () => {
-        ov.width = img.width; ov.height = img.height;
-        det.width = img.width; det.height = img.height;
-        const off = new OffscreenCanvas(img.width, img.height);
-        const ctx0 = off.getContext("2d"); ctx0.drawImage(img, 0, 0);
+        ov.width = img.width; ov.height = img.height; det.width = img.width; det.height = img.height;
+        const off = new OffscreenCanvas(img.width, img.height); const ctx0 = off.getContext("2d"); ctx0.drawImage(img, 0, 0);
         const imgData = ctx0.getImageData(0, 0, img.width, img.height);
-        const hits = jsqrMulti(imgData, img.width, img.height, 14).map(h => ({
-            raw: h.raw.trim(), corners: h.corners.map(p => ({ x: p.x, y: p.y }))
-        }));
-        refreshCandidates(hits);
-        autoLock();
-        drawOverlays();
-        ev.target.value = "";
+        const hits = jsqrMulti(imgData, img.width, img.height, 14).map(h => ({ raw: h.raw.trim(), corners: h.corners.map(p => ({ x: p.x, y: p.y })) }));
+        refreshCandidates(hits); autoLock(); drawOverlays(); ev.target.value = "";
     };
     img.src = URL.createObjectURL(f);
 });
@@ -428,38 +333,27 @@ $("#fileTest").addEventListener("change", async (ev) => {
 // ========= 送信 =========
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
-   const now = new Date(); const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0'), d = String(now.getDate()).padStart(2, '0');
-   const captured_date = `${y}-${m}-${d}`;
-   const items = [...fixedDies.values()].map(d => ({ book: d.bn, wc: d.wc, wn: d.wn || "", loc: fixedLoc.loc }));
-   const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
+  const now = new Date(); const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0'), d = String(now.getDate()).padStart(2, '0');
+  const captured_date = `${y}-${m}-${d}`;
+  const items = [...fixedDies.values()].map(d => ({ book: d.bn, wc: d.wc, wn: d.wn || "", loc: fixedLoc.loc, captured_at: captured_date }));
+  const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
   
-  // 標準のconfirmの代わりに、UIで確認を促す（今回は簡易的にconfirmを使用）
-  if (!confirm(`以下の内容をGoogle Sheetsに反映しますか？\n\n${msg}`)) return;
+  if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされます)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
-  btnUpdate.disabled = true;
-  btnUpdate.classList.add('loading');
-  btnLabel.textContent = "更新中...";
+  btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
 
   try {
     const r = await fetch(SHEET_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
     if (!r.ok) throw new Error(await r.text());
     const j = await r.json();
     if (!j.ok) throw new Error(JSON.stringify(j));
-    toast("Google Sheets 更新完了");
-    playBeep(520, 140);
-    // 成功したらリセット
-    fixedLoc = null;
-    fixedDies.clear();
-    renderDies();
-    updateUIState();
+    toast("データベース登録完了"); playBeep(520, 140);
+    fixedLoc = null; fixedDies.clear(); renderDies(); updateUIState();
   } catch (e) {
-    alert("更新に失敗しました: " + (e.message || e));
+    alert("登録に失敗しました: " + (e.message || e));
   } finally {
-    btnUpdate.disabled = false;
-    btnUpdate.classList.remove('loading');
-    btnLabel.textContent = "Google Sheets に更新";
-    updateUIState(); // ボタンの状態を再評価
+    btnUpdate.disabled = false; btnUpdate.classList.remove('loading'); btnLabel.textContent = "データベースに登録"; updateUIState();
   }
 }
 
