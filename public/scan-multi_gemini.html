@@ -338,7 +338,7 @@ async function submitUpdate() {
   const items = [...fixedDies.values()].map(d => ({ book: d.bn, wc: d.wc, wn: d.wn || "", loc: fixedLoc.loc, captured_at: captured_date }));
   const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
   
-  if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされます)`)) return;
+  if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされ、カメラは停止します)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
   btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
@@ -348,12 +348,26 @@ async function submitUpdate() {
     if (!r.ok) throw new Error(await r.text());
     const j = await r.json();
     if (!j.ok) throw new Error(JSON.stringify(j));
-    toast("データベース登録完了"); playBeep(520, 140);
-    fixedLoc = null; fixedDies.clear(); renderDies(); updateUIState();
+    
+    toast("データベース登録完了");
+    playBeep(520, 140);
+    
+    // 状態をリセット
+    fixedLoc = null;
+    fixedDies.clear();
+    renderDies();
+    updateUIState();
+    
+    // ★★★ 登録成功後にカメラを停止 ★★★
+    stopCam(); 
+
   } catch (e) {
     alert("登録に失敗しました: " + (e.message || e));
   } finally {
-    btnUpdate.disabled = false; btnUpdate.classList.remove('loading'); btnLabel.textContent = "データベースに登録"; updateUIState();
+    btnUpdate.disabled = false;
+    btnUpdate.classList.remove('loading');
+    btnLabel.textContent = "データベースに登録";
+    updateUIState();
   }
 }
 
