@@ -2,422 +2,514 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>抜型を探す（ターゲット強調）</title>
+<title>抜型ファインダー</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
-    --ok:#1c7ed6;   /* 一致=青 */
-    --ng:#e03131;   /* 不一致=赤 */
-    --loc:#2b8a3e;  /* LOC=緑 */
-    --bd:#ddd; --tx:#222; --sub:#666;
+    --ok: #1c7ed6;      /* 一致=青 */
+    --ng: #e03131;      /* 不一致=赤 */
+    --loc: #2b8a3e;     /* LOC=緑 */
+    --info: #f59f00;    /* 情報=オレンジ */
+    --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
+    --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
   }
-  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 10px; color: var(--tx); }
-  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
-  .panel{flex:1 1 360px;min-width:320px}
-  video{width:100%;max-width:520px;border:1px solid var(--bd);border-radius:12px;background:#000}
-  canvas{position:absolute;inset:0;pointer-events:none}
-  .stack{position:relative;max-width:520px}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
-  button{padding:12px 16px;border-radius:12px;border:1px solid var(--bd);background:#fff;cursor:pointer}
-  .pill{border-radius:999px}
-  .badge{display:inline-block;border-radius:8px;padding:2px 8px;font-size:12px;background:#eef;color:#224}
-  .target{font-size:14px}
-  .target b{font-size:16px}
-  .fixedBar{
-    position:fixed;left:10px;top:10px;
-    background:#e8f5e9;color:#0a5; border:1px solid #0a5;
-    padding:6px 10px;border-radius:10px;font-weight:700; font-size:16px;
-  }
-  .toast{
-    position:absolute; padding:6px 8px; background:#000c; color:#fff; border-radius:8px; font-size:12px;
-    transform:translate(-50%,-150%); pointer-events:none;
-  }
-  .legend{font-size:12px;color:#555}
-  .okChip{background:#e6fcf5;color:#087f5b;border:1px solid #96f2d7;padding:0 6px;border-radius:6px}
-  .ngChip{background:#fff5f5;color:#e03131;border:1px solid #ffc9c9;padding:0 6px;border-radius:6px}
-  .muted{color:#666;font-size:12px}
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 0; padding: 12px; color: var(--tx); background: #f8f9fa; }
+  h3, h4 { margin: 0 0 8px 0; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .panel { flex: 1 1 360px; min-width: 320px; }
+  .card { background: #fff; border: 1px solid var(--bd); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  video { width: 100%; max-width: 520px; border-radius: 12px; background: #000; display: block; }
+  .stack { position: relative; max-width: 520px; border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; }
+  canvas { position: absolute; inset: 0; pointer-events: none; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+  button { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--bd); background: #fff; cursor: pointer; font-size: 14px; transition: background-color 0.2s; }
+  button:disabled { cursor: not-allowed; opacity: 0.6; }
+  button.primary { background: var(--ok); color: #fff; border-color: var(--ok); }
+  button:hover:not(:disabled) { background-color: #f1f3f5; }
+  button.primary:hover:not(:disabled) { background: #339af0; }
+  .badge { display: inline-block; border-radius: 6px; padding: 4px 8px; font-size: 12px; border: 1px solid var(--bd); background: #f1f3f5; }
+  .target-info b { font-size: 1.1em; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
+  .chip.ok { background: var(--bg-ok); color: var(--ok); border: 1px solid #a5d8ff; }
+  .chip.ng { background: var(--bg-ng); color: var(--ng); border: 1px solid #ffc9c9; }
+  .chip.loc { background: var(--bg-loc); color: var(--loc); border: 1px solid #96f2d7; }
+  .muted { color: var(--sub); font-size: 14px; }
+  .toast { position: absolute; padding: 8px 12px; background: #000c; color: #fff; border-radius: 8px; font-size: 14px; transform: translate(-50%, -150%); pointer-events: none; animation: fade-out 1.2s forwards; }
+  @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+  .legend { font-size: 12px; color: #555; margin-top: 8px; }
+
+  /* Modal Styles */
+  .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+  .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 12px; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
+  .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
+  .close-button:hover, .close-button:focus { color: black; }
+  #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+  #historyList li:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
-  <div class="fixedBar" id="fixed">固定棚: （なし）</div>
-
-  <h3 style="margin:6px 0 8px">棚→型の順にスキャン（自動登録）</h3>
-  <div class="controls">
-    <a id="btnList" class="badge" href="javascript:void(0)">スキャン結果確認</a>
-    <button id="btnStart" class="pill">カメラ開始</button>
-    <button id="btnStop"  class="pill" disabled>停止</button>
-  </div>
-
-  <div class="panel">
-    <div class="target">
-      目的の抜型：<b id="tgtBN">-</b> [<b id="tgtWC">-</b>] <span class="badge" id="tgtWN"></span>
-      <div class="legend" style="margin-top:4px">
-        <span class="okChip">青枠＝一致（ロック）</span>　<span class="ngChip">赤枠＝不一致</span>　<span class="badge" style="background:#e8f5e9;color:#2b8a3e;border:1px solid #b7e4c7">緑枠＝LOC</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="row" style="margin-top:8px">
+  <div class="row">
     <div class="panel">
       <div class="stack" id="stack">
-        <video id="v" playsinline muted></video>
-        <canvas id="ov"></canvas>
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
       </div>
       <div class="controls">
-        <label class="badge">画像でテスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></label>
-        <span id="cap" class="badge"></span>
+        <span id="scanStatus" class="badge">待機中</span>
+        <label class="badge" style="cursor:pointer">画像でテスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></label>
+        <span id="detectorInfo" class="badge"></span>
       </div>
-      <div id="status" class="muted">準備中…</div>
-      <div id="err" class="muted" style="color:#b00;white-space:pre-wrap"></div>
+      <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
     </div>
 
     <div class="panel">
-      <div class="badge">ヒント</div>
-      <div class="muted" style="margin-top:6px">
-        ・URL パラメータ <code>?book=&wc=&wn=</code> を使います。<br>
-        ・プレーン型 <code>die-Book-WorkCord</code> も URL型 <code>?book=&wc=</code> も検知します。<br>
-        ・一致したコードは<strong style="color:var(--ok)">青枠＆音</strong>でロック表示、LOCは<strong style="color:var(--loc)">緑枠</strong>、その他は<strong style="color:var(--ng)">赤枠</strong>です。
+      <div class="card">
+        <h4><span_style="font-size:1.2em;">🎯</span> ターゲット</h4>
+        <div class="target-info">
+          Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br>
+          <span id="tgtWN" class="muted"></span>
+        </div>
       </div>
+
+      <div class="card">
+        <h4><span_style="font-size:1.2em;"> 棚</span> 探すべき棚</h4>
+        <div id="currentShelf" class="muted">（URLで棚が指定されていません）</div>
+      </div>
+
+      <div class="card">
+        <h4><span_style="font-size:1.2em;">⚙️</span> 操作</h4>
+        <div class="controls">
+          <button id="btnStart" class="primary">カメラ開始</button>
+          <button id="btnStop" disabled>停止</button>
+          <button id="btnHistory">スキャン履歴</button>
+        </div>
+        <div class="legend">
+          <span class="chip ok">一致</span>
+          <span class="chip ng">不一致</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4><span_style="font-size:1.2em;">💡</span> ヒント</h4>
+        <div class="muted" style="font-size:13px;">
+          ・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>
+          ・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音でお知らせします。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="historyModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4>スキャン履歴</h4>
+        <span id="closeModal" class="close-button">&times;</span>
+      </div>
+      <ul id="historyList"></ul>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
   <script>
-  // ===== パラメータ =====
-  const P = new URLSearchParams(location.search);
-  const TGT = { book:(P.get("book")||"").trim(), wc:(P.get("wc")||"").trim(), wn:(P.get("wn")||"").trim() };
-  document.getElementById("tgtBN").textContent = TGT.book || "-";
-  document.getElementById("tgtWC").textContent = TGT.wc   || "-";
-  document.getElementById("tgtWN").textContent = TGT.wn   || "";
-
-  // ===== 要素 =====
-  const v = document.getElementById("v");
-  const ov = document.getElementById("ov");
-  const octx = ov.getContext("2d", { willReadFrequently:true });
-  const statusEl = document.getElementById("status");
-  const errEl = document.getElementById("err");
-  const capEl = document.getElementById("cap");
-  const fixedEl = document.getElementById("fixed");
-  const stack = document.getElementById("stack");
-  const btnStart = document.getElementById("btnStart");
-  const btnStop = document.getElementById("btnStop");
-
-  // ===== 端末機能 =====
-  let stream=null, rafId=null, detector=null;
-  let useBD = ('BarcodeDetector' in window);
-  capEl.textContent = useBD ? "BarcodeDetector + jsQR" : "jsQR only";
-
-  // ===== オーディオ（パワーアップしたロック音） =====
-  const powerBeep = (() => {
-    let ctx;
-    function env(g, t0, a=0.01, d=0.12){
-      g.gain.cancelScheduledValues(t0);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.6, t0 + a);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);
-    }
-    return () => {
-      try{
-        ctx = ctx || new (window.AudioContext||window.webkitAudioContext)();
-        const t0 = ctx.currentTime;
-
-        // 基本2音（力強い）
-        const o1 = ctx.createOscillator(); o1.type="square"; o1.frequency.value=880;
-        const g1 = ctx.createGain(); env(g1, t0, 0.01, 0.18); o1.connect(g1).connect(ctx.destination);
-
-        const o2 = ctx.createOscillator(); o2.type="square"; o2.frequency.value=1320;
-        const g2 = ctx.createGain(); env(g2, t0, 0.01, 0.18); o2.connect(g2).connect(ctx.destination);
-
-        // 短いノイズでアタック付与
-        const buffer = ctx.createBuffer(1, ctx.sampleRate*0.08, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i=0;i<data.length;i++) data[i] = (Math.random()*2-1) * (1 - i/data.length); // 短い減衰
-        const noise = ctx.createBufferSource(); noise.buffer = buffer;
-        const ng = ctx.createGain(); env(ng, t0, 0.005, 0.05); noise.connect(ng).connect(ctx.destination);
-
-        o1.start(t0); o2.start(t0); noise.start(t0);
-        o1.stop(t0+0.22); o2.stop(t0+0.22); noise.stop(t0+0.22);
-      }catch{}
+  document.addEventListener('DOMContentLoaded', () => {
+    // ===== DOM Elements =====
+    const DOM = {
+      video: document.getElementById('video'),
+      overlay: document.getElementById('overlay'),
+      stack: document.getElementById('stack'),
+      btnStart: document.getElementById('btnStart'),
+      btnStop: document.getElementById('btnStop'),
+      btnHistory: document.getElementById('btnHistory'),
+      tgtBN: document.getElementById('tgtBN'),
+      tgtWC: document.getElementById('tgtWC'),
+      tgtWN: document.getElementById('tgtWN'),
+      currentShelf: document.getElementById('currentShelf'),
+      scanStatus: document.getElementById('scanStatus'),
+      detectorInfo: document.getElementById('detectorInfo'),
+      error: document.getElementById('error'),
+      fileTest: document.getElementById('fileTest'),
+      historyModal: document.getElementById('historyModal'),
+      historyList: document.getElementById('historyList'),
+      closeModal: document.getElementById('closeModal'),
     };
-  })();
+    const overlayCtx = DOM.overlay.getContext('2d', { willReadFrequently: true });
 
-  // ===== 正規化 & パース =====
-  const normalizeHyphen = s => (s||"").replace(/[‐-‒–—―ー−]/g, "-");
-  const classify = (s)=>{
-    const t = normalizeHyphen((s||"").trim());
-    if(/^loc-/i.test(t)) return "loc";
-    if(/^die-/i.test(t)) return "die";
-    try{ const u=new URL(t); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{}
-    return "other";
-  };
-  const parseDie = (text)=>{
-    const s = normalizeHyphen((text||"").trim());
-    // die-Book-WorkCord[-WorkName] に対応（3つ目は任意）
-    let m = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/.exec(s);
-    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:(m[3]||"").trim() }; }
-    try{
-      const u=new URL(s);
-      const book=(u.searchParams.get("book")||"").trim();
-      const wc=(u.searchParams.get("wc")||"").trim();
-      if(book||wc) return { bn:book, wc:wc, wn: (u.searchParams.get("wn")||"").trim() };
-    }catch{}
-    return null;
-  };
-  const dieKey = (bn,wc)=>`${(bn||"").trim().toLowerCase()}@@${(wc||"").trim().toLowerCase()}`;
-  const tgtKey = dieKey(TGT.book, TGT.wc);
-
-  // ===== 枠描画 =====
-  function drawBox(loc, color="#f00", lw=3, label=""){
-    const pts = loc ? [loc.topLeftCorner,loc.topRightCorner,loc.bottomRightCorner,loc.bottomLeftCorner] : null;
-    if(!pts) return;
-    octx.save();
-    octx.lineWidth = lw; octx.strokeStyle = color;
-    octx.shadowColor = color; octx.shadowBlur = 4;
-    octx.beginPath();
-    octx.moveTo(pts[0].x, pts[0].y);
-    for(let i=1;i<pts.length;i++) octx.lineTo(pts[i].x, pts[i].y);
-    octx.closePath(); octx.stroke();
-    if(label){
-      const x = (pts[0].x + pts[2].x)/2;
-      const y = Math.min(pts[0].y, pts[1].y) - 8;
-      octx.fillStyle = color; octx.font="14px system-ui"; octx.textAlign="center";
-      octx.fillText(label, x, y<14?14:y);
-    }
-    octx.restore();
-  }
-  function drawBoxPts(pts, color="#f00", lw=3, label=""){
-    if(!pts||pts.length<4) return;
-    octx.save();
-    octx.lineWidth = lw; octx.strokeStyle = color;
-    octx.shadowColor = color; octx.shadowBlur = 4;
-    octx.beginPath();
-    octx.moveTo(pts[0].x, pts[0].y);
-    for(let i=1;i<pts.length;i++) octx.lineTo(pts[i].x, pts[i].y);
-    octx.closePath(); octx.stroke();
-    if(label){
-      const x = (pts[0].x + pts[2].x)/2;
-      const y = Math.min(pts[0].y, pts[1].y) - 8;
-      octx.fillStyle = color; octx.font="14px system-ui"; octx.textAlign="center";
-      octx.fillText(label, x, y<14?14:y);
-    }
-    octx.restore();
-  }
-
-  // ===== オーバレイ調整 =====
-  function fitOverlay(){
-    ov.width  = v.videoWidth  || ov.width;
-    ov.height = v.videoHeight || ov.height;
-    ov.style.width  = v.clientWidth + "px";
-    ov.style.height = v.clientHeight + "px";
-  }
-
-  // ===== カメラ制御 =====
-  function stopCam(){
-    cancelAnimationFrame(rafId); rafId=null;
-    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-    btnStart.disabled=false; btnStop.disabled=true;
-    statusEl.textContent = "停止中";
-  }
-  function showError(e){ console.error(e); errEl.textContent = `❌ ${e?.name||""} ${e?.message||e}`; }
-
-  async function startCam(){
-    stopCam(); errEl.textContent="";
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} },
-        audio:false
-      });
-    }catch(e){ showError(e); return; }
-    v.srcObject = stream;
-    try{ await v.play(); }catch(e){ showError(e); return; }
-    btnStart.disabled=true; btnStop.disabled=false;
-    if(useBD){ try{ detector = new BarcodeDetector({ formats:["qr_code"] }); }catch{ useBD=false; detector=null; } }
-    fitOverlay();
-    tick();
-  }
-
-  // ===== 複数検出（BD + jsQR） =====
-  function jsqrMulti(imgData, w, h, max=18){
-    const out=[], data = new Uint8ClampedArray(imgData.data);
-    const maskRect = loc=>{
-      const xs=[loc.topLeftCorner.x,loc.topRightCorner.x,loc.bottomRightCorner.x,loc.bottomLeftCorner.x];
-      const ys=[loc.topLeftCorner.y,loc.topRightCorner.y,loc.bottomRightCorner.y,loc.bottomLeftCorner.y];
-      const x0=Math.max(0,Math.min(...xs)|0), x1=Math.min(w,Math.max(...xs)|0);
-      const y0=Math.max(0,Math.min(...ys)|0), y1=Math.min(h,Math.max(...ys)|0);
-      for(let y=y0;y<y1;y++){ for(let x=x0;x<x1;x++){ const i=(y*w+x)*4; data[i]=data[i+1]=data[i+2]=255; data[i+3]=255; } }
+    // ===== App State =====
+    const state = {
+      stream: null,
+      rafId: null,
+      detector: null,
+      useBarcodeDetector: ('BarcodeDetector' in window),
+      isLocked: false,
+      holdTimer: null,
+      currentTarget: {},
+      targetKey: '',
+      currentShelf: null,
+      scanHistory: new Map(),
     };
-    for(let k=0;k<max;k++){
-      const hit = jsQR(data, w, h, { inversionAttempts:'attemptBoth' });
-      if(!hit) break;
-      out.push(hit); maskRect(hit.location);
+
+    // ===== Config =====
+    const CONFIG = {
+      colors: {
+        ok: getComputedStyle(document.documentElement).getPropertyValue('--ok').trim(),
+        ng: getComputedStyle(document.documentElement).getPropertyValue('--ng').trim(),
+        loc: getComputedStyle(document.documentElement).getPropertyValue('--loc').trim(),
+      },
+      holdDuration: 2500, // Lock duration in ms
+      lockCooldown: 700, // Cooldown for re-locking
+    };
+
+    // ===== Audio Beep =====
+    const powerBeep = (() => {
+      let audioCtx;
+      const play = () => {
+        try {
+          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+          const t0 = audioCtx.currentTime;
+          const createOsc = (freq, type, gainEnv) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gainEnv(gain.gain, t0);
+            osc.connect(gain).connect(audioCtx.destination);
+            return osc;
+          };
+          const env = (g, t) => {
+            g.setValueAtTime(0.0001, t);
+            g.exponentialRampToValueAtTime(0.5, t + 0.01);
+            g.exponentialRampToValueAtTime(0.0001, t + 0.18);
+          };
+          const o1 = createOsc(880, "square", env);
+          const o2 = createOsc(1320, "square", env);
+          o1.start(t0); o2.start(t0);
+          o1.stop(t0 + 0.2); o2.stop(t0 + 0.2);
+        } catch (e) { console.error("Audio playback failed:", e); }
+      };
+      return play;
+    })();
+
+    // ===== QR Code Parsing & Classification =====
+    const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
+    const classify = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      if (/^loc-/i.test(text)) return "loc";
+      if (/^die-/i.test(text)) return "die";
+      try {
+        const url = new URL(text);
+        if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
+      } catch {}
+      return "other";
+    };
+    const parseDie = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/.exec(text);
+      if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
+      try {
+        const url = new URL(text);
+        const book = url.searchParams.get("book") || "";
+        const wc = url.searchParams.get("wc") || "";
+        if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() };
+      } catch {}
+      return null;
+    };
+    const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
+
+    // ===== Canvas Drawing =====
+    function drawBox(points, color, label) {
+      if (!points || points.length < 4) return;
+      overlayCtx.save();
+      overlayCtx.lineWidth = (label === '一致') ? 5 : 3;
+      overlayCtx.strokeStyle = color;
+      overlayCtx.shadowColor = color;
+      overlayCtx.shadowBlur = 4;
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
+      overlayCtx.closePath();
+      overlayCtx.stroke();
+      if (label) {
+        const x = (points[0].x + points[2].x) / 2;
+        const y = Math.min(points[0].y, points[1].y) - 8;
+        overlayCtx.fillStyle = color;
+        overlayCtx.font = "bold 16px system-ui";
+        overlayCtx.textAlign = "center";
+        overlayCtx.fillText(label, x, y < 16 ? 16 : y);
+      }
+      overlayCtx.restore();
     }
-    return out;
-  }
+    
+    function showToastNearBox(text, points) {
+        if(!points || points.length < 2) return;
+        const el = document.createElement("div");
+        el.className = "toast";
+        el.textContent = text;
+        const x = (points[0].x + points[1].x) / 2;
+        const y = Math.min(points[0].y, points[1].y);
+        const rx = x / DOM.overlay.width * DOM.video.clientWidth;
+        const ry = y / DOM.overlay.height * DOM.video.clientHeight;
+        el.style.left = rx + "px";
+        el.style.top = ry + "px";
+        DOM.stack.appendChild(el);
+        setTimeout(() => el.remove(), 1200);
+    }
 
-  // ===== ロック後フリーズ制御 =====
-  let lockedOnce = false;
-  let holdTimer = null;
-  function holdNow(ms=2500){
-    if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
-    const savedTrackState = stream ? stream.getVideoTracks()[0].enabled : null;
-    // 映像は流し続け、描画ループだけ止める（カメラ再開のレイテンシ回避）
-    cancelAnimationFrame(rafId); rafId=null;
-    statusEl.textContent = "ロック中…";
-    holdTimer = setTimeout(()=>{ if(!rafId) tick(); holdTimer=null; }, ms);
-  }
+    // ===== Camera Control =====
+    function fitOverlay() {
+      if (DOM.video.videoWidth === 0) return;
+      DOM.overlay.width = DOM.video.videoWidth;
+      DOM.overlay.height = DOM.video.videoHeight;
+      DOM.overlay.style.width = DOM.video.clientWidth + "px";
+      DOM.overlay.style.height = DOM.video.clientHeight + "px";
+    }
 
-  // ===== 検出統合＆描画 =====
-  function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
-  async function detectCombined(){
-    // 1フレームを canvas に転写
-    const tmp = document.createElement("canvas");
-    tmp.width = v.videoWidth; tmp.height = v.videoHeight;
-    const tctx = tmp.getContext("2d", { willReadFrequently:true });
-    // 画像強調（コントラスト/明度）— 軽微に
-    tctx.filter = "contrast(115%) brightness(105%)";
-    tctx.drawImage(v,0,0,tmp.width,tmp.height);
+    function stopCam() {
+      if (state.rafId) cancelAnimationFrame(state.rafId);
+      state.rafId = null;
+      if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+      state.stream = null;
+      DOM.btnStart.disabled = false;
+      DOM.btnStop.disabled = true;
+      updateStatus("停止中");
+    }
 
-    const list = [];
+    function showError(e) {
+      console.error(e);
+      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
+    }
 
-    // A) BarcodeDetector
-    if(useBD && detector){
-      try{
-        const codes = await detector.detect(tmp);
-        for(const b of codes){
-          const pts = b.cornerPoints?.map(p=>({x:p.x,y:p.y})) || null;
-          list.push({ raw:(b.rawValue||"").trim(), pts });
+    async function startCam() {
+      stopCam();
+      DOM.error.textContent = "";
+      try {
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        DOM.video.srcObject = state.stream;
+        await DOM.video.play();
+        DOM.btnStart.disabled = true;
+        DOM.btnStop.disabled = false;
+        if (state.useBarcodeDetector) {
+          try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
+          catch { state.useBarcodeDetector = false; state.detector = null; }
         }
-      }catch{ /* fallback to jsQR only */ }
-    }
-
-    // B) jsQR (multi)
-    const imgData = tctx.getImageData(0,0,tmp.width,tmp.height);
-    const hits = jsqrMulti(imgData, tmp.width, tmp.height, 18);
-    const seen = new Set(list.map(x=>x.raw));
-    for(const h of hits){
-      const raw = (h.data||"").trim();
-      if(!seen.has(raw)){
-        const pts = [
-          h.location.topLeftCorner, h.location.topRightCorner,
-          h.location.bottomRightCorner, h.location.bottomLeftCorner
-        ].map(p=>({x:p.x,y:p.y}));
-        list.push({ raw, pts });
+        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
+        fitOverlay();
+        tick();
+      } catch (e) {
+        showError(e);
+        updateStatus("カメラエラー", "ng");
       }
     }
-    return list;
-  }
 
-  function showToastNearBox(text, loc){
-    const el = document.createElement("div");
-    el.className="toast";
-    el.textContent = text;
-    // loc は四隅点を期待
-    const pts = loc && loc.topLeftCorner ? [loc.topLeftCorner,loc.topRightCorner] : loc;
-    const x = (pts[0].x + pts[1].x)/2;
-    const y = Math.min(pts[0].y, pts[1].y);
-    const rx = x / ov.width * v.clientWidth;
-    const ry = y / ov.height * v.clientHeight;
-    el.style.left = rx+"px"; el.style.top = ry+"px";
-    stack.appendChild(el);
-    setTimeout(()=> el.remove(), 1200);
-  }
-
-  function applyDetections(list){
-    let anyMatch=false;
-    octx.clearRect(0,0,ov.width,ov.height);
-
-    for(const d of (list||[])){
-      const raw=(d.raw||"").trim();
-      if(!raw) continue;
-
-      const kind = classify(raw);
-
-      // 1) 抜型（die）
-      if(kind === "die"){
-        const p = parseDie(raw);
-        const key = p ? dieKey(p.bn,p.wc) : "";
-        const isMatch = key && key === tgtKey;
-        anyMatch = anyMatch || isMatch;
-
-        drawBoxPts(d.pts, isMatch ? getCss('--ok') : getCss('--ng'), isMatch ? 5 : 3, isMatch ? "一致" : "不一致");
-
-        // ロック演出（連打防止）
-        if(isMatch && !lockedOnce){
-          lockedOnce = true;
-          powerBeep();
-          // d.pts は配列。トーストは上辺中心に出す
-          const locLike = { topLeftCorner:d.pts[0], topRightCorner:d.pts[1] };
-          showToastNearBox("ロック", locLike);
-          holdNow(2500); // 2.5秒ホールド
-          setTimeout(()=>{ lockedOnce=false; }, 700); // 小さなクールダウン
+    // ===== QR Code Detection =====
+    function jsqrMulti(imgData) {
+        const { data, width, height } = imgData;
+        const out = [];
+        const maskedData = new Uint8ClampedArray(data);
+        for (let k = 0; k < 10; k++) {
+            const hit = jsQR(maskedData, width, height, { inversionAttempts: 'dontInvert' });
+            if (!hit) break;
+            out.push({ rawValue: hit.data, cornerPoints: [hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner]});
+            // Mask the found QR code to find others
+            const { topLeftCorner, bottomRightCorner } = hit.location;
+            for (let y = Math.floor(topLeftCorner.y); y < Math.ceil(bottomRightCorner.y); y++) {
+                for (let x = Math.floor(topLeftCorner.x); x < Math.ceil(bottomRightCorner.x); x++) {
+                    const i = (y * width + x) * 4;
+                    maskedData[i] = maskedData[i + 1] = maskedData[i + 2] = 255;
+                }
+            }
         }
-        continue;
-      }
-
-      // 2) LOC（緑枠）
-      if(kind === "loc"){
-        drawBoxPts(d.pts, getCss('--loc'), 3, "LOC");
-        continue;
-      }
-
-      // 3) その他のQRも「不一致＝赤枠」で描画
-      drawBoxPts(d.pts, getCss('--ng'), 3, "別QR");
+        return out;
     }
 
-    statusEl.textContent = (list && list.length)
-      ? (anyMatch ? "目的の抜型をロック中" : `検知 ${list.length} 件（不一致）`)
-      : "探索中…";
-  }
+    async function detectCombined() {
+        if (!DOM.video.videoWidth) return [];
+        const tmpCanvas = document.createElement("canvas");
+        tmpCanvas.width = DOM.video.videoWidth;
+        tmpCanvas.height = DOM.video.videoHeight;
+        const tctx = tmpCanvas.getContext("2d", { willReadFrequently: true });
+        tctx.drawImage(DOM.video, 0, 0, tmpCanvas.width, tmpCanvas.height);
 
-  async function tick(){
-    if(!stream) return;
-    if(v.videoWidth){
-      fitOverlay();
-      const list = await detectCombined();
-      applyDetections(list);
+        const allDetections = new Map();
+
+        // 1. BarcodeDetector (if available)
+        if (state.useBarcodeDetector && state.detector) {
+            try {
+                const codes = await state.detector.detect(tmpCanvas);
+                codes.forEach(code => allDetections.set(code.rawValue, code));
+            } catch (e) {
+                console.warn("BarcodeDetector failed, falling back to jsQR.", e);
+            }
+        }
+        
+        // 2. jsQR as fallback or for multiple codes
+        const imgData = tctx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
+        const jsQRHits = jsqrMulti(imgData);
+        jsQRHits.forEach(hit => {
+            if (!allDetections.has(hit.rawValue)) {
+                allDetections.set(hit.rawValue, hit);
+            }
+        });
+
+        return Array.from(allDetections.values());
     }
-    rafId = requestAnimationFrame(tick);
-  }
 
-  // 画像テスト
-  document.getElementById("fileTest").addEventListener("change", async (ev)=>{
-    const f = ev.target.files?.[0]; if(!f) return;
-    const img = new Image();
-    img.onload = async ()=>{
-      // キャンバスに合わせる
-      ov.width = img.width; ov.height = img.height;
-      const tmp = document.createElement("canvas");
-      tmp.width=img.width; tmp.height=img.height;
-      const tctx=tmp.getContext("2d", { willReadFrequently:true });
-      tctx.filter="contrast(115%) brightness(105%)"; tctx.drawImage(img,0,0,tmp.width,tmp.height);
-      const imgData = tctx.getImageData(0,0,tmp.width,tmp.height);
-      const hits = jsqrMulti(imgData, tmp.width, tmp.height, 18).map(h=>({
-        raw:(h.data||"").trim(),
-        pts:[h.location.topLeftCorner,h.location.topRightCorner,h.location.bottomRightCorner,h.location.bottomLeftCorner]
-      }));
-      applyDetections(hits);
-      statusEl.textContent = "静止画テスト: 検知 "+hits.length+" 件";
-      ev.target.value="";
-    };
-    img.src = URL.createObjectURL(f);
+    // ===== Main Logic =====
+    function holdScan(ms) {
+      if (state.holdTimer) clearTimeout(state.holdTimer);
+      if (state.rafId) cancelAnimationFrame(state.rafId);
+      state.rafId = null;
+      updateStatus("ロック中", "ok");
+      state.holdTimer = setTimeout(() => {
+        if (!state.rafId) tick();
+        state.holdTimer = null;
+      }, ms);
+    }
+    
+    function updateHistory(raw, kind, isMatch) {
+        if (state.scanHistory.has(raw)) return;
+        state.scanHistory.set(raw, { kind, isMatch, time: new Date() });
+    }
+
+    function applyDetections(detections) {
+      let anyMatch = false;
+      overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
+
+      for (const d of (detections || [])) {
+        const raw = (d.rawValue || "").trim();
+        if (!raw) continue;
+        const kind = classify(raw);
+        const pts = d.cornerPoints;
+
+        if (kind === 'die') {
+          const p = parseDie(raw);
+          const key = p ? dieKey(p.bn, p.wc) : "";
+          const isMatch = key && key === state.targetKey;
+          anyMatch = anyMatch || isMatch;
+          
+          const color = isMatch ? CONFIG.colors.ok : CONFIG.colors.ng;
+          const label = isMatch ? "一致" : "不一致";
+          drawBox(pts, color, label);
+          updateHistory(raw, 'die', isMatch);
+
+          if (isMatch && !state.isLocked) {
+            state.isLocked = true;
+            powerBeep();
+            showToastNearBox("ロック", pts);
+            holdScan(CONFIG.holdDuration);
+            setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
+          }
+        } else { // 'loc' and 'other' are treated as 'other'
+          drawBox(pts, CONFIG.colors.ng, "別QR");
+          updateHistory(raw, 'other', false);
+        }
+      }
+
+      if (!state.holdTimer) {
+        const msg = detections.length > 0
+          ? (anyMatch ? "ターゲット発見" : `${detections.length}件検知 (不一致)`)
+          : "探索中...";
+        const statusType = anyMatch ? "ok" : (detections.length > 0 ? "ng" : "info");
+        updateStatus(msg, statusType);
+      }
+    }
+
+    async function tick() {
+      if (!state.stream) return;
+      if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
+        fitOverlay();
+        const detections = await detectCombined();
+        applyDetections(detections);
+      }
+      state.rafId = requestAnimationFrame(tick);
+    }
+
+    // ===== UI Updates & Event Handlers =====
+    function updateStatus(text, type = 'info') {
+      DOM.scanStatus.textContent = text;
+      DOM.scanStatus.className = `badge chip ${type}`;
+    }
+
+    function showHistoryModal() {
+        DOM.historyList.innerHTML = ''; // Clear previous list
+        if(state.scanHistory.size === 0){
+            DOM.historyList.innerHTML = '<li>まだスキャンされたQRコードはありません。</li>';
+        } else {
+            for (const [raw, data] of state.scanHistory.entries()) {
+                const li = document.createElement('li');
+                let status = '';
+                if(data.kind === 'die') status = data.isMatch ? '✔️ 一致' : '❌ 不一致';
+                if(data.kind === 'loc') status = ' 棚';
+                if(data.kind === 'other') status = '❓ その他';
+                li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`;
+                DOM.historyList.appendChild(li);
+            }
+        }
+        DOM.historyModal.style.display = 'block';
+    }
+
+    DOM.btnStart.addEventListener("click", startCam);
+    DOM.btnStop.addEventListener("click", stopCam);
+    DOM.btnHistory.addEventListener("click", showHistoryModal);
+    DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
+    window.addEventListener("click", (event) => {
+      if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none";
+    });
+    
+    // Image test handler
+    DOM.fileTest.addEventListener("change", async (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        const img = new Image();
+        img.onload = async () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width; canvas.height = img.height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const hits = jsqrMulti(imgData).map(h => ({ rawValue: h.rawValue, cornerPoints: h.cornerPoints }));
+            DOM.overlay.width = img.width; DOM.overlay.height = img.height;
+            applyDetections(hits);
+            updateStatus(`静止画テスト: ${hits.length}件検知`);
+            ev.target.value = "";
+        };
+        img.src = URL.createObjectURL(file);
+    });
+
+    // ===== Initialization =====
+    function initialize() {
+      const params = new URLSearchParams(location.search);
+      state.currentTarget = {
+        book: (params.get("book") || "").trim(),
+        wc: (params.get("wc") || "").trim(),
+        wn: (params.get("wn") || "").trim()
+      };
+      
+      if (!state.currentTarget.book || !state.currentTarget.wc) {
+        updateStatus("ターゲット未指定", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定してください。";
+        DOM.btnStart.disabled = true;
+      } else {
+        DOM.tgtBN.textContent = state.currentTarget.book;
+        DOM.tgtWC.textContent = state.currentTarget.wc;
+        DOM.tgtWN.textContent = state.currentTarget.wn;
+        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+        updateStatus("準備完了");
+      }
+      
+      const locParam = (params.get("loc") || "").trim();
+      if(locParam){
+          state.currentShelf = locParam;
+          DOM.currentShelf.textContent = state.currentShelf;
+          DOM.currentShelf.className = "chip loc";
+      }
+    }
+
+    initialize();
   });
-
-  // 固定棚表示（オプション：locパラメータがあれば表示強調）
-  const locParam = (P.get("loc")||"").trim();
-  if(locParam){
-    fixedEl.textContent = "固定棚: " + locParam;
-    fixedEl.style.background="#e6ffe6"; fixedEl.style.color="#086"; fixedEl.style.borderColor="#086";
-  }else{
-    fixedEl.textContent = "固定棚: （なし）";
-  }
-
-  // ボタン
-  document.getElementById("btnStart").addEventListener("click", startCam);
-  document.getElementById("btnStop").addEventListener("click", stopCam);
-  document.getElementById("btnList").addEventListener("click", ()=>alert("（ここに結果一覧ビューを後付けできます）"));
-
-  // 初期
-  statusEl.textContent = TGT.book && TGT.wc ? "カメラを開始してください" : "URLに ?book と ?wc を付与してください";
   </script>
 </body>
 </html>
