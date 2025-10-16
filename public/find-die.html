@@ -156,36 +156,39 @@
         ng: getComputedStyle(document.documentElement).getPropertyValue('--ng').trim(),
         loc: getComputedStyle(document.documentElement).getPropertyValue('--loc').trim(),
       },
-      holdDuration: 2500, // Lock duration in ms
+      // ▼▼▼ 修正点 2: ロック時間を3秒に変更 ▼▼▼
+      holdDuration: 3000, // Lock duration in ms (3 seconds)
       lockCooldown: 700, // Cooldown for re-locking
     };
 
     // ===== Audio Beep =====
-    const powerBeep = (() => {
+    // ▼▼▼ 修正点 1: ロック音をソフトな確認音に変更 ▼▼▼
+    const confirmationBeep = (() => {
       let audioCtx;
       const play = () => {
         try {
           audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
           const t0 = audioCtx.currentTime;
-          const createOsc = (freq, type, gainEnv) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type;
-            osc.frequency.value = freq;
-            gainEnv(gain.gain, t0);
-            osc.connect(gain).connect(audioCtx.destination);
-            return osc;
-          };
-          const env = (g, t) => {
-            g.setValueAtTime(0.0001, t);
-            g.exponentialRampToValueAtTime(0.5, t + 0.01);
-            g.exponentialRampToValueAtTime(0.0001, t + 0.18);
-          };
-          const o1 = createOsc(880, "square", env);
-          const o2 = createOsc(1320, "square", env);
-          o1.start(t0); o2.start(t0);
-          o1.stop(t0 + 0.2); o2.stop(t0 + 0.2);
-        } catch (e) { console.error("Audio playback failed:", e); }
+          
+          // Sine波で柔らかい音色に
+          const osc = audioCtx.createOscillator();
+          osc.type = 'sine';
+          // 少しずつピッチが上がる音
+          osc.frequency.setValueAtTime(600, t0);
+          osc.frequency.exponentialRampToValueAtTime(1200, t0 + 0.1);
+
+          // 音量を調整（フェードアウト）
+          const gain = audioCtx.createGain();
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02); // 素早い立ち上がり
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);  // 短く減衰
+
+          osc.connect(gain).connect(audioCtx.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.25);
+        } catch (e) {
+          console.error("Audio playback failed:", e);
+        }
       };
       return play;
     })();
@@ -397,7 +400,7 @@
 
           if (isMatch && !state.isLocked) {
             state.isLocked = true;
-            powerBeep();
+            confirmationBeep(); // 修正: 新しい音を再生
             showToastNearBox("ロック", pts);
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
