@@ -237,6 +237,7 @@ function renderDies() {
             <span class="sub">${escapeHtml(d.bn)}</span>
             <span class="wc">[<b>${escapeHtml(d.wc)}</b>]</span>
           </div>
+          ${d.wn ? `<div class="sub">WorkName: ${escapeHtml(d.wn)}</div>` : ''}
           <div class="sub">RAW: ${escapeHtml(d.raw.length > 70 ? d.raw.slice(0, 70) + "…" : d.raw)}</div>
         </div>
         <button class="btn btn-danger btn-sm" data-del="${key}">
@@ -264,7 +265,22 @@ let AC = null;
 function playBeep(freq = 880, dur = 120) { try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); const o = AC.createOscillator(), g = AC.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.value = 0.0001; o.connect(g); g.connect(AC.destination); const t = AC.currentTime; g.gain.exponentialRampToValueAtTime(0.08, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur / 1000); o.start(); o.stop(t + dur / 1000 + 0.02); } catch { } }
 function buzz(ms = 60) { if (navigator.vibrate) navigator.vibrate(ms); }
 function classify(s){ if(/^loc-/i.test(s)) return "loc"; if(/^die-/i.test(s)) return "die"; try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{} return "other"; }
-function parse(text){ const m = /^die-([^-\n]+)-(.+)$/.exec(text); if(m){ return { bn:m[1].trim(), wc:m[2].trim() }; } try{ const u=new URL(text); const book=(u.searchParams.get("book")||"").trim(); const wc=(u.searchParams.get("wc")||"").trim(); if(book||wc){ return { bn:book, wc:wc }; } }catch{} const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } return {}; }
+
+// ★ 修正: wn (WorkName) を抽出する関数を復活
+function tryExtractWN(raw){ try{ const u = new URL(raw); const m = /[#&]d=([^&]+)/.exec(u.hash||""); if(!m) return ""; const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : ''; const json = atob(b64 + pad); const obj = JSON.parse(json); return (obj.wn||"").trim(); }catch{ return ""; } }
+
+// ★ 修正: parse関数で wn も返すようにする
+function parse(text){ 
+    const m = /^die-([^-\n]+)-(.+)$/.exec(text); 
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; } // die- 形式の場合は wn は空
+    try{ const u=new URL(text); 
+        const book=(u.searchParams.get("book")||"").trim(); 
+        const wc=(u.searchParams.get("wc")||"").trim(); 
+        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; } // URL形式の場合は wn を抽出
+    }catch{} 
+    const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } 
+    return {}; 
+}
 
 // ========= 描画 (Canvas Overlays) =========
 function drawPolygon(ctx, points){ ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y); ctx.closePath(); }
@@ -351,7 +367,7 @@ function processScanResult(hit) {
     
     // 1フレームに1つのQRコードを処理するシンプルな形に変更
     const kind = classify(hit.raw);
-    const parsed = parse(hit.raw);
+    const parsed = parse(hit.raw); // ★修正: parseは {bn, wc, wn} または {loc} を返す
     let candidate = null;
 
     if (kind === 'loc' && parsed.loc) {
@@ -377,6 +393,7 @@ function processScanResult(hit) {
         } else if (candidate.kind === 'die' && fixedLoc) {
             const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
             if (!fixedDies.has(key)) {
+                // ★修正: parsed には wn も含まれている
                 fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
                 renderDies();
                 addFlash('die', candidate.corners);
@@ -399,25 +416,48 @@ async function tick() {
 }
 
 // ========= 送信 (Submission) =========
+// ★ 修正: wn を含め、レスポンスチェックを強化
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
   const now = new Date(); 
   const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const items = [...fixedDies.values()].map(d => ({ book: d.bn, wc: d.wc, loc: fixedLoc.loc, captured_at: captured_date }));
-  const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
+  
+  // ★ 修正: d.wn を items に追加
+  const items = [...fixedDies.values()].map(d => ({ 
+    book: d.bn, 
+    wc: d.wc, 
+    wn: d.wn || "", // wn を追加
+    loc: fixedLoc.loc, 
+    captured_at: captured_date 
+  }));
+  
+  const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
   
   if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされ、カメラは停止します)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
   btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
+  let rawResponse = ""; // エラー表示用
 
   try {
     const r = await fetch(SHEET_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
-    if (!r.ok) throw new Error(await r.text());
-    const j = await r.json();
-    if (j.status !== 'ok') throw new Error(JSON.stringify(j));
     
-    toast("データベース登録完了");
+    // レスポンスをまずテキストで取得（JSONパースエラー対策）
+    rawResponse = await r.text();
+    const j = JSON.parse(rawResponse);
+
+    // ★ 修正: レスポンス判定を !r.ok と !j.ok に変更
+    if (!r.ok || !j.ok) {
+        throw new Error(JSON.stringify(j));
+    }
+    
+    // ★ 追加: 実際に行が追加されたか確認
+    if (j.appendedRows === 0) {
+        console.warn("API reported ok:true, but appendedRows was 0.", j);
+        throw new Error(`登録APIは成功しましたが、シートに行が追加されませんでした (appendedRows: 0)。`);
+    }
+    
+    toast(`データベース登録完了 (${j.appendedRows}件)`); // 件数を表示
     playBeep(520, 140);
     
     // 状態をリセット
@@ -430,7 +470,8 @@ async function submitUpdate() {
     stopCam(); 
 
   } catch (e) {
-    alert("登録に失敗しました: " + (e.message || e));
+    console.error("Submit Error:", e, "Raw Response:", rawResponse);
+    alert("登録に失敗しました: " + (e.message || e) + `\n\n[API応答]: ${rawResponse}`);
   } finally {
     btnUpdate.disabled = false;
     btnUpdate.classList.remove('loading');
