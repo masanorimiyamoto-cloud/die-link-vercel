@@ -266,17 +266,15 @@ function playBeep(freq = 880, dur = 120) { try { if (!AC) AC = new (window.Audio
 function buzz(ms = 60) { if (navigator.vibrate) navigator.vibrate(ms); }
 function classify(s){ if(/^loc-/i.test(s)) return "loc"; if(/^die-/i.test(s)) return "die"; try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{} return "other"; }
 
-// ★ 修正: wn (WorkName) を抽出する関数を復活
 function tryExtractWN(raw){ try{ const u = new URL(raw); const m = /[#&]d=([^&]+)/.exec(u.hash||""); if(!m) return ""; const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : ''; const json = atob(b64 + pad); const obj = JSON.parse(json); return (obj.wn||"").trim(); }catch{ return ""; } }
 
-// ★ 修正: parse関数で wn も返すようにする
 function parse(text){ 
     const m = /^die-([^-\n]+)-(.+)$/.exec(text); 
-    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; } // die- 形式の場合は wn は空
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; } 
     try{ const u=new URL(text); 
         const book=(u.searchParams.get("book")||"").trim(); 
         const wc=(u.searchParams.get("wc")||"").trim(); 
-        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; } // URL形式の場合は wn を抽出
+        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; } 
     }catch{} 
     const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } 
     return {}; 
@@ -293,7 +291,6 @@ function drawOverlays(){
   octx.clearRect(0,0,ov.width,ov.height);
   const scale = ov.width / scanCanvas.width;
   
-  // 候補の枠線を描画
   for(const c of candidates){ 
     const isLoc = c.kind==='loc'; 
     const scaledCorners = c.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
@@ -304,7 +301,6 @@ function drawOverlays(){
     drawPolygon(octx, scaledCorners); octx.stroke(); octx.fill(); 
   }
   
-  // フラッシュアニメーションを描画
   for(let i=flashes.length-1; i>=0; i--){ 
     const f = flashes[i]; const remain = f.until - performance.now(); if(remain <= 0){ flashes.splice(i,1); continue; } 
     const t = Math.max(0, Math.min(1, remain/1200)); 
@@ -315,7 +311,6 @@ function drawOverlays(){
     drawPolygon(octx, scaledCorners); octx.stroke(); octx.fill(); 
   }
   
-  // 吹き出しを描画
   for(let i=bubbles.length-1; i>=0; i--){ 
     const b = bubbles[i]; const remain = b.until - performance.now(); if(remain <= 0){ bubbles.splice(i,1); continue; } 
     const t = Math.max(0, Math.min(1, remain/1600)); 
@@ -343,7 +338,6 @@ async function startCam(){
     v.srcObject=stream; 
     try{ await v.play(); }catch(e){ showError(e); return; } 
     
-    // Canvasのサイズをビデオのアスペクト比に合わせる
     const w = v.videoWidth, h = v.videoHeight;
     ov.width = w; ov.height = h;
     scanCanvas.width = SCAN_RESOLUTION;
@@ -365,9 +359,8 @@ function scan() {
 function processScanResult(hit) {
     if (!hit) { candidates = []; return; }
     
-    // 1フレームに1つのQRコードを処理するシンプルな形に変更
     const kind = classify(hit.raw);
-    const parsed = parse(hit.raw); // ★修正: parseは {bn, wc, wn} または {loc} を返す
+    const parsed = parse(hit.raw);
     let candidate = null;
 
     if (kind === 'loc' && parsed.loc) {
@@ -393,7 +386,6 @@ function processScanResult(hit) {
         } else if (candidate.kind === 'die' && fixedLoc) {
             const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
             if (!fixedDies.has(key)) {
-                // ★修正: parsed には wn も含まれている
                 fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
                 renderDies();
                 addFlash('die', candidate.corners);
@@ -416,17 +408,16 @@ async function tick() {
 }
 
 // ========= 送信 (Submission) =========
-// ★ 修正: wn を含め、レスポンスチェックを強化
+// ★ 修正: body の JSON.stringify() の中身を { items } から items に変更
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
   const now = new Date(); 
   const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   
-  // ★ 修正: d.wn を items に追加
   const items = [...fixedDies.values()].map(d => ({ 
     book: d.bn, 
     wc: d.wc, 
-    wn: d.wn || "", // wn を追加
+    wn: d.wn || "", 
     loc: fixedLoc.loc, 
     captured_at: captured_date 
   }));
@@ -437,27 +428,32 @@ async function submitUpdate() {
 
   const btnLabel = $("#btnUpdateLabel");
   btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
-  let rawResponse = ""; // エラー表示用
+  let rawResponse = "";
 
   try {
-    const r = await fetch(SHEET_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+    const r = await fetch(SHEET_ENDPOINT, { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        // ★★★ 修正箇所 ★★★
+        // API には配列 [...] をそのまま送る
+        body: JSON.stringify(items) 
+        // ★★★ もとはこうなっていた ★★★
+        // body: JSON.stringify({ items: items }) 
+    });
     
-    // レスポンスをまずテキストで取得（JSONパースエラー対策）
     rawResponse = await r.text();
     const j = JSON.parse(rawResponse);
 
-    // ★ 修正: レスポンス判定を !r.ok と !j.ok に変更
     if (!r.ok || !j.ok) {
         throw new Error(JSON.stringify(j));
     }
     
-    // ★ 追加: 実際に行が追加されたか確認
-    if (j.appendedRows === 0) {
-        console.warn("API reported ok:true, but appendedRows was 0.", j);
+    if (!j.appendedRows || j.appendedRows === 0) {
+        console.warn("API reported ok:true, but appendedRows was 0 or missing.", j);
         throw new Error(`登録APIは成功しましたが、シートに行が追加されませんでした (appendedRows: 0)。`);
     }
     
-    toast(`データベース登録完了 (${j.appendedRows}件)`); // 件数を表示
+    toast(`データベース登録完了 (${j.appendedRows}件)`);
     playBeep(520, 140);
     
     // 状態をリセット

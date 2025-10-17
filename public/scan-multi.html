@@ -439,35 +439,48 @@ async function submitUpdate() {
   btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
   let rawResponse = ""; // エラー表示用
 
-  try {
-    const r = await fetch(SHEET_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
-    
-    // レスポンスをまずテキストで取得（JSONパースエラー対策）
+    try {
+    const r = await fetch(SHEET_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items })
+    });
+
+    // テキスト→JSONの順に取得（壊れたJSON対策）
     rawResponse = await r.text();
     const j = JSON.parse(rawResponse);
 
-    // ★ 修正: レスポンス判定を !r.ok と !j.ok に変更
-    if (!r.ok || !j.ok) {
-        throw new Error(JSON.stringify(j));
+    // 基本のOK判定
+    const ok = r.ok && j && j.ok === true;
+    if (!ok) {
+      throw new Error(JSON.stringify(j));
     }
-    
-    // ★ 追加: 実際に行が追加されたか確認
-    if (j.appendedRows === 0) {
-        console.warn("API reported ok:true, but appendedRows was 0.", j);
-        throw new Error(`登録APIは成功しましたが、シートに行が追加されませんでした (appendedRows: 0)。`);
+
+    // 影響件数をより柔軟に評価（追加 or 更新 のどちらでも成功）
+    const appended = Number(j.appendedRows || 0);
+    const updatedRows = Number(j.updatedRows || 0);      // APIが返すなら行ベース
+    const updatedCells = Number(j.updatedCells || 0);    // 行が無い場合はセル数で代替
+
+    // 追加・更新のいずれもゼロならエラー扱い
+    if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
+      throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
     }
-    
-    toast(`データベース登録完了 (${j.appendedRows}件)`); // 件数を表示
+
+    // 成功トースト（分かりやすく内訳表示）
+    const parts = [];
+    if (appended > 0) parts.push(`追加 ${appended}行`);
+    if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
+    else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
+
+    toast(`データベース登録完了（${parts.join(' / ') || '変更あり'}）`);
     playBeep(520, 140);
-    
-    // 状態をリセット
+
+    // 状態リセット＆カメラ停止
     fixedLoc = null;
     fixedDies.clear();
     renderDies();
     updateUIState();
-    
-    // 登録成功後にカメラを停止
-    stopCam(); 
+    stopCam();
 
   } catch (e) {
     console.error("Submit Error:", e, "Raw Response:", rawResponse);
