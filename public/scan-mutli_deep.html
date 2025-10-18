@@ -1,0 +1,333 @@
+// ========= 設定 (Settings) =========
+const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
+const SCAN_RESOLUTION = 600;
+const PROCESS_COOLDOWN = 2000; // 2秒間の重複防止クールダウン
+const SCAN_INTERVAL = 100; // 最低100ms間隔でスキャン
+
+// ========= 状態 (State) =========
+let fixedLoc = null;
+const fixedDies = new Map();
+const flashes = [];
+const bubbles = [];
+let candidates = [];
+const recentlyProcessed = new Set(); // 重複防止用
+
+// ========= 検出 (Detection) - 最適化版 =========
+let stream = null, rafId = null, lastScanTime = 0;
+
+function stopCam() { 
+    cancelAnimationFrame(rafId); 
+    rafId = null; 
+    if (stream) { 
+        stream.getTracks().forEach(t => t.stop()); 
+        stream = null; 
+    } 
+    $("#btnStart").disabled = false; 
+    $("#btnStop").disabled = true; 
+    recentlyProcessed.clear(); // カメラ停止時にクリア
+}
+
+async function startCam() { 
+    stopCam(); 
+    setError(""); 
+    
+    try {
+        // カメラの可用性チェック
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("このブラウザはカメラ機能をサポートしていません");
+        }
+        
+        const constraints = {
+            video: { 
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 }, 
+                height: { ideal: 720 },
+                frameRate: { ideal: 15, max: 30 } // フレームレート制限で負荷軽減
+            }, 
+            audio: false 
+        };
+        
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+    } catch(e) { 
+        let errorMessage = `カメラの起動に失敗しました: ${e.message}`;
+        if (e.name === 'NotAllowedError') {
+            errorMessage = 'カメラの使用許可が拒否されました。ブラウザの設定を確認してください。';
+        } else if (e.name === 'NotFoundError') {
+            errorMessage = '利用可能なカメラが見つかりませんでした。';
+        } else if (e.name === 'NotSupportedError') {
+            errorMessage = 'このブラウザではカメラ機能がサポートされていません。';
+        }
+        showError(new Error(errorMessage));
+        return;
+    }
+    
+    v.srcObject = stream; 
+    
+    try { 
+        await v.play(); 
+    } catch(e) { 
+        showError(e); 
+        return; 
+    } 
+    
+    // Canvasのサイズをビデオのアスペクト比に合わせる
+    const w = v.videoWidth, h = v.videoHeight;
+    ov.width = w; ov.height = h;
+    scanCanvas.width = SCAN_RESOLUTION;
+    scanCanvas.height = SCAN_RESOLUTION * (h / w);
+
+    $("#btnStart").disabled = true; 
+    $("#btnStop").disabled = false; 
+    tick(); 
+}
+
+// メモリ効率を考慮したスキャン関数
+function scan() {
+    if (v.readyState !== v.HAVE_ENOUGH_DATA) return null;
+    
+    // スキャン間隔を制御（パフォーマンス最適化）
+    const now = performance.now();
+    if (now - lastScanTime < SCAN_INTERVAL) {
+        return null;
+    }
+    lastScanTime = now;
+    
+    sctx.drawImage(v, 0, 0, scanCanvas.width, scanCanvas.height);
+    const imgData = sctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+    
+    const code = jsQR(imgData.data, imgData.width, imgData.height, { 
+        inversionAttempts: "dontInvert" 
+    });
+    
+    return code ? { 
+        raw: code.data.trim(), 
+        corners: [
+            code.location.topLeftCorner, 
+            code.location.topRightCorner, 
+            code.location.bottomRightCorner, 
+            code.location.bottomLeftCorner
+        ] 
+    } : null;
+}
+
+// 改善されたprocessScanResult関数
+function processScanResult(hit) {
+    if (!hit) { 
+        candidates = []; 
+        return; 
+    }
+    
+    // 重複スキャン防止のためのハッシュ生成
+    const hash = generateQRHash(hit.raw);
+    if (recentlyProcessed.has(hash)) {
+        // 重複している場合は候補のみ表示して登録はスキップ
+        processCandidateOnly(hit);
+        return;
+    }
+    
+    // 候補オブジェクトの作成
+    const kind = classify(hit.raw);
+    const parsed = parse(hit.raw);
+    let candidate = null;
+
+    if (kind === 'loc' && parsed.loc) {
+        const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
+        candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
+    } else if (kind === 'die' && parsed.bn && parsed.wc) {
+        const key = dieKey(parsed.bn, parsed.wc);
+        const registered = fixedDies.has(key);
+        candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
+    }
+    
+    candidates = candidate ? [candidate] : [];
+
+    // 自動ロック処理（重複チェック付き）
+    if (candidate && !candidate.registered) {
+        if (candidate.kind === 'loc' && !fixedLoc) {
+            // LOCの登録
+            fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
+            updateUIState();
+            addFlash('loc', candidate.corners);
+            addBubble('loc', candidate.corners, '棚を固定');
+            playBeep(660, 130); buzz(40);
+            toast("棚を固定", candidate.parsed.loc);
+            
+            // 重複防止リストに追加
+            recentlyProcessed.add(hash);
+            setTimeout(() => recentlyProcessed.delete(hash), PROCESS_COOLDOWN);
+            
+        } else if (candidate.kind === 'die' && fixedLoc) {
+            const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
+            if (!fixedDies.has(key)) {
+                // DIEの登録
+                fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
+                renderDies();
+                addFlash('die', candidate.corners);
+                addBubble('die', candidate.corners, '型を追加');
+                playBeep(880, 120); buzz(30);
+                toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
+                
+                // 重複防止リストに追加
+                recentlyProcessed.add(hash);
+                setTimeout(() => recentlyProcessed.delete(hash), PROCESS_COOLDOWN);
+            }
+        }
+    } else if (candidate) {
+        // 登録済みの場合は視覚的フィードバックのみ
+        addFlash(candidate.kind, candidate.corners);
+        playBeep(440, 80); // 登録済みの場合は別の音
+    }
+}
+
+// 重複QRコードの場合は候補表示のみ（登録しない）
+function processCandidateOnly(hit) {
+    const kind = classify(hit.raw);
+    const parsed = parse(hit.raw);
+    let candidate = null;
+
+    if (kind === 'loc' && parsed.loc) {
+        const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
+        candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered, duplicate: true };
+    } else if (kind === 'die' && parsed.bn && parsed.wc) {
+        const key = dieKey(parsed.bn, parsed.wc);
+        const registered = fixedDies.has(key);
+        candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered, duplicate: true };
+    }
+    
+    candidates = candidate ? [candidate] : [];
+    
+    // 重複の場合は短いフィードバック
+    if (candidate) {
+        addFlash(candidate.kind, candidate.corners);
+        playBeep(440, 60);
+    }
+}
+
+// QRコードのハッシュ生成（重複判定用）
+function generateQRHash(rawText) {
+    // シンプルなハッシュ生成（パフォーマンス考慮）
+    let hash = 0;
+    for (let i = 0; i < rawText.length; i++) {
+        const char = rawText.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // 32bit整数に変換
+    }
+    return hash.toString(36) + '_' + rawText.length;
+}
+
+// 改善された描画関数（パフォーマンス考慮）
+function drawOverlays() {
+    // 描画が必要ない場合は早期リターン
+    if (candidates.length === 0 && flashes.length === 0 && bubbles.length === 0) {
+        return;
+    }
+    
+    octx.clearRect(0, 0, ov.width, ov.height);
+    const scale = ov.width / scanCanvas.width;
+    
+    // 候補の枠線を描画（重複は別色で表示）
+    for (const c of candidates) { 
+        const isLoc = c.kind === 'loc'; 
+        const isDuplicate = c.duplicate;
+        const scaledCorners = c.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
+        
+        octx.setLineDash(c.registered ? [8, 6] : []); 
+        octx.lineWidth = c.registered ? 4 : 2; 
+        
+        if (isDuplicate) {
+            // 重複QRはグレー表示
+            octx.strokeStyle = 'rgba(128, 128, 128, 0.7)'; 
+            octx.fillStyle = 'rgba(128, 128, 128, 0.1)'; 
+        } else {
+            octx.strokeStyle = isLoc ? 'rgba(42, 157, 143, 0.95)' : 'rgba(0, 95, 115, 0.95)'; 
+            octx.fillStyle = isLoc ? 'rgba(42, 157, 143, 0.18)' : 'rgba(0, 95, 115, 0.18)'; 
+        }
+        
+        drawPolygon(octx, scaledCorners); 
+        octx.stroke(); 
+        octx.fill(); 
+    }
+    
+    // フラッシュアニメーションを描画
+    for (let i = flashes.length - 1; i >= 0; i--) { 
+        const f = flashes[i]; 
+        const remain = f.until - performance.now(); 
+        if (remain <= 0) { 
+            flashes.splice(i, 1); 
+            continue; 
+        } 
+        const t = Math.max(0, Math.min(1, remain / 1200)); 
+        const scaledCorners = f.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
+        const color = f.kind === 'loc' ? `rgba(42, 157, 143, ${0.2 + 0.6 * t})` : `rgba(0, 95, 115, ${0.2 + 0.6 * t})`; 
+        const stroke = f.kind === 'loc' ? `rgba(42, 157, 143, ${0.6 + 0.4 * t})` : `rgba(0, 95, 115, ${0.6 + 0.4 * t})`; 
+        octx.fillStyle = color; 
+        octx.strokeStyle = stroke; 
+        octx.lineWidth = 4 + 4 * t; 
+        drawPolygon(octx, scaledCorners); 
+        octx.stroke(); 
+        octx.fill(); 
+    }
+    
+    // 吹き出しを描画
+    for (let i = bubbles.length - 1; i >= 0; i--) { 
+        const b = bubbles[i]; 
+        const remain = b.until - performance.now(); 
+        if (remain <= 0) { 
+            bubbles.splice(i, 1); 
+            continue; 
+        } 
+        const t = Math.max(0, Math.min(1, remain / 1600)); 
+        const scaledCentroid = { x: b.x * scale, y: b.y * scale };
+        octx.globalAlpha = 0.9 * t; 
+        octx.font = '16px system-ui, sans-serif'; 
+        const w = octx.measureText(b.text).width + 20; 
+        const h = 36; 
+        let x = scaledCentroid.x - w / 2, y = scaledCentroid.y - h - 8; 
+        x = Math.max(6, Math.min(x, ov.width - w - 6)); 
+        y = Math.max(6, Math.min(y, ov.height - h - 6)); 
+        octx.fillStyle = b.color; 
+        octx.strokeStyle = b.stroke; 
+        octx.lineWidth = 2; 
+        roundedRect(octx, x, y, w, h, 10); 
+        octx.fill(); 
+        octx.stroke(); 
+        octx.fillStyle = '#fff'; 
+        octx.textBaseline = 'middle'; 
+        octx.textAlign = 'center'; 
+        octx.fillText(b.text, x + w / 2, y + h / 2); 
+        octx.globalAlpha = 1; 
+    }
+}
+
+// メインループ
+async function tick() { 
+    if (!stream) return; 
+    
+    const hit = scan();
+    processScanResult(hit);
+    drawOverlays(); 
+    
+    rafId = requestAnimationFrame(tick); 
+}
+
+// 状態バックアップ機能（オプション）
+function backupState() {
+    const state = {
+        fixedLoc,
+        fixedDies: Array.from(fixedDies.entries()),
+        timestamp: Date.now()
+    };
+    try {
+        localStorage.setItem('qrScannerBackup', JSON.stringify(state));
+    } catch (e) {
+        console.warn('状態のバックアップに失敗しました:', e);
+    }
+}
+
+// 初期化時に状態復元を呼び出す
+document.addEventListener('DOMContentLoaded', () => {
+    updateUIState();
+    // 必要に応じて状態復元機能を追加
+    // restoreState();
+});
