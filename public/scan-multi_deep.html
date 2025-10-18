@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚→型 QRスキャン登録_deep</title>
+<title>棚→型 QRスキャン登録_1018</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
@@ -12,6 +12,7 @@
     --fg: #212529; --fg-sub: #6c757d; --bg: #f8f9fa;
     --border: #dee2e6; --shadow: rgba(0,0,0, .1);
     --success: #2a9d8f; --success-light: #e9f5f4;
+    --checked: #28a745; --checked-light: #d4edda;
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
@@ -104,7 +105,7 @@
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_deep</h1>
+  <h1>棚→型 QRスキャン登録_1018</h1>
   <div class="cam-controls">
     <button id="btnStart" class="btn btn-primary">カメラ開始</button>
     <button id="btnStop" class="btn" disabled>停止</button>
@@ -173,8 +174,7 @@
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const SCAN_RESOLUTION = 600;
-const PROCESS_COOLDOWN = 1500; // 1.5秒間の重複防止（短めに設定）
-const SCAN_INTERVAL = 50; // 50ms間隔でスキャン（反応性向上）
+const PROCESS_COOLDOWN = 2000; // 2秒間の重複防止
 
 // ========= 状態 (State) =========
 let fixedLoc = null;
@@ -309,6 +309,31 @@ function centroid(corners){ const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y)
 function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
 function addBubble(kind, corners, text){ const c = centroid(corners); const msg = (kind==='die' && fixedLoc) ? `${text} → ${fixedLoc.loc}` : text; const color = kind==='loc' ? 'rgba(42, 157, 143, 0.92)' : 'rgba(0, 95, 115, 0.92)'; const stroke= 'rgba(255,255,255,0.9)'; bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 }); }
 
+// チェックマークを描画する関数
+function drawCheckmark(ctx, x, y, size = 30) {
+  ctx.save();
+  ctx.strokeStyle = '#28a745';
+  ctx.fillStyle = '#d4edda';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  
+  // 背景の円
+  ctx.beginPath();
+  ctx.arc(x, y, size/2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  
+  // チェックマーク
+  ctx.beginPath();
+  ctx.moveTo(x - size/3, y);
+  ctx.lineTo(x - size/10, y + size/3);
+  ctx.lineTo(x + size/3, y - size/3);
+  ctx.stroke();
+  
+  ctx.restore();
+}
+
 function drawOverlays(){
   // 描画が必要ない場合は早期リターン
   if (candidates.length === 0 && flashes.length === 0 && bubbles.length === 0) {
@@ -318,30 +343,39 @@ function drawOverlays(){
   octx.clearRect(0,0,ov.width,ov.height);
   const scale = ov.width / scanCanvas.width;
   
-  // 候補の枠線を描画（重複は別色で表示）
+  // 候補の枠線を描画
   for(const c of candidates){ 
     const isLoc = c.kind==='loc'; 
-    const isDuplicate = c.duplicate;
+    const isRegistered = c.registered;
     const scaledCorners = c.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
     
-    octx.setLineDash(c.registered ? [8,6] : []); 
-    octx.lineWidth = c.registered ? 4 : 2; 
-    
-    if (isDuplicate) {
-      // 重複QRはグレー表示
-      octx.strokeStyle = 'rgba(128, 128, 128, 0.7)'; 
-      octx.fillStyle = 'rgba(128, 128, 128, 0.1)'; 
+    if (isRegistered) {
+      // 登録済みのQRコード - 緑色のチェックマーク
+      octx.setLineDash([]); 
+      octx.lineWidth = 3; 
+      octx.strokeStyle = 'rgba(40, 167, 69, 0.8)'; 
+      octx.fillStyle = 'rgba(212, 237, 218, 0.3)'; 
+      drawPolygon(octx, scaledCorners); 
+      octx.stroke(); 
+      octx.fill();
+      
+      // チェックマークを中央に描画
+      const center = centroid(scaledCorners);
+      drawCheckmark(octx, center.x, center.y, 30);
+      
     } else {
+      // 未登録のQRコード - 通常の表示
+      octx.setLineDash([]); 
+      octx.lineWidth = 2; 
       octx.strokeStyle = isLoc ? 'rgba(42, 157, 143,0.95)' : 'rgba(0, 95, 115,0.95)'; 
       octx.fillStyle = isLoc ? 'rgba(42, 157, 143,0.18)' : 'rgba(0, 95, 115,0.18)'; 
+      drawPolygon(octx, scaledCorners); 
+      octx.stroke(); 
+      octx.fill(); 
     }
-    
-    drawPolygon(octx, scaledCorners); 
-    octx.stroke(); 
-    octx.fill(); 
   }
   
-  // フラッシュアニメーションを描画
+  // フラッシュアニメーションを描画（未登録の場合のみ）
   for(let i=flashes.length-1; i>=0; i--){ 
     const f = flashes[i]; 
     const remain = f.until - performance.now(); 
@@ -394,8 +428,6 @@ function drawOverlays(){
 
 // ========= 検出 (Detection) - 最適化版 =========
 let stream=null, rafId=null, lastScanTime=0;
-let lastProcessedHash = null; // 最後に処理したQRのハッシュ
-let sameHashCount = 0; // 同じハッシュの連続検出回数
 
 function stopCam(){ 
   cancelAnimationFrame(rafId); 
@@ -406,9 +438,7 @@ function stopCam(){
   } 
   $("#btnStart").disabled=false; 
   $("#btnStop").disabled=true; 
-  recentlyProcessed.clear(); // カメラ停止時にクリア
-  lastProcessedHash = null;
-  sameHashCount = 0;
+  recentlyProcessed.clear();
 }
 
 function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
@@ -418,17 +448,12 @@ async function startCam(){
   setError(""); 
   
   try{ 
-    // カメラの可用性チェック
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("このブラウザはカメラ機能をサポートしていません");
-    }
-    
     const constraints = {
       video: { 
         facingMode:{ ideal:'environment' }, 
         width:{ideal:1280}, 
         height:{ideal:720},
-        frameRate: { ideal: 20, max: 30 } // フレームレートを少し上げて反応性向上
+        frameRate: { ideal: 20, max: 30 }
       }, 
       audio:false 
     };
@@ -468,13 +493,12 @@ async function startCam(){
   tick(); 
 }
 
-// メモリ効率を考慮したスキャン関数
 function scan() {
   if (v.readyState !== v.HAVE_ENOUGH_DATA) return null;
   
-  // スキャン間隔を制御（パフォーマンス最適化）
+  // スキャン間隔を制御
   const now = performance.now();
-  if (now - lastScanTime < SCAN_INTERVAL) {
+  if (now - lastScanTime < 50) {
     return null;
   }
   lastScanTime = now;
@@ -497,14 +521,13 @@ function scan() {
   } : null;
 }
 
-// QRコードのハッシュ生成（重複判定用）
+// QRコードのハッシュ生成
 function generateQRHash(rawText) {
-  // シンプルなハッシュ生成（パフォーマンス考慮）
   let hash = 0;
   for (let i = 0; i < rawText.length; i++) {
     const char = rawText.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // 32bit整数に変換
+    hash = hash & hash;
   }
   return hash.toString(36) + '_' + rawText.length;
 }
@@ -514,7 +537,6 @@ function isRecentlyProcessed(hash) {
   const timestamp = recentlyProcessed.get(hash);
   if (!timestamp) return false;
   
-  // クールダウン時間を過ぎている場合は削除
   if (performance.now() - timestamp > PROCESS_COOLDOWN) {
     recentlyProcessed.delete(hash);
     return false;
@@ -523,64 +545,14 @@ function isRecentlyProcessed(hash) {
   return true;
 }
 
-// 重複QRコードの場合は候補表示のみ（登録しない）
-function processCandidateOnly(hit) {
-  const kind = classify(hit.raw);
-  const parsed = parse(hit.raw);
-  let candidate = null;
-
-  if (kind === 'loc' && parsed.loc) {
-    const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
-    candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered, duplicate: true };
-  } else if (kind === 'die' && parsed.bn && parsed.wc) {
-    const key = dieKey(parsed.bn, parsed.wc);
-    const registered = fixedDies.has(key);
-    candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered, duplicate: true };
-  }
-  
-  candidates = candidate ? [candidate] : [];
-  
-  // 重複の場合は短いフィードバック（連続回数に応じて抑制）
-  if (candidate && sameHashCount < 3) {
-    addFlash(candidate.kind, candidate.corners);
-    if (sameHashCount === 0) {
-      playBeep(440, 60); // 最初の重複のみ音を鳴らす
-    }
-  }
-}
-
-// 改善されたprocessScanResult関数 - 連打防止と反応性向上
+// 改善されたprocessScanResult関数 - 登録済みQRは音を出さずチェックマークのみ
 function processScanResult(hit) {
   if (!hit) { 
     candidates = []; 
-    lastProcessedHash = null;
-    sameHashCount = 0;
     return; 
   }
   
-  // 重複スキャン防止のためのハッシュ生成
   const hash = generateQRHash(hit.raw);
-  
-  // 同じQRコードの連続検出をカウント
-  if (hash === lastProcessedHash) {
-    sameHashCount++;
-  } else {
-    sameHashCount = 0;
-    lastProcessedHash = hash;
-  }
-  
-  // 連続検出回数に応じた処理
-  if (sameHashCount > 2) {
-    // 3回以上連続で同じQRを検出した場合はスキップ（連打防止）
-    processCandidateOnly(hit);
-    return;
-  }
-  
-  if (isRecentlyProcessed(hash)) {
-    // クールダウン中のQRコードは候補表示のみ
-    processCandidateOnly(hit);
-    return;
-  }
   
   // 候補オブジェクトの作成
   const kind = classify(hit.raw);
@@ -598,8 +570,8 @@ function processScanResult(hit) {
   
   candidates = candidate ? [candidate] : [];
 
-  // 自動ロック処理（重複チェック付き）
-  if (candidate && !candidate.registered) {
+  // 自動ロック処理 - 登録済みの場合は音とフラッシュを出さない
+  if (candidate && !candidate.registered && !isRecentlyProcessed(hash)) {
     if (candidate.kind === 'loc' && !fixedLoc) {
       // LOCの登録
       fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
@@ -609,7 +581,6 @@ function processScanResult(hit) {
       playBeep(660, 130); buzz(40);
       toast("棚を固定", candidate.parsed.loc);
       
-      // 重複防止リストに追加
       recentlyProcessed.set(hash, performance.now());
       
     } else if (candidate.kind === 'die' && fixedLoc) {
@@ -623,15 +594,11 @@ function processScanResult(hit) {
         playBeep(880, 120); buzz(30);
         toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
         
-        // 重複防止リストに追加
         recentlyProcessed.set(hash, performance.now());
       }
     }
-  } else if (candidate && sameHashCount === 0) {
-    // 登録済みの場合は視覚的フィードバックのみ（最初の1回のみ）
-    addFlash(candidate.kind, candidate.corners);
-    playBeep(440, 80);
   }
+  // 登録済みの場合は何もしない（チェックマーク表示のみ）
 }
 
 async function tick() { 
@@ -653,7 +620,7 @@ async function submitUpdate() {
   const items = [...fixedDies.values()].map(d => ({ 
     book: d.bn, 
     wc: d.wc, 
-    wn: d.wn || "", // wn を追加
+    wn: d.wn || "",
     loc: fixedLoc.loc, 
     captured_at: captured_date 
   }));
@@ -673,27 +640,22 @@ async function submitUpdate() {
       body: JSON.stringify({ items })
     });
 
-    // テキスト→JSONの順に取得（壊れたJSON対策）
     rawResponse = await r.text();
     const j = JSON.parse(rawResponse);
 
-    // 基本のOK判定
     const ok = r.ok && j && j.ok === true;
     if (!ok) {
       throw new Error(JSON.stringify(j));
     }
 
-    // 影響件数をより柔軟に評価（追加 or 更新 のどちらでも成功）
     const appended = Number(j.appendedRows || 0);
     const updatedRows = Number(j.updatedRows || 0);
     const updatedCells = Number(j.updatedCells || 0);
 
-    // 追加・更新のいずれもゼロならエラー扱い
     if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
       throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
     }
 
-    // 成功トースト（分かりやすく内訳表示）
     const parts = [];
     if (appended > 0) parts.push(`追加 ${appended}行`);
     if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
@@ -702,7 +664,6 @@ async function submitUpdate() {
     toast(`データベース登録完了（${parts.join(' / ') || '変更あり'}）`);
     playBeep(520, 140);
 
-    // 状態リセット＆カメラ停止
     fixedLoc = null;
     fixedDies.clear();
     renderDies();
@@ -736,7 +697,6 @@ document.addEventListener('keydown', (e) => {
       renderDies();
     }
   } else if (e.key === ' ' && !e.repeat) {
-    // スペースキーでカメラ開始/停止
     if (stream) {
       stopCam();
     } else {
