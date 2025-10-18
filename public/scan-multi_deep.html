@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚→型 QRスキャン登録_1018</title>
+<title>棚→型 QRスキャン登録_deep</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
@@ -104,7 +104,7 @@
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_1018</h1>
+  <h1>棚→型 QRスキャン登録_deep</h1>
   <div class="cam-controls">
     <button id="btnStart" class="btn btn-primary">カメラ開始</button>
     <button id="btnStop" class="btn" disabled>停止</button>
@@ -173,8 +173,8 @@
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const SCAN_RESOLUTION = 600;
-const PROCESS_COOLDOWN = 2000; // 2秒間の重複防止クールダウン
-const SCAN_INTERVAL = 100; // 最低100ms間隔でスキャン
+const PROCESS_COOLDOWN = 1500; // 1.5秒間の重複防止（短めに設定）
+const SCAN_INTERVAL = 50; // 50ms間隔でスキャン（反応性向上）
 
 // ========= 状態 (State) =========
 let fixedLoc = null;
@@ -182,7 +182,7 @@ const fixedDies = new Map();
 const flashes = [];
 const bubbles = [];
 let candidates = [];
-const recentlyProcessed = new Set(); // 重複防止用
+const recentlyProcessed = new Map(); // 重複防止用（タイムスタンプ付き）
 
 // ========= DOM要素 (DOM Elements) =========
 const $ = (q) => document.querySelector(q);
@@ -394,6 +394,8 @@ function drawOverlays(){
 
 // ========= 検出 (Detection) - 最適化版 =========
 let stream=null, rafId=null, lastScanTime=0;
+let lastProcessedHash = null; // 最後に処理したQRのハッシュ
+let sameHashCount = 0; // 同じハッシュの連続検出回数
 
 function stopCam(){ 
   cancelAnimationFrame(rafId); 
@@ -405,6 +407,8 @@ function stopCam(){
   $("#btnStart").disabled=false; 
   $("#btnStop").disabled=true; 
   recentlyProcessed.clear(); // カメラ停止時にクリア
+  lastProcessedHash = null;
+  sameHashCount = 0;
 }
 
 function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
@@ -424,7 +428,7 @@ async function startCam(){
         facingMode:{ ideal:'environment' }, 
         width:{ideal:1280}, 
         height:{ideal:720},
-        frameRate: { ideal: 15, max: 30 } // フレームレート制限で負荷軽減
+        frameRate: { ideal: 20, max: 30 } // フレームレートを少し上げて反応性向上
       }, 
       audio:false 
     };
@@ -505,6 +509,20 @@ function generateQRHash(rawText) {
   return hash.toString(36) + '_' + rawText.length;
 }
 
+// 改善された重複チェック関数
+function isRecentlyProcessed(hash) {
+  const timestamp = recentlyProcessed.get(hash);
+  if (!timestamp) return false;
+  
+  // クールダウン時間を過ぎている場合は削除
+  if (performance.now() - timestamp > PROCESS_COOLDOWN) {
+    recentlyProcessed.delete(hash);
+    return false;
+  }
+  
+  return true;
+}
+
 // 重複QRコードの場合は候補表示のみ（登録しない）
 function processCandidateOnly(hit) {
   const kind = classify(hit.raw);
@@ -522,24 +540,44 @@ function processCandidateOnly(hit) {
   
   candidates = candidate ? [candidate] : [];
   
-  // 重複の場合は短いフィードバック
-  if (candidate) {
+  // 重複の場合は短いフィードバック（連続回数に応じて抑制）
+  if (candidate && sameHashCount < 3) {
     addFlash(candidate.kind, candidate.corners);
-    playBeep(440, 60);
+    if (sameHashCount === 0) {
+      playBeep(440, 60); // 最初の重複のみ音を鳴らす
+    }
   }
 }
 
-// 改善されたprocessScanResult関数
+// 改善されたprocessScanResult関数 - 連打防止と反応性向上
 function processScanResult(hit) {
   if (!hit) { 
     candidates = []; 
+    lastProcessedHash = null;
+    sameHashCount = 0;
     return; 
   }
   
   // 重複スキャン防止のためのハッシュ生成
   const hash = generateQRHash(hit.raw);
-  if (recentlyProcessed.has(hash)) {
-    // 重複している場合は候補のみ表示して登録はスキップ
+  
+  // 同じQRコードの連続検出をカウント
+  if (hash === lastProcessedHash) {
+    sameHashCount++;
+  } else {
+    sameHashCount = 0;
+    lastProcessedHash = hash;
+  }
+  
+  // 連続検出回数に応じた処理
+  if (sameHashCount > 2) {
+    // 3回以上連続で同じQRを検出した場合はスキップ（連打防止）
+    processCandidateOnly(hit);
+    return;
+  }
+  
+  if (isRecentlyProcessed(hash)) {
+    // クールダウン中のQRコードは候補表示のみ
     processCandidateOnly(hit);
     return;
   }
@@ -572,8 +610,7 @@ function processScanResult(hit) {
       toast("棚を固定", candidate.parsed.loc);
       
       // 重複防止リストに追加
-      recentlyProcessed.add(hash);
-      setTimeout(() => recentlyProcessed.delete(hash), PROCESS_COOLDOWN);
+      recentlyProcessed.set(hash, performance.now());
       
     } else if (candidate.kind === 'die' && fixedLoc) {
       const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
@@ -587,14 +624,13 @@ function processScanResult(hit) {
         toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
         
         // 重複防止リストに追加
-        recentlyProcessed.add(hash);
-        setTimeout(() => recentlyProcessed.delete(hash), PROCESS_COOLDOWN);
+        recentlyProcessed.set(hash, performance.now());
       }
     }
-  } else if (candidate) {
-    // 登録済みの場合は視覚的フィードバックのみ
+  } else if (candidate && sameHashCount === 0) {
+    // 登録済みの場合は視覚的フィードバックのみ（最初の1回のみ）
     addFlash(candidate.kind, candidate.corners);
-    playBeep(440, 80); // 登録済みの場合は別の音
+    playBeep(440, 80);
   }
 }
 
