@@ -1,670 +1,781 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<title>抜型ファインダー v2</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="utf-8">
+<title>棚→型 QRスキャン登録_1018</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
-    --ok: #1c7ed6;      /* 一致=青 */
-    --ng: #e03131;      /* 不一致=赤 */
-    --loc: #2b8a3e;     /* LOC=緑 */
-    --info: #f59f00;    /* 情報=オレンジ */
-    --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
-    --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
+    --primary: #005f73; --primary-light: #e0f2f1;
+    --secondary: #0a9396; --accent: #94d2bd;
+    --danger: #9b2226; --danger-light: #fbeae5;
+    --fg: #212529; --fg-sub: #6c757d; --bg: #f8f9fa;
+    --border: #dee2e6; --shadow: rgba(0,0,0, .1);
+    --success: #2a9d8f; --success-light: #e9f5f4;
+    --checked: #28a745; --checked-light: #d4edda;
   }
-  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 0; padding: 12px; color: var(--tx); background: #f8f9fa; }
-  h3, h4 { margin: 0 0 8px 0; }
-  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-  .panel { flex: 1 1 360px; min-width: 320px; }
-  .card { background: #fff; border: 1px solid var(--bd); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
-  video { width: 100%; max-width: 520px; border-radius: 12px; background: #000; display: block; }
-  .stack { position: relative; max-width: 520px; border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; }
-  canvas { position: absolute; inset: 0; pointer-events: none; }
-  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
-  button { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--bd); background: #fff; cursor: pointer; font-size: 14px; transition: background-color 0.2s; }
-  button:disabled { cursor: not-allowed; opacity: 0.6; }
-  button.primary { background: var(--ok); color: #fff; border-color: var(--ok); }
-  button:hover:not(:disabled) { background-color: #f1f3f5; }
-  button.primary:hover:not(:disabled) { background: #339af0; }
-  .badge { display: inline-block; border-radius: 6px; padding: 4px 8px; font-size: 12px; border: 1px solid var(--bd); background: #f1f3f5; }
-  .target-info b { font-size: 1.1em; }
-  .chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
-  .chip.ok { background: var(--bg-ok); color: var(--ok); border: 1px solid #a5d8ff; }
-  .chip.ng { background: var(--bg-ng); color: var(--ng); border: 1px solid #ffc9c9; }
-  .chip.loc { background: var(--bg-loc); color: var(--loc); border: 1px solid #96f2d7; }
-  .muted { color: var(--sub); font-size: 14px; }
-  .toast { position: absolute; padding: 8px 12px; background: #000c; color: #fff; border-radius: 8px; font-size: 14px; transform: translate(-50%, -150%); pointer-events: none; animation: fade-out 1.2s forwards; }
-  @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
-  .legend { font-size: 12px; color: #555; margin-top: 8px; }
-
-  /* Modal Styles */
-  .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
-  .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 12px; }
-  .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
-  .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
-  #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
-
-  /* ▼▼▼ 提案3: フラッシュ効果のCSS ▼▼▼ */
-  .flash-overlay {
-    position: absolute;
-    inset: 0;
-    background-color: white;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 10;
-    animation: flash-effect 0.6s ease-out;
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+    margin: 0; background: var(--bg); color: var(--fg);
+    display: flex; flex-direction: column; min-height: 100vh;
   }
-  @keyframes flash-effect {
-    0% { opacity: 0.7; }
-    100% { opacity: 0; }
+  .container { max-width: 720px; margin: 0 auto; padding: 16px; width:100%; box-sizing:border-box; }
+  header {
+    background: #fff; border-bottom: 1px solid var(--border);
+    padding: 12px 16px; position: sticky; top: 0; z-index: 100;
+  }
+  header h1 {
+    font-size: 1.4rem; margin: 0; text-align: center;
+  }
+  .cam-controls { display: flex; gap: 12px; justify-content: center; margin-top: 12px; }
+
+  /* --- Camera View --- */
+  .view-wrapper { position: relative; width: 100%; max-width: 420px; margin: 20px auto; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px var(--shadow); }
+  video { width: 100%; display: block; background: #000; }
+  canvas#ov { position: absolute; inset: 0; width: 100%; height: 100%; }
+  canvas#scanCanvas { display: none; } /* Hidden canvas for scanning */
+
+  /* --- Workflow Steps --- */
+  .workflow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin: 16px 0; }
+  .step { padding: 10px; border: 2px solid var(--border); border-radius: 12px; text-align: center; background: #fff; transition: all .3s ease; }
+  .step.active { border-color: var(--primary); background: var(--primary-light); font-weight: 700; transform: scale(1.05); }
+  .step .num { font-size: 12px; color: var(--fg-sub); }
+  .step .label { font-size: 16px; }
+  .connector { height: 2px; background: var(--border); }
+
+  /* --- Content Sections --- */
+  .content-section { background: #fff; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
+  .content-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .content-header h2 { margin: 0; font-size: 1.1rem; }
+  .content-body { padding: 16px; }
+  .placeholder { color: var(--fg-sub); text-align: center; padding: 20px; }
+  #die-section { display: none; } /* Initially hidden */
+
+  /* --- Fixed LOC/DIE Display --- */
+  .loc-display { background: var(--success-light); border: 2px solid var(--success); padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .loc-display .val { font-size: 1.5rem; font-weight: 700; color: var(--success); }
+  .die-list .item { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .die-list .item .info { flex-grow: 1; }
+  .die-list .item .head { font-weight: 700; }
+  .die-list .item .head .wc { color: var(--primary); }
+  .die-list .item .sub { font-size: 12px; color: var(--fg-sub); display: block; margin-top: 4px; word-break: break-all; }
+
+  /* --- Controls & Buttons --- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 1rem;
+    padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border);
+    background: #fff; cursor: pointer; transition: all .2s ease; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--fg-sub); }
+  .btn:disabled { cursor: not-allowed; opacity: .6; }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-primary:hover { background: var(--secondary); border-color: var(--secondary); }
+  .btn-danger { color: var(--danger); }
+  .btn-sm { padding: 6px 10px; font-size: 0.9rem; }
+  .btn svg { width: 1.2em; height: 1.2em; }
+  .actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+  #btnUpdate.loading { background: var(--fg-sub); }
+
+  /* --- Misc --- */
+  #err { color: var(--danger); background: var(--danger-light); padding: 10px; border-radius: 8px; margin-top: 12px; white-space: pre-wrap; display: none; }
+  .toastWrap { position: fixed; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; }
+  .toast { background: #111; color: #fff; padding: 8px 12px; border-radius: 10px; font-size: 14px; opacity: .95; box-shadow: 0 4px 16px var(--shadow); }
+  .toast small { color: #9cc; margin-left: 6px; }
+
+  /* SVG Icons */
+  .icon-trash { stroke: currentColor; }
+  .icon-clear { stroke: currentColor; }
+  .icon-upload { stroke: #fff; }
+
+  /* レスポンシブデザイン */
+  @media (max-width: 480px) {
+    .container { padding: 12px; }
+    header h1 { font-size: 1.2rem; }
+    .step .label { font-size: 14px; }
+    .loc-display .val { font-size: 1.3rem; }
+    .btn { padding: 8px 12px; font-size: 0.9rem; }
   }
 
-  /* ▼▼▼ レスポンシブデザインの改善 ▼▼▼ */
-  @media (max-width: 768px) {
-    .panel {
-      flex: 1 1 100%;
-      min-width: unset;
-    }
-    
-    .controls {
-      justify-content: center;
-    }
-    
-    button {
-      flex: 1;
-      min-width: 120px;
-    }
-    
-    .modal-content {
-      margin: 10% auto;
-      width: 95%;
-    }
-  }
-
-  /* ▼▼▼ タッチフィードバックの改善 ▼▼▼ */
-  button:active {
-    transform: scale(0.98);
-    transition: transform 0.1s;
+  /* タッチデバイス向け */
+  @media (hover: none) and (pointer: coarse) {
+    .btn { min-height: 44px; min-width: 44px; }
   }
 </style>
 </head>
 <body>
-  <div class="row">
-    <div class="panel">
-      <div class="stack" id="stack">
-        <video id="video" playsinline muted></video>
-        <canvas id="overlay"></canvas>
-      </div>
-      <div class="controls">
-        <span id="scanStatus" class="badge" role="status" aria-live="polite">待機中</span>
-        <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></label>
-        <span id="detectorInfo" class="badge"></span>
-      </div>
-      <div id="stats" class="muted" style="font-size:12px; margin-top:4px;"></div>
-      <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
+
+<header>
+  <h1>棚→型 QRスキャン登録_1018</h1>
+  <div class="cam-controls">
+    <button id="btnStart" class="btn btn-primary">カメラ開始</button>
+    <button id="btnStop" class="btn" disabled>停止</button>
+  </div>
+</header>
+
+<main class="container">
+  <div class="view-wrapper">
+    <video id="v" playsinline muted></video>
+    <canvas id="ov"></canvas>
+  </div>
+  <canvas id="scanCanvas"></canvas>
+  <div id="err"></div>
+
+  <div class="workflow">
+    <div id="step1" class="step active">
+      <div class="num">STEP 1</div>
+      <div class="label">棚をスキャン</div>
     </div>
-    <div class="panel">
-      <div class="card"><h4>🎯 ターゲット</h4><div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div></div>
-      <div class="card"><h4> 棚 探すべき棚</h4><div id="currentShelf" class="muted">（URL未指定）</div></div>
-      <div class="card"><h4>⚙️ 操作</h4><div class="controls"><button id="btnStart" class="primary" aria-label="カメラを開始してQRコードのスキャンを開始">カメラ開始</button><button id="btnStop" disabled>停止</button><button id="btnHistory">スキャン履歴</button></div><div class="legend"><span class="chip ok">一致</span><span class="chip ng">不一致</span></div></div>
-      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。</div></div>
+    <div class="connector"></div>
+    <div id="step2" class="step">
+      <div class="num">STEP 2</div>
+      <div class="label">型をスキャン</div>
     </div>
   </div>
-  <div id="historyModal" class="modal"><div class="modal-content"><div class="modal-header"><h4>スキャン履歴</h4><span id="closeModal" class="close-button">&times;</span></div><ul id="historyList"></ul></div></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
-  <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const DOM = { 
-      video: document.getElementById('video'), 
-      overlay: document.getElementById('overlay'), 
-      stack: document.getElementById('stack'), 
-      btnStart: document.getElementById('btnStart'), 
-      btnStop: document.getElementById('btnStop'), 
-      btnHistory: document.getElementById('btnHistory'), 
-      tgtBN: document.getElementById('tgtBN'), 
-      tgtWC: document.getElementById('tgtWC'), 
-      tgtWN: document.getElementById('tgtWN'), 
-      currentShelf: document.getElementById('currentShelf'), 
-      scanStatus: document.getElementById('scanStatus'), 
-      detectorInfo: document.getElementById('detectorInfo'), 
-      error: document.getElementById('error'), 
-      fileTest: document.getElementById('fileTest'), 
-      historyModal: document.getElementById('historyModal'), 
-      historyList: document.getElementById('historyList'), 
-      closeModal: document.getElementById('closeModal'),
-      panel: document.querySelector('.panel')
-    };
-    const overlayCtx = DOM.overlay.getContext('2d', { willReadFrequently: true });
-    const state = { 
-      stream: null, 
-      rafId: null, 
-      detector: null, 
-      useBarcodeDetector: ('BarcodeDetector' in window), 
-      isLocked: false, 
-      holdTimer: null, 
-      currentTarget: {}, 
-      targetKey: '', 
-      currentShelf: null, 
-      scanHistory: new Map(),
-      stats: {
-        total: 0,
-        matches: 0,
-        lastUpdate: null
-      }
-    };
-    const CONFIG = { 
-      colors: { 
-        ok: getComputedStyle(document.documentElement).getPropertyValue('--ok').trim(), 
-        ng: getComputedStyle(document.documentElement).getPropertyValue('--ng').trim(), 
-        loc: getComputedStyle(document.documentElement).getPropertyValue('--loc').trim(), 
-      }, 
-      holdDuration: 3000, 
-      lockCooldown: 700,
-    };
+  <div id="loc-section" class="content-section">
+    <div class="content-header">
+      <h2>① 固定中の棚 (LOC)</h2>
+    </div>
+    <div class="content-body">
+      <div id="loc-content">
+        <div class="placeholder">カメラで棚のQRコードをかざしてください</div>
+      </div>
+    </div>
+  </div>
 
-    // ▼▼▼ パフォーマンスモニタリング ▼▼▼
-    const perf = {
-      frameCount: 0,
-      startTime: 0,
-      fps: 0
-    };
+  <div id="die-section" class="content-section">
+    <div class="content-header">
+      <h2>② 登録する型 (DIE)</h2>
+      <span style="flex-grow:1"></span>
+      <button id="btnClearDies" class="btn btn-danger btn-sm">
+        <svg class="icon-clear" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path><line x1="18" y1="9" x2="12" y2="15"></line><line x1="12" y1="9" x2="18" y2="15"></line></svg>
+        <span>全消去</span>
+      </button>
+    </div>
+    <div class="content-body">
+      <div id="dieList" class="die-list">
+        <div class="placeholder">次に型のQRコードをスキャンします</div>
+      </div>
+    </div>
+  </div>
 
-    function startPerfMonitor() {
-      perf.frameCount = 0;
-      perf.startTime = performance.now();
-    }
+  <div class="actions">
+    <button id="btnUpdate" class="btn btn-primary" disabled>
+      <svg class="icon-upload" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+      <span id="btnUpdateLabel">データベースに登録</span>
+    </button>
+  </div>
+</main>
 
-    function updatePerfMonitor() {
-      perf.frameCount++;
-      const elapsed = performance.now() - perf.startTime;
-      if (elapsed > 1000) {
-        perf.fps = Math.round((perf.frameCount * 1000) / elapsed);
-        perf.frameCount = 0;
-        perf.startTime = performance.now();
-        
-        // 必要に応じてFPS表示（開発時のみ）
-        if (perf.fps < 15) {
-          console.warn(`低FPS検出: ${perf.fps}`);
-        }
-      }
-    }
+<div class="toastWrap" id="toasts"></div>
 
-    const confirmationBeep = (() => { 
-      let audioCtx; 
-      const play = () => { 
-        try { 
-          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); 
-          const t0 = audioCtx.currentTime; 
-          const osc = audioCtx.createOscillator(); 
-          osc.type = 'sine'; 
-          osc.frequency.setValueAtTime(600, t0); 
-          osc.frequency.exponentialRampToValueAtTime(1200, t0 + 0.1); 
-          const gain = audioCtx.createGain(); 
-          gain.gain.setValueAtTime(0.0001, t0); 
-          gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02); 
-          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2); 
-          osc.connect(gain).connect(audioCtx.destination); 
-          osc.start(t0); 
-          osc.stop(t0 + 0.25); 
-        } catch (e) { 
-          console.error("Audio playback failed:", e); 
-        } 
-      }; 
-      return play; 
-    })();
-    
-    const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
-    const classify = (raw) => { 
-      const text = normalizeHyphen((raw || "").trim()); 
-      if (/^loc-/i.test(text)) return "loc"; 
-      if (/^die-/i.test(text)) return "die"; 
-      try { 
-        const url = new URL(text); 
-        if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die"; 
-      } catch {} 
-      return "other"; 
-    };
-    
-    const parseDie = (raw) => { 
-      const text = normalizeHyphen((raw || "").trim()); 
-      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/.exec(text); 
-      if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() }; 
-      try { 
-        const url = new URL(text); 
-        const book = url.searchParams.get("book") || ""; 
-        const wc = url.searchParams.get("wc") || ""; 
-        if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() }; 
-      } catch {} 
-      return null; 
-    };
-    
-    const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+// ========= 設定 (Settings) =========
+const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
+const SCAN_RESOLUTION = 600;
+const PROCESS_COOLDOWN = 1500; // 1.5秒間の重複防止
+const SCAN_INTERVAL = 50; // 50ms間隔でスキャン
+const LOCK_DISPLAY_DURATION = 3000; // ロック表示を3秒間だけ保持
 
-    function drawBox(points, color, label) { 
-      if (!points || points.length < 4) return; 
-      overlayCtx.save(); 
-      overlayCtx.lineWidth = (color === CONFIG.colors.ok) ? 5 : 3; 
-      overlayCtx.strokeStyle = color; 
-      overlayCtx.shadowColor = color; 
-      overlayCtx.shadowBlur = 4; 
-      overlayCtx.beginPath(); 
-      overlayCtx.moveTo(points[0].x, points[0].y); 
-      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y); 
-      overlayCtx.closePath(); 
-      overlayCtx.stroke(); 
-      if (label) { 
-        const x = (points[0].x + points[2].x) / 2; 
-        const y = Math.min(points[0].y, points[1].y) - 8; 
-        overlayCtx.fillStyle = color; 
-        overlayCtx.font = "bold 16px system-ui"; 
-        overlayCtx.textAlign = "center"; 
-        overlayCtx.textBaseline = "bottom"; 
-        overlayCtx.fillText(label, x, y < 16 ? 16 : y); 
-      } 
-      overlayCtx.restore(); 
-    }
-    
-    function showToastNearBox(text, points) {
-      if(!points || points.length < 2) return; 
-      const el = document.createElement("div"); 
-      el.className = "toast"; 
-      el.textContent = text; 
-      const x = (points[0].x + points[1].x) / 2; 
-      const y = Math.min(points[0].y, points[1].y); 
-      const rx = x / DOM.overlay.width * DOM.video.clientWidth; 
-      const ry = y / DOM.overlay.height * DOM.video.clientHeight; 
-      el.style.left = rx + "px"; 
-      el.style.top = ry + "px"; 
-      DOM.stack.appendChild(el); 
-      setTimeout(() => el.remove(), 1200); 
-    }
-    
-    function fitOverlay() { 
-      if (DOM.video.videoWidth === 0) return; 
-      DOM.overlay.width = DOM.video.videoWidth; 
-      DOM.overlay.height = DOM.video.videoHeight; 
-      DOM.overlay.style.width = DOM.video.clientWidth + "px"; 
-      DOM.overlay.style.height = DOM.video.clientHeight + "px"; 
-    }
-    
-    // ▼▼▼ メモリリーク防止の強化 ▼▼▼
-    function stopCam() { 
-      if (state.rafId) {
-        cancelAnimationFrame(state.rafId);
-        state.rafId = null;
-      }
-      
-      if (state.stream) {
-        state.stream.getTracks().forEach(t => {
-          t.stop();
-          t.enabled = false;
-        });
-        state.stream = null;
-      }
-      
-      if (state.holdTimer) {
-        clearTimeout(state.holdTimer);
-        state.holdTimer = null;
-      }
-      
-      DOM.video.srcObject = null;
-      DOM.btnStart.disabled = false;
-      DOM.btnStop.disabled = true;
-      updateStatus("停止中");
-    }
-    
-    function showError(e) { 
-      console.error(e); 
-      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; 
-    }
+// ========= 状態 (State) =========
+let fixedLoc = null;
+const fixedDies = new Map();
+const flashes = [];
+const bubbles = [];
+let candidates = [];
+const recentlyProcessed = new Map(); // 重複防止用（タイムスタンプ付き）
+const lockedDisplays = new Map(); // ロック表示の管理（キー: hash, 値: {until, corners, kind}）
 
-    // ▼▼▼ カメラ権限チェックの追加 ▼▼▼
-    async function checkCameraPermissions() {
-      try {
-        if (navigator.permissions && navigator.permissions.query) {
-          const permissions = await navigator.permissions.query({ name: 'camera' });
-          return permissions.state !== 'denied';
-        }
-        return true; // フォールバック
-      } catch {
-        return true; // フォールバック
-      }
-    }
-    
-    async function startCam() { 
-      const hasCameraAccess = await checkCameraPermissions();
-      if (!hasCameraAccess) {
-        showError(new Error('カメラへのアクセスが拒否されています。ブラウザの設定を確認してください。'));
-        updateStatus("カメラ拒否", "ng");
-        return;
-      }
+// ========= DOM要素 (DOM Elements) =========
+const $ = (q) => document.querySelector(q);
+const v = $("#v"), scanCanvas = $("#scanCanvas"), ov = $("#ov");
+const octx = ov.getContext("2d");
+const sctx = scanCanvas.getContext("2d", { willReadFrequently: true });
+const errEl = $("#err"), toasts = $("#toasts");
+const btnUpdate = $("#btnUpdate");
 
-      stopCam(); 
-      DOM.error.textContent = ""; 
-      try { 
-        state.stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            facingMode: { ideal: "environment" }, 
-            width: { ideal: 1280 }, 
-            height: { ideal: 720 } 
-          }, 
-          audio: false 
-        }); 
-        DOM.video.srcObject = state.stream; 
-        await DOM.video.play(); 
-        DOM.btnStart.disabled = true; 
-        DOM.btnStop.disabled = false; 
-        if (state.useBarcodeDetector) { 
-          try { 
-            state.detector = new BarcodeDetector({ formats: ["qr_code"] }); 
-          } catch { 
-            state.useBarcodeDetector = false; 
-            state.detector = null; 
-          } 
-        } 
-        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR"; 
-        fitOverlay(); 
-        startPerfMonitor();
-        tick(); 
-      } catch (e) { 
-        showError(e); 
-        updateStatus("カメラエラー", "ng"); 
-      } 
-    }
+// ========= UI更新 (UI Updates) =========
+function updateUIState() {
+  const step1 = $("#step1"), step2 = $("#step2");
+  const locSection = $("#loc-section"), dieSection = $("#die-section");
+  const locContent = $("#loc-content");
 
-    // ▼▼▼ パフォーマンス最適化された検出関数 ▼▼▼
-    function detectCombined() {
-      return new Promise(resolve => {
-        if (!DOM.video.videoWidth) return resolve([]);
-        
-        const processFrame = () => {
-          const tmpCanvas = document.createElement("canvas");
-          tmpCanvas.width = DOM.video.videoWidth;
-          tmpCanvas.height = DOM.video.videoHeight;
-          const tctx = tmpCanvas.getContext("2d", { willReadFrequently: true });
-          tctx.drawImage(DOM.video, 0, 0, tmpCanvas.width, tmpCanvas.height);
-          const allDetections = new Map();
-          
-          // BarcodeDetectorの処理
-          if (state.useBarcodeDetector && state.detector) {
-            state.detector.detect(tmpCanvas)
-              .then(codes => {
-                codes.forEach(code => allDetections.set(code.rawValue, code));
-                processJsQR(tmpCanvas, allDetections, resolve);
-              })
-              .catch(e => {
-                console.warn("BarcodeDetector failed.", e);
-                processJsQR(tmpCanvas, allDetections, resolve);
-              });
-          } else {
-            processJsQR(tmpCanvas, allDetections, resolve);
-          }
-        };
+  // アクセシビリティ対応
+  step1.setAttribute('aria-current', step1.classList.contains('active') ? 'step' : 'false');
+  step2.setAttribute('aria-current', step2.classList.contains('active') ? 'step' : 'false');
+  btnUpdate.setAttribute('aria-disabled', btnUpdate.disabled);
 
-        if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
-          processFrame();
-        } else {
-          setTimeout(() => resolve([]), 16);
-        }
-      });
-    }
-
-    function processJsQR(tmpCanvas, allDetections, resolve) {
-      const imgData = tmpCanvas.getContext("2d").getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
-      const maskedData = new Uint8ClampedArray(imgData.data);
-      
-      for (let k = 0; k < 10; k++) {
-        const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
-        if (!hit) break;
-        
-        const raw = hit.data;
-        if (!allDetections.has(raw)) {
-          allDetections.set(raw, { 
-            rawValue: raw, 
-            cornerPoints: [
-              hit.location.topLeftCorner, 
-              hit.location.topRightCorner, 
-              hit.location.bottomRightCorner, 
-              hit.location.bottomLeftCorner
-            ]
-          });
-        }
-        
-        // 検出済み領域をマスク
-        const { topLeftCorner, bottomRightCorner } = hit.location;
-        for (let y = Math.floor(topLeftCorner.y); y < Math.ceil(bottomRightCorner.y); y++) {
-          for (let x = Math.floor(topLeftCorner.x); x < Math.ceil(bottomRightCorner.x); x++) {
-            const i = (y * imgData.width + x) * 4;
-            maskedData[i] = maskedData[i + 1] = maskedData[i + 2] = 255;
-          }
-        }
-      }
-      
-      resolve(Array.from(allDetections.values()));
-    }
-    
-    function holdScan(ms) { 
-      if (state.holdTimer) clearTimeout(state.holdTimer); 
-      if (state.rafId) cancelAnimationFrame(state.rafId); 
-      state.rafId = null; 
-      updateStatus("ロック中", "ok"); 
-      state.holdTimer = setTimeout(() => { 
-        if (!state.rafId) tick(); 
-        state.holdTimer = null; 
-      }, ms); 
-    }
-    
-    function updateHistory(raw, kind, isMatch) { 
-      if (state.scanHistory.has(raw)) return; 
-      state.scanHistory.set(raw, { kind, isMatch, time: new Date() }); 
-    }
-
-    // ▼▼▼ 統計表示の追加 ▼▼▼
-    function updateStats(detections, anyMatch) {
-      state.stats.total = detections.length;
-      state.stats.matches = anyMatch ? state.stats.matches + 1 : state.stats.matches;
-      state.stats.lastUpdate = new Date();
-      
-      const statsEl = document.getElementById('stats');
-      if (statsEl) {
-        statsEl.textContent = `検出: ${state.stats.total} | 一致: ${state.stats.matches}`;
-      }
-    }
-
-    function applyDetections(detections) {
-      let anyMatch = false;
-      overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
-      
-      for (const d of (detections || [])) {
-        const raw = (d.rawValue || "").trim(); 
-        if (!raw) continue;
-        
-        const kind = classify(raw); 
-        const pts = d.cornerPoints;
-        
-        if (kind === 'die') {
-          const p = parseDie(raw);
-          const key = p ? dieKey(p.bn, p.wc) : "";
-          const isMatch = key && key === state.targetKey;
-          anyMatch = anyMatch || isMatch;
-          const color = isMatch ? CONFIG.colors.ok : CONFIG.colors.ng;
-          const label = isMatch ? "一致" : (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致");
-          
-          drawBox(pts, color, label);
-          updateHistory(raw, 'die', isMatch);
-          
-          if (isMatch && !state.isLocked) {
-            state.isLocked = true;
-            confirmationBeep();
-            
-            if (navigator.vibrate) { 
-              navigator.vibrate(150); 
-            }
-            
-            const flash = document.createElement('div');
-            flash.className = 'flash-overlay';
-            DOM.stack.appendChild(flash);
-            setTimeout(() => flash.remove(), 600);
-            
-            showToastNearBox("ロック", pts);
-            holdScan(CONFIG.holdDuration);
-            setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
-          }
-        } else {
-          drawBox(pts, CONFIG.colors.ng, "別QR");
-          updateHistory(raw, 'other', false);
-        }
-      }
-      
-      // 統計更新
-      updateStats(detections, anyMatch);
-      
-      if (!state.holdTimer) { 
-        const msg = detections.length > 0 ? (anyMatch ? "ターゲット発見" : `${detections.length}件検知`) : "探索中..."; 
-        const statusType = anyMatch ? "ok" : (detections.length > 0 ? "ng" : "info"); 
-        updateStatus(msg, statusType); 
-      }
-    }
-
-    // ▼▼▼ 最適化されたtick関数 ▼▼▼
-    async function tick() { 
-      if (!state.stream || state.holdTimer) return;
-      
-      if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
-        fitOverlay();
-        const detections = await detectCombined();
-        applyDetections(detections);
-        updatePerfMonitor();
-      }
-      
-      if (!state.holdTimer) {
-        state.rafId = requestAnimationFrame(tick);
-      }
-    }
-    
-    function updateStatus(text, type = 'info') { 
-      DOM.scanStatus.textContent = text; 
-      DOM.scanStatus.className = `badge chip ${type}`; 
-    }
-    
-    function showHistoryModal() { 
-      DOM.historyList.innerHTML = ''; 
-      if(state.scanHistory.size === 0){ 
-        DOM.historyList.innerHTML = '<li>スキャン履歴はありません。</li>'; 
-      } else { 
-        for (const [raw, data] of state.scanHistory.entries()) { 
-          const li = document.createElement('li'); 
-          let status = ''; 
-          if(data.kind === 'die') status = data.isMatch ? '✔️ 一致' : '❌ 不一致'; 
-          else status = '❓ その他'; 
-          li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`; 
-          DOM.historyList.appendChild(li); 
-        } 
-      } 
-      DOM.historyModal.style.display = 'block'; 
-    }
-
-    // ▼▼▼ キーボード操作のサポート ▼▼▼
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (DOM.historyModal.style.display === 'block') {
-          DOM.historyModal.style.display = 'none';
-        } else {
-          stopCam();
-        }
-      }
-      
-      if (e.key === ' ' && !state.stream) {
-        startCam();
-      }
+  // Step 1: 棚 (LOC)
+  if (fixedLoc) {
+    step1.classList.add('active');
+    locContent.innerHTML = `
+      <div class="loc-display">
+        <div>
+          <div class="sub">固定中の棚</div>
+          <div class="val">${escapeHtml(fixedLoc.loc)}</div>
+        </div>
+        <button id="btnClearLoc" class="btn btn-danger btn-sm">
+          <svg class="icon-clear" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path><line x1="18" y1="9" x2="12" y2="15"></line><line x1="12" y1="9" x2="18" y2="15"></line></svg>
+          <span>解除</span>
+        </button>
+      </div>`;
+    $("#btnClearLoc").addEventListener("click", () => {
+      fixedLoc = null;
+      fixedDies.clear();
+      lockedDisplays.clear(); // ロック表示もクリア
+      updateUIState();
+      renderDies();
     });
+    dieSection.style.display = 'block';
+  } else {
+    step1.classList.add('active');
+    step2.classList.remove('active');
+    locContent.innerHTML = `<div class="placeholder">カメラで棚のQRコードをかざしてください</div>`;
+    dieSection.style.display = 'none';
+  }
 
-    DOM.btnStart.addEventListener("click", startCam); 
-    DOM.btnStop.addEventListener("click", stopCam); 
-    DOM.btnHistory.addEventListener("click", showHistoryModal); 
-    DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none'); 
-    window.addEventListener("click", (event) => { 
-      if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none"; 
-    });
-    
-    DOM.fileTest.addEventListener("change", async (ev) => { 
-      const file = ev.target.files?.[0]; 
-      if (!file) return; 
-      const img = new Image(); 
-      img.onload = async () => { 
-        const canvas = document.createElement('canvas'); 
-        canvas.width = img.width; 
-        canvas.height = img.height; 
-        const ctx = canvas.getContext('2d', { willReadFrequently: true }); 
-        ctx.drawImage(img, 0, 0); 
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height); 
-        
-        // jsQRのマルチ検出
-        const hits = [];
-        const maskedData = new Uint8ClampedArray(imgData.data);
-        for (let k = 0; k < 10; k++) {
-          const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
-          if (!hit) break;
-          hits.push({ 
-            rawValue: hit.data, 
-            cornerPoints: [
-              hit.location.topLeftCorner,
-              hit.location.topRightCorner, 
-              hit.location.bottomRightCorner,
-              hit.location.bottomLeftCorner
-            ] 
-          });
-          // マスク処理
-          const { topLeftCorner, bottomRightCorner } = hit.location;
-          for (let y = Math.floor(topLeftCorner.y); y < Math.ceil(bottomRightCorner.y); y++) {
-            for (let x = Math.floor(topLeftCorner.x); x < Math.ceil(bottomRightCorner.x); x++) {
-              const i = (y * imgData.width + x) * 4;
-              maskedData[i] = maskedData[i + 1] = maskedData[i + 2] = 255;
-            }
-          }
-        }
-        
-        DOM.overlay.width = img.width; 
-        DOM.overlay.height = img.height; 
-        applyDetections(hits); 
-        updateStatus(`静止画テスト: ${hits.length}件検知`); 
-        ev.target.value = ""; 
-      }; 
-      img.src = URL.createObjectURL(file); 
-    });
-    
-    function initialize() { 
-      const params = new URLSearchParams(location.search); 
-      state.currentTarget = { 
-        book: (params.get("book") || "").trim(), 
-        wc: (params.get("wc") || "").trim(), 
-        wn: (params.get("wn") || "").trim() 
-      }; 
-      
-      if (!state.currentTarget.book || !state.currentTarget.wc) { 
-        updateStatus("ターゲット未指定", "ng"); 
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定してください。"; 
-        DOM.btnStart.disabled = true; 
-      } else { 
-        DOM.tgtBN.textContent = state.currentTarget.book; 
-        DOM.tgtWC.textContent = state.currentTarget.wc; 
-        DOM.tgtWN.textContent = state.currentTarget.wn; 
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc); 
-        updateStatus("準備完了"); 
-      } 
-      
-      const locParam = (params.get("loc") || "").trim(); 
-      if(locParam){ 
-        state.currentShelf = locParam; 
-        DOM.currentShelf.textContent = state.currentShelf; 
-        DOM.currentShelf.className = "chip loc"; 
-      } 
-    }
-    
-    initialize();
+  // Step 2: 型 (DIE)
+  if (fixedLoc && fixedDies.size > 0) {
+    step1.classList.remove('active');
+    step2.classList.add('active');
+  } else if (fixedLoc) {
+    step1.classList.remove('active');
+    step2.classList.add('active');
+  } else {
+    step2.classList.remove('active');
+  }
+
+  // Step 3: 更新ボタン (Update Button)
+  btnUpdate.disabled = !fixedLoc || fixedDies.size === 0;
+}
+
+function renderDies() {
+  const dieListEl = $("#dieList");
+  if (fixedDies.size === 0) {
+    dieListEl.innerHTML = `<div class="placeholder">次に型のQRコードをスキャンします</div>`;
+  } else {
+    dieListEl.innerHTML = [...fixedDies.values()].map(d => {
+      const key = `${d.bn}-${d.wc}`;
+      return `<div class="item" data-key="${key}">
+        <div class="info">
+          <div class="head">
+            <span class="sub">${escapeHtml(d.bn)}</span>
+            <span class="wc">[<b>${escapeHtml(d.wc)}</b>]</span>
+          </div>
+          ${d.wn ? `<div class="sub">WorkName: ${escapeHtml(d.wn)}</div>` : ''}
+          <div class="sub">RAW: ${escapeHtml(d.raw.length > 70 ? d.raw.slice(0, 70) + "…" : d.raw)}</div>
+        </div>
+        <button class="btn btn-danger btn-sm" data-del="${key}">
+            <svg class="icon-trash" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>
+      </div>`;
+    }).join("");
+  }
+  dieListEl.querySelectorAll('button[data-del]').forEach(b => {
+    b.onclick = () => {
+      fixedDies.delete(b.dataset.del);
+      renderDies();
+      updateUIState();
+    };
   });
-  </script>
+  updateUIState();
+}
+
+// ========= ユーティリティ (Utilities) =========
+const dieKey = (bn, wc) => `${bn}-${wc}`;
+function setError(t) { errEl.textContent = t || ""; errEl.style.display = t ? 'block' : 'none'; }
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function toast(msg, sub = "") { const el = document.createElement("div"); el.className = "toast"; el.innerHTML = `${msg}${sub ? ` <small>${sub}</small>` : ""}`; toasts.appendChild(el); setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, 1200); setTimeout(() => { el.remove(); }, 1800); }
+let AC = null;
+function playBeep(freq = 880, dur = 120) { try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); const o = AC.createOscillator(), g = AC.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.value = 0.0001; o.connect(g); g.connect(AC.destination); const t = AC.currentTime; g.gain.exponentialRampToValueAtTime(0.08, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur / 1000); o.start(); o.stop(t + dur / 1000 + 0.02); } catch { } }
+function buzz(ms = 60) { if (navigator.vibrate) navigator.vibrate(ms); }
+function classify(s){ if(/^loc-/i.test(s)) return "loc"; if(/^die-/i.test(s)) return "die"; try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{} return "other"; }
+
+function tryExtractWN(raw){ try{ const u = new URL(raw); const m = /[#&]d=([^&]+)/.exec(u.hash||""); if(!m) return ""; const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : ''; const json = atob(b64 + pad); const obj = JSON.parse(json); return (obj.wn||"").trim(); }catch{ return ""; } }
+
+function parse(text){ 
+    const m = /^die-([^-\n]+)-(.+)$/.exec(text); 
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; }
+    try{ const u=new URL(text); 
+        const book=(u.searchParams.get("book")||"").trim(); 
+        const wc=(u.searchParams.get("wc")||"").trim(); 
+        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; }
+    }catch{} 
+    const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } 
+    return {}; 
+}
+
+// ========= 描画 (Canvas Overlays) =========
+function drawPolygon(ctx, points){ ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y); ctx.closePath(); }
+function roundedRect(ctx, x,y,w,h,r=10){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function centroid(corners){ const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y); return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) }; }
+function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
+function addBubble(kind, corners, text){ const c = centroid(corners); const msg = (kind==='die' && fixedLoc) ? `${text} → ${fixedLoc.loc}` : text; const color = kind==='loc' ? 'rgba(42, 157, 143, 0.92)' : 'rgba(0, 95, 115, 0.92)'; const stroke= 'rgba(255,255,255,0.9)'; bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 }); }
+
+// チェックマークを描画する関数
+function drawCheckmark(ctx, x, y, size = 30) {
+  ctx.save();
+  ctx.strokeStyle = '#28a745';
+  ctx.fillStyle = '#d4edda';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  
+  // 背景の円
+  ctx.beginPath();
+  ctx.arc(x, y, size/2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  
+  // チェックマーク
+  ctx.beginPath();
+  ctx.moveTo(x - size/3, y);
+  ctx.lineTo(x - size/10, y + size/3);
+  ctx.lineTo(x + size/3, y - size/3);
+  ctx.stroke();
+  
+  ctx.restore();
+}
+
+function drawOverlays(){
+  // 描画が必要ない場合は早期リターン
+  if (candidates.length === 0 && flashes.length === 0 && bubbles.length === 0 && lockedDisplays.size === 0) {
+    return;
+  }
+  
+  octx.clearRect(0,0,ov.width,ov.height);
+  const scale = ov.width / scanCanvas.width;
+  
+  // 期限切れのロック表示をクリア
+  const now = performance.now();
+  for (const [hash, display] of lockedDisplays.entries()) {
+    if (now > display.until) {
+      lockedDisplays.delete(hash);
+    }
+  }
+  
+  // ロック表示を描画（3秒間のみ表示）
+  for (const display of lockedDisplays.values()) {
+    if (now <= display.until) {
+      const isLoc = display.kind === 'loc';
+      const scaledCorners = display.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
+      
+      // 残り時間に基づく透明度（フェードアウト効果）
+      const remaining = display.until - now;
+      const fadeProgress = Math.max(0, Math.min(1, remaining / 1000)); // 最後の1秒でフェードアウト
+      
+      octx.setLineDash([]);
+      octx.lineWidth = 3;
+      octx.strokeStyle = isLoc 
+        ? `rgba(42, 157, 143, ${0.6 * fadeProgress})` 
+        : `rgba(0, 95, 115, ${0.6 * fadeProgress})`;
+      octx.fillStyle = isLoc 
+        ? `rgba(42, 157, 143, ${0.15 * fadeProgress})` 
+        : `rgba(0, 95, 115, ${0.15 * fadeProgress})`;
+      
+      drawPolygon(octx, scaledCorners);
+      octx.stroke();
+      octx.fill();
+      
+      // チェックマークもフェードアウト
+      if (fadeProgress > 0.3) { // ある程度見えるときだけ表示
+        const center = centroid(scaledCorners);
+        octx.globalAlpha = fadeProgress;
+        drawCheckmark(octx, center.x, center.y, 30);
+        octx.globalAlpha = 1;
+      }
+    }
+  }
+  
+  // 現在の候補の枠線を描画（重複は別色で表示）
+  for(const c of candidates){ 
+    const isLoc = c.kind==='loc'; 
+    const isRegistered = c.registered;
+    const scaledCorners = c.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
+    
+    if (isRegistered) {
+      // 登録済みのQRコード - 緑色のチェックマーク
+      octx.setLineDash([]); 
+      octx.lineWidth = 3; 
+      octx.strokeStyle = 'rgba(40, 167, 69, 0.8)'; 
+      octx.fillStyle = 'rgba(212, 237, 218, 0.3)'; 
+      drawPolygon(octx, scaledCorners); 
+      octx.stroke(); 
+      octx.fill();
+      
+      // チェックマークを中央に描画
+      const center = centroid(scaledCorners);
+      drawCheckmark(octx, center.x, center.y, 30);
+      
+    } else {
+      // 未登録のQRコード - 通常の表示
+      octx.setLineDash([]); 
+      octx.lineWidth = 2; 
+      octx.strokeStyle = isLoc ? 'rgba(42, 157, 143,0.95)' : 'rgba(0, 95, 115,0.95)'; 
+      octx.fillStyle = isLoc ? 'rgba(42, 157, 143,0.18)' : 'rgba(0, 95, 115,0.18)'; 
+      drawPolygon(octx, scaledCorners); 
+      octx.stroke(); 
+      octx.fill(); 
+    }
+  }
+  
+  // フラッシュアニメーションを描画（未登録の場合のみ）
+  for(let i=flashes.length-1; i>=0; i--){ 
+    const f = flashes[i]; 
+    const remain = f.until - performance.now(); 
+    if(remain <= 0){ 
+      flashes.splice(i,1); 
+      continue; 
+    } 
+    const t = Math.max(0, Math.min(1, remain/1200)); 
+    const scaledCorners = f.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
+    const color = f.kind==='loc' ? `rgba(42, 157, 143,${0.2+0.6*t})` : `rgba(0, 95, 115,${0.2+0.6*t})`; 
+    const stroke = f.kind==='loc' ? `rgba(42, 157, 143,${0.6+0.4*t})` : `rgba(0, 95, 115,${0.6+0.4*t})`; 
+    octx.fillStyle = color; 
+    octx.strokeStyle = stroke; 
+    octx.lineWidth = 4 + 4*t; 
+    drawPolygon(octx, scaledCorners); 
+    octx.stroke(); 
+    octx.fill(); 
+  }
+  
+  // 吹き出しを描画
+  for(let i=bubbles.length-1; i>=0; i--){ 
+    const b = bubbles[i]; 
+    const remain = b.until - performance.now(); 
+    if(remain <= 0){ 
+      bubbles.splice(i,1); 
+      continue; 
+    } 
+    const t = Math.max(0, Math.min(1, remain/1600)); 
+    const scaledCentroid = { x: b.x * scale, y: b.y * scale };
+    octx.globalAlpha = 0.9 * t; 
+    octx.font = '16px system-ui, sans-serif'; 
+    const w = octx.measureText(b.text).width + 20; 
+    const h = 36; 
+    let x = scaledCentroid.x - w/2, y = scaledCentroid.y - h - 8; 
+    x = Math.max(6, Math.min(x, ov.width - w - 6)); 
+    y = Math.max(6, Math.min(y, ov.height - h - 6)); 
+    octx.fillStyle = b.color; 
+    octx.strokeStyle = b.stroke; 
+    octx.lineWidth = 2; 
+    roundedRect(octx, x, y, w, h, 10); 
+    octx.fill(); 
+    octx.stroke(); 
+    octx.fillStyle = '#fff'; 
+    octx.textBaseline='middle'; 
+    octx.textAlign='center'; 
+    octx.fillText(b.text, x + w/2, y + h/2); 
+    octx.globalAlpha = 1; 
+  }
+}
+
+// ========= 検出 (Detection) - 最適化版 =========
+let stream=null, rafId=null, lastScanTime=0;
+
+function stopCam(){ 
+  cancelAnimationFrame(rafId); 
+  rafId=null; 
+  if(stream){ 
+    stream.getTracks().forEach(t=>t.stop()); 
+    stream=null; 
+  } 
+  $("#btnStart").disabled=false; 
+  $("#btnStop").disabled=true; 
+  recentlyProcessed.clear();
+  lockedDisplays.clear(); // ロック表示もクリア
+}
+
+function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
+
+async function startCam(){ 
+  stopCam(); 
+  setError(""); 
+  
+  try{ 
+    const constraints = {
+      video: { 
+        facingMode:{ ideal:'environment' }, 
+        width:{ideal:1280}, 
+        height:{ideal:720},
+        frameRate: { ideal: 20, max: 30 }
+      }, 
+      audio:false 
+    };
+    
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    
+  }catch(e){ 
+    let errorMessage = `カメラの起動に失敗しました: ${e.message}`;
+    if (e.name === 'NotAllowedError') {
+      errorMessage = 'カメラの使用許可が拒否されました。ブラウザの設定を確認してください。';
+    } else if (e.name === 'NotFoundError') {
+      errorMessage = '利用可能なカメラが見つかりませんでした。';
+    } else if (e.name === 'NotSupportedError') {
+      errorMessage = 'このブラウザではカメラ機能がサポートされていません。';
+    }
+    showError(new Error(errorMessage));
+    return;
+  } 
+  
+  v.srcObject=stream; 
+  
+  try{ 
+    await v.play(); 
+  }catch(e){ 
+    showError(e); 
+    return; 
+  } 
+  
+  // Canvasのサイズをビデオのアスペクト比に合わせる
+  const w = v.videoWidth, h = v.videoHeight;
+  ov.width = w; ov.height = h;
+  scanCanvas.width = SCAN_RESOLUTION;
+  scanCanvas.height = SCAN_RESOLUTION * (h/w);
+
+  $("#btnStart").disabled=true; 
+  $("#btnStop").disabled=false; 
+  tick(); 
+}
+
+function scan() {
+  if (v.readyState !== v.HAVE_ENOUGH_DATA) return null;
+  
+  // スキャン間隔を制御
+  const now = performance.now();
+  if (now - lastScanTime < SCAN_INTERVAL) {
+    return null;
+  }
+  lastScanTime = now;
+  
+  sctx.drawImage(v, 0, 0, scanCanvas.width, scanCanvas.height);
+  const imgData = sctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+  
+  const code = jsQR(imgData.data, imgData.width, imgData.height, { 
+    inversionAttempts: "dontInvert" 
+  });
+  
+  return code ? { 
+    raw: code.data.trim(), 
+    corners: [
+      code.location.topLeftCorner, 
+      code.location.topRightCorner, 
+      code.location.bottomRightCorner, 
+      code.location.bottomLeftCorner
+    ] 
+  } : null;
+}
+
+// QRコードのハッシュ生成
+function generateQRHash(rawText) {
+  let hash = 0;
+  for (let i = 0; i < rawText.length; i++) {
+    const char = rawText.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36) + '_' + rawText.length;
+}
+
+// 改善された重複チェック関数
+function isRecentlyProcessed(hash) {
+  const timestamp = recentlyProcessed.get(hash);
+  if (!timestamp) return false;
+  
+  if (performance.now() - timestamp > PROCESS_COOLDOWN) {
+    recentlyProcessed.delete(hash);
+    return false;
+  }
+  
+  return true;
+}
+
+// 改善されたprocessScanResult関数 - 登録済みQRは音を出さずチェックマークのみ
+function processScanResult(hit) {
+  if (!hit) { 
+    candidates = []; 
+    return; 
+  }
+  
+  const hash = generateQRHash(hit.raw);
+  
+  // 候補オブジェクトの作成
+  const kind = classify(hit.raw);
+  const parsed = parse(hit.raw);
+  let candidate = null;
+
+  if (kind === 'loc' && parsed.loc) {
+    const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
+    candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
+  } else if (kind === 'die' && parsed.bn && parsed.wc) {
+    const key = dieKey(parsed.bn, parsed.wc);
+    const registered = fixedDies.has(key);
+    candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
+  }
+  
+  candidates = candidate ? [candidate] : [];
+
+  // 自動ロック処理 - 登録済みの場合は音とフラッシュを出さない
+  if (candidate && !candidate.registered && !isRecentlyProcessed(hash)) {
+    if (candidate.kind === 'loc' && !fixedLoc) {
+      // LOCの登録
+      fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
+      updateUIState();
+      addFlash('loc', candidate.corners);
+      addBubble('loc', candidate.corners, '棚を固定');
+      playBeep(660, 130); buzz(40);
+      toast("棚を固定", candidate.parsed.loc);
+      
+      // ロック表示を追加（3秒間表示）
+      lockedDisplays.set(hash, {
+        kind: 'loc',
+        corners: candidate.corners,
+        until: performance.now() + LOCK_DISPLAY_DURATION
+      });
+      
+      recentlyProcessed.set(hash, performance.now());
+      
+    } else if (candidate.kind === 'die' && fixedLoc) {
+      const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
+      if (!fixedDies.has(key)) {
+        // DIEの登録
+        fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
+        renderDies();
+        addFlash('die', candidate.corners);
+        addBubble('die', candidate.corners, '型を追加');
+        playBeep(880, 120); buzz(30);
+        toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
+        
+        // ロック表示を追加（3秒間表示）
+        lockedDisplays.set(hash, {
+          kind: 'die',
+          corners: candidate.corners,
+          until: performance.now() + LOCK_DISPLAY_DURATION
+        });
+        
+        recentlyProcessed.set(hash, performance.now());
+      }
+    }
+  }
+  // 登録済みの場合は何もしない（チェックマーク表示のみ）
+}
+
+async function tick() { 
+  if (!stream) return; 
+  
+  const hit = scan();
+  processScanResult(hit);
+  drawOverlays(); 
+  
+  rafId = requestAnimationFrame(tick); 
+}
+
+// ========= 送信 (Submission) =========
+async function submitUpdate() {
+  if (!fixedLoc || fixedDies.size === 0) return;
+  const now = new Date(); 
+  const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  
+  const items = [...fixedDies.values()].map(d => ({ 
+    book: d.bn, 
+    wc: d.wc, 
+    wn: d.wn || "",
+    loc: fixedLoc.loc, 
+    captured_at: captured_date 
+  }));
+  
+  const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
+  
+  if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされ、カメラは停止します)`)) return;
+
+  const btnLabel = $("#btnUpdateLabel");
+  btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
+  let rawResponse = "";
+
+  try {
+    const r = await fetch(SHEET_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items })
+    });
+
+    rawResponse = await r.text();
+    const j = JSON.parse(rawResponse);
+
+    const ok = r.ok && j && j.ok === true;
+    if (!ok) {
+      throw new Error(JSON.stringify(j));
+    }
+
+    const appended = Number(j.appendedRows || 0);
+    const updatedRows = Number(j.updatedRows || 0);
+    const updatedCells = Number(j.updatedCells || 0);
+
+    if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
+      throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
+    }
+
+    const parts = [];
+    if (appended > 0) parts.push(`追加 ${appended}行`);
+    if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
+    else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
+
+    toast(`データベース登録完了（${parts.join(' / ') || '変更あり'}）`);
+    playBeep(520, 140);
+
+    fixedLoc = null;
+    fixedDies.clear();
+    lockedDisplays.clear(); // ロック表示もクリア
+    renderDies();
+    updateUIState();
+    stopCam();
+
+  } catch (e) {
+    console.error("Submit Error:", e, "Raw Response:", rawResponse);
+    alert("登録に失敗しました: " + (e.message || e) + `\n\n[API応答]: ${rawResponse}`);
+  } finally {
+    btnUpdate.disabled = false;
+    btnUpdate.classList.remove('loading');
+    btnLabel.textContent = "データベースに登録";
+    updateUIState();
+  }
+}
+
+// ========= イベントリスナー (Event Listeners) =========
+$("#btnStart").addEventListener("click", startCam);
+$("#btnStop").addEventListener("click", stopCam);
+$("#btnClearDies").addEventListener("click", () => { 
+  fixedDies.clear(); 
+  lockedDisplays.clear(); // ロック表示もクリア
+  renderDies(); 
+});
+$("#btnUpdate").addEventListener("click", submitUpdate);
+
+// キーボード操作のサポート
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (fixedLoc) {
+      fixedLoc = null;
+      fixedDies.clear();
+      lockedDisplays.clear(); // ロック表示もクリア
+      updateUIState();
+      renderDies();
+    }
+  } else if (e.key === ' ' && !e.repeat) {
+    if (stream) {
+      stopCam();
+    } else {
+      startCam();
+    }
+    e.preventDefault();
+  }
+});
+
+// ========= 初期化 (Initialization) =========
+document.addEventListener('DOMContentLoaded', () => {
+  updateUIState();
+});
+</script>
 </body>
 </html>
