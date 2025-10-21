@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>抜型ファインダー v3</title>
+<title>抜型ファインダー v2</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
@@ -98,7 +98,40 @@
     const parseDie = (raw) => { const text = normalizeHyphen((raw || "").trim()); let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/.exec(text); if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() }; try { const url = new URL(text); const book = url.searchParams.get("book") || ""; const wc = url.searchParams.get("wc") || ""; if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() }; } catch {} return null; };
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
-    function drawBox(points, color, label) { if (!points || points.length < 4) return; overlayCtx.save(); overlayCtx.lineWidth = (color === CONFIG.colors.ok) ? 5 : 3; overlayCtx.strokeStyle = color; overlayCtx.shadowColor = color; overlayCtx.shadowBlur = 4; overlayCtx.beginPath(); overlayCtx.moveTo(points[0].x, points[0].y); for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y); overlayCtx.closePath(); overlayCtx.stroke(); if (label) { const x = (points[0].x + points[2].x) / 2; const y = Math.min(points[0].y, points[1].y) - 8; overlayCtx.fillStyle = color; overlayCtx.font = "bold 16px system-ui"; overlayCtx.textAlign = "center"; overlayCtx.textBaseline = "bottom"; overlayCtx.fillText(label, x, y < 16 ? 16 : y); } overlayCtx.restore(); }
+    function drawBox(points, color, label) { 
+      if (!points || points.length < 4) return; 
+      overlayCtx.save(); 
+      overlayCtx.lineWidth = (color === CONFIG.colors.ok) ? 5 : 3; 
+      overlayCtx.strokeStyle = color; 
+      overlayCtx.shadowColor = color; 
+      overlayCtx.shadowBlur = 4; 
+      overlayCtx.beginPath(); 
+      overlayCtx.moveTo(points[0].x, points[0].y); 
+      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y); 
+      overlayCtx.closePath(); 
+      overlayCtx.stroke(); 
+      
+      if (label) { 
+        const x = (points[0].x + points[2].x) / 2; 
+        const y = Math.min(points[0].y, points[1].y) - 12; // 位置を少し上に調整
+        
+        // ▼▼▼ 文字サイズを2倍に拡大 ▼▼▼
+        const fontSize = (color === CONFIG.colors.ok) ? 32 : 32; // 両方とも32pxに統一
+        overlayCtx.fillStyle = color; 
+        overlayCtx.font = `bold ${fontSize}px system-ui`; 
+        overlayCtx.textAlign = "center"; 
+        overlayCtx.textBaseline = "bottom"; 
+        
+        // 背景を追加して読みやすくする
+        overlayCtx.strokeStyle = '#fff';
+        overlayCtx.lineWidth = 4;
+        overlayCtx.strokeText(label, x, y < 20 ? 20 : y);
+        
+        overlayCtx.fillText(label, x, y < 20 ? 20 : y); 
+      } 
+      overlayCtx.restore(); 
+    }
+    
     function showToastNearBox(text, points) { if(!points || points.length < 2) return; const el = document.createElement("div"); el.className = "toast"; el.textContent = text; const x = (points[0].x + points[1].x) / 2; const y = Math.min(points[0].y, points[1].y); const rx = x / DOM.overlay.width * DOM.video.clientWidth; const ry = y / DOM.overlay.height * DOM.video.clientHeight; el.style.left = rx + "px"; el.style.top = ry + "px"; DOM.stack.appendChild(el); setTimeout(() => el.remove(), 1200); }
     function fitOverlay() { if (DOM.video.videoWidth === 0) return; DOM.overlay.width = DOM.video.videoWidth; DOM.overlay.height = DOM.video.videoHeight; DOM.overlay.style.width = DOM.video.clientWidth + "px"; DOM.overlay.style.height = DOM.video.clientHeight + "px"; }
     function stopCam() { if (state.rafId) cancelAnimationFrame(state.rafId); state.rafId = null; if (state.stream) state.stream.getTracks().forEach(t => t.stop()); state.stream = null; DOM.btnStart.disabled = false; DOM.btnStop.disabled = true; updateStatus("停止中"); }
