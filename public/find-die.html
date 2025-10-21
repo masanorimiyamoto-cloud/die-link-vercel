@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>抜型ファインダー v2</title>
+<title>抜型ファインダー v3</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
@@ -44,6 +44,21 @@
   .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
   .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
   #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+
+  /* ▼▼▼ 提案3: フラッシュ効果のCSS ▼▼▼ */
+  .flash-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: white;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 10;
+    animation: flash-effect 0.6s ease-out;
+  }
+  @keyframes flash-effect {
+    0% { opacity: 0.7; }
+    100% { opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -83,86 +98,8 @@
     const parseDie = (raw) => { const text = normalizeHyphen((raw || "").trim()); let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/.exec(text); if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() }; try { const url = new URL(text); const book = url.searchParams.get("book") || ""; const wc = url.searchParams.get("wc") || ""; if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() }; } catch {} return null; };
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
-    function drawBox(points, color, label, showArrow = false) { 
-      if (!points || points.length < 4) return; 
-      overlayCtx.save(); 
-      overlayCtx.lineWidth = (color === CONFIG.colors.ok) ? 5 : 3; 
-      overlayCtx.strokeStyle = color; 
-      overlayCtx.shadowColor = color; 
-      overlayCtx.shadowBlur = 4; 
-      overlayCtx.beginPath(); 
-      overlayCtx.moveTo(points[0].x, points[0].y); 
-      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y); 
-      overlayCtx.closePath(); 
-      overlayCtx.stroke(); 
-      
-      if (label) { 
-        const x = (points[0].x + points[2].x) / 2; 
-        const y = Math.min(points[0].y, points[1].y) - 12;
-        
-        const fontSize = 32;
-        overlayCtx.fillStyle = color; 
-        overlayCtx.font = `bold ${fontSize}px system-ui`; 
-        overlayCtx.textAlign = "center"; 
-        overlayCtx.textBaseline = "bottom"; 
-        
-        // 背景を追加して読みやすくする
-        overlayCtx.strokeStyle = '#fff';
-        overlayCtx.lineWidth = 4;
-        overlayCtx.strokeText(label, x, y < 20 ? 20 : y);
-        
-        overlayCtx.fillText(label, x, y < 20 ? 20 : y); 
-        
-        // ▼▼▼ 矢印を描画（一致時のみ）▼▼▼
-        if (showArrow && color === CONFIG.colors.ok) {
-          const centerX = (points[0].x + points[1].x + points[2].x + points[3].x) / 4;
-          const centerY = (points[0].y + points[1].y + points[2].y + points[3].y) / 4;
-          const labelBottomY = (y < 20 ? 20 : y) + 5; // ラベルの下位置
-          
-          // 矢印の線を描画
-          overlayCtx.strokeStyle = CONFIG.colors.ok;
-          overlayCtx.lineWidth = 3;
-          overlayCtx.beginPath();
-          overlayCtx.moveTo(x, labelBottomY);
-          overlayCtx.lineTo(centerX, centerY);
-          overlayCtx.stroke();
-          
-          // 矢印の先端を描画
-          const angle = Math.atan2(centerY - labelBottomY, centerX - x);
-          const arrowLength = 15;
-          overlayCtx.beginPath();
-          overlayCtx.moveTo(centerX, centerY);
-          overlayCtx.lineTo(
-            centerX - arrowLength * Math.cos(angle - Math.PI / 6),
-            centerY - arrowLength * Math.sin(angle - Math.PI / 6)
-          );
-          overlayCtx.lineTo(
-            centerX - arrowLength * Math.cos(angle + Math.PI / 6),
-            centerY - arrowLength * Math.sin(angle + Math.PI / 6)
-          );
-          overlayCtx.closePath();
-          overlayCtx.fillStyle = CONFIG.colors.ok;
-          overlayCtx.fill();
-        }
-      } 
-      overlayCtx.restore(); 
-    }
-    
-    function showToastNearBox(text, points) { 
-      if(!points || points.length < 2) return; 
-      const el = document.createElement("div"); 
-      el.className = "toast"; 
-      el.textContent = text; 
-      const x = (points[0].x + points[1].x) / 2; 
-      const y = Math.min(points[0].y, points[1].y); 
-      const rx = x / DOM.overlay.width * DOM.video.clientWidth; 
-      const ry = y / DOM.overlay.height * DOM.video.clientHeight; 
-      el.style.left = rx + "px"; 
-      el.style.top = ry + "px"; 
-      DOM.stack.appendChild(el); 
-      setTimeout(() => el.remove(), 1200); 
-    }
-    
+    function drawBox(points, color, label) { if (!points || points.length < 4) return; overlayCtx.save(); overlayCtx.lineWidth = (color === CONFIG.colors.ok) ? 5 : 3; overlayCtx.strokeStyle = color; overlayCtx.shadowColor = color; overlayCtx.shadowBlur = 4; overlayCtx.beginPath(); overlayCtx.moveTo(points[0].x, points[0].y); for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y); overlayCtx.closePath(); overlayCtx.stroke(); if (label) { const x = (points[0].x + points[2].x) / 2; const y = Math.min(points[0].y, points[1].y) - 8; overlayCtx.fillStyle = color; overlayCtx.font = "bold 16px system-ui"; overlayCtx.textAlign = "center"; overlayCtx.textBaseline = "bottom"; overlayCtx.fillText(label, x, y < 16 ? 16 : y); } overlayCtx.restore(); }
+    function showToastNearBox(text, points) { if(!points || points.length < 2) return; const el = document.createElement("div"); el.className = "toast"; el.textContent = text; const x = (points[0].x + points[1].x) / 2; const y = Math.min(points[0].y, points[1].y); const rx = x / DOM.overlay.width * DOM.video.clientWidth; const ry = y / DOM.overlay.height * DOM.video.clientHeight; el.style.left = rx + "px"; el.style.top = ry + "px"; DOM.stack.appendChild(el); setTimeout(() => el.remove(), 1200); }
     function fitOverlay() { if (DOM.video.videoWidth === 0) return; DOM.overlay.width = DOM.video.videoWidth; DOM.overlay.height = DOM.video.videoHeight; DOM.overlay.style.width = DOM.video.clientWidth + "px"; DOM.overlay.style.height = DOM.video.clientHeight + "px"; }
     function stopCam() { if (state.rafId) cancelAnimationFrame(state.rafId); state.rafId = null; if (state.stream) state.stream.getTracks().forEach(t => t.stop()); state.stream = null; DOM.btnStart.disabled = false; DOM.btnStop.disabled = true; updateStatus("停止中"); }
     function showError(e) { console.error(e); DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; }
@@ -183,15 +120,22 @@
           const isMatch = key && key === state.targetKey;
           anyMatch = anyMatch || isMatch;
           const color = isMatch ? CONFIG.colors.ok : CONFIG.colors.ng;
-          // ▼▼▼ 一致時は「型が見つかりました」＋矢印、不一致時は「不一致」のみ ▼▼▼
-          const label = isMatch ? "型が見つかりました" : "不一致";
-          drawBox(pts, color, label, isMatch); // 一致時のみ矢印を表示
+          // ▼▼▼ 提案1: 不一致時にスキャン内容を表示 ▼▼▼
+          const label = isMatch ? "一致" : (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致");
+          drawBox(pts, color, label);
           updateHistory(raw, 'die', isMatch);
           if (isMatch && !state.isLocked) {
             state.isLocked = true;
             confirmationBeep();
+            // ▼▼▼ 提案2: 振動フィードバック ▼▼▼
             if (navigator.vibrate) { navigator.vibrate(150); }
-            showToastNearBox("ターゲットの型を発見！", pts);
+            // ▼▼▼ 提案3: フラッシュ効果 ▼▼▼
+            const flash = document.createElement('div');
+            flash.className = 'flash-overlay';
+            DOM.stack.appendChild(flash);
+            setTimeout(() => flash.remove(), 600);
+            
+            showToastNearBox("ロック", pts);
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
@@ -208,6 +152,7 @@
     DOM.btnStart.addEventListener("click", startCam); DOM.btnStop.addEventListener("click", stopCam); DOM.btnHistory.addEventListener("click", showHistoryModal); DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none'); window.addEventListener("click", (event) => { if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none"; });
     DOM.fileTest.addEventListener("change", async (ev) => { const file = ev.target.files?.[0]; if (!file) return; const img = new Image(); img.onload = async () => { const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height; const ctx = canvas.getContext('2d', { willReadFrequently: true }); ctx.drawImage(img, 0, 0); const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height); const hits = jsqrMulti(imgData).map(h => ({ rawValue: h.rawValue, cornerPoints: h.cornerPoints })); DOM.overlay.width = img.width; DOM.overlay.height = img.height; applyDetections(hits); updateStatus(`静止画テスト: ${hits.length}件検知`); ev.target.value = ""; }; img.src = URL.createObjectURL(file); });
     
+    // ▼▼▼ 修正: jsqrMulti関数の追加 ▼▼▼
     function jsqrMulti(imgData) {
       const hits = [];
       const maskedData = new Uint8ClampedArray(imgData.data);
@@ -226,6 +171,7 @@
           ]
         });
         
+        // 検出したQRコード領域をマスク
         const { topLeftCorner, bottomRightCorner } = hit.location;
         for (let y = Math.floor(topLeftCorner.y); y < Math.ceil(bottomRightCorner.y); y++) {
           for (let x = Math.floor(topLeftCorner.x); x < Math.ceil(bottomRightCorner.x); x++) {
