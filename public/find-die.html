@@ -59,6 +59,35 @@
     0% { opacity: 0.7; }
     100% { opacity: 0; }
   }
+
+  /* ▼ 一致メッセージの大きなバナー ▼ */
+.bigmsg {
+  position: fixed;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  background: rgba(28, 126, 214, 0.95); /* --ok 系の青 */
+  color: #fff;
+  padding: 16px 22px;
+  border-radius: 12px;
+  font-size: clamp(18px, 3.2vw, 26px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.2);
+  letter-spacing: .02em;
+  text-align: center;
+  pointer-events: none;
+  animation: bigmsg-fade 1.2s ease-out forwards;
+}
+.bigmsg .sub {
+  display:block; font-size: .8em; opacity: .9; margin-top: 2px;
+}
+@keyframes bigmsg-fade {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+}
+
 </style>
 </head>
 <body>
@@ -124,21 +153,22 @@
           const label = isMatch ? "一致" : (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致");
           drawBox(pts, color, label);
           updateHistory(raw, 'die', isMatch);
-          if (isMatch && !state.isLocked) {
-            state.isLocked = true;
-            confirmationBeep();
-            // ▼▼▼ 提案2: 振動フィードバック ▼▼▼
-            if (navigator.vibrate) { navigator.vibrate(150); }
-            // ▼▼▼ 提案3: フラッシュ効果 ▼▼▼
-            const flash = document.createElement('div');
-            flash.className = 'flash-overlay';
-            DOM.stack.appendChild(flash);
-            setTimeout(() => flash.remove(), 600);
-            
-            showToastNearBox("ロック", pts);
-            holdScan(CONFIG.holdDuration);
-            setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
-          }
+         if (isMatch && !state.isLocked) {
+      state.isLocked = true;
+      confirmationBeep();
+      if (navigator.vibrate) { navigator.vibrate(150); }
+
+      // 大きな中央メッセージを表示（2重発火を避けつつ短時間で消える）
+      showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
+
+      // 近接トーストはそのまま（必要なければ削除可）
+      showToastNearBox("ロック", pts);
+
+      // 連続検出を少し止める
+      holdScan(CONFIG.holdDuration);
+      setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
+    }
+
         } else {
           drawBox(pts, CONFIG.colors.ng, "別QR");
           updateHistory(raw, 'other', false);
@@ -151,7 +181,24 @@
     function showHistoryModal() { DOM.historyList.innerHTML = ''; if(state.scanHistory.size === 0){ DOM.historyList.innerHTML = '<li>スキャン履歴はありません。</li>'; } else { for (const [raw, data] of state.scanHistory.entries()) { const li = document.createElement('li'); let status = ''; if(data.kind === 'die') status = data.isMatch ? '✔️ 一致' : '❌ 不一致'; else status = '❓ その他'; li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`; DOM.historyList.appendChild(li); } } DOM.historyModal.style.display = 'block'; }
     DOM.btnStart.addEventListener("click", startCam); DOM.btnStop.addEventListener("click", stopCam); DOM.btnHistory.addEventListener("click", showHistoryModal); DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none'); window.addEventListener("click", (event) => { if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none"; });
     DOM.fileTest.addEventListener("change", async (ev) => { const file = ev.target.files?.[0]; if (!file) return; const img = new Image(); img.onload = async () => { const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height; const ctx = canvas.getContext('2d', { willReadFrequently: true }); ctx.drawImage(img, 0, 0); const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height); const hits = jsqrMulti(imgData).map(h => ({ rawValue: h.rawValue, cornerPoints: h.cornerPoints })); DOM.overlay.width = img.width; DOM.overlay.height = img.height; applyDetections(hits); updateStatus(`静止画テスト: ${hits.length}件検知`); ev.target.value = ""; }; img.src = URL.createObjectURL(file); });
-    
+        function showBigMessage(text, sub = "") {
+      // 既存のバナーがあればいったん消す
+      document.querySelectorAll(".bigmsg").forEach(el => el.remove());
+
+      const el = document.createElement("div");
+      el.className = "bigmsg";
+      el.textContent = text;
+      if (sub) {
+        const s = document.createElement("span");
+        s.className = "sub";
+        s.textContent = sub;
+        eWl.appendChild(s);
+      }
+      document.body.appendChild(el);
+      // アニメ後に自動削除（アニメ1.2s＋バッファ）
+      setTimeout(() => el.remove(), 1500);
+    }
+
     // ▼▼▼ 修正: jsqrMulti関数の追加 ▼▼▼
     function jsqrMulti(imgData) {
       const hits = [];
