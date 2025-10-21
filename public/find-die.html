@@ -44,21 +44,6 @@
   .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
   .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
   #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
-
-  /* ▼▼▼ 提案3: フラッシュ効果のCSS ▼▼▼ */
-  .flash-overlay {
-    position: absolute;
-    inset: 0;
-    background-color: white;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 10;
-    animation: flash-effect 0.6s ease-out;
-  }
-  @keyframes flash-effect {
-    0% { opacity: 0.7; }
-    100% { opacity: 0; }
-  }
 </style>
 </head>
 <body>
@@ -113,10 +98,9 @@
       
       if (label) { 
         const x = (points[0].x + points[2].x) / 2; 
-        const y = Math.min(points[0].y, points[1].y) - 12; // 位置を少し上に調整
+        const y = Math.min(points[0].y, points[1].y) - 12;
         
-        // ▼▼▼ 文字サイズを2倍に拡大 ▼▼▼
-        const fontSize = (color === CONFIG.colors.ok) ? 32 : 32; // 両方とも32pxに統一
+        const fontSize = 32;
         overlayCtx.fillStyle = color; 
         overlayCtx.font = `bold ${fontSize}px system-ui`; 
         overlayCtx.textAlign = "center"; 
@@ -132,7 +116,21 @@
       overlayCtx.restore(); 
     }
     
-    function showToastNearBox(text, points) { if(!points || points.length < 2) return; const el = document.createElement("div"); el.className = "toast"; el.textContent = text; const x = (points[0].x + points[1].x) / 2; const y = Math.min(points[0].y, points[1].y); const rx = x / DOM.overlay.width * DOM.video.clientWidth; const ry = y / DOM.overlay.height * DOM.video.clientHeight; el.style.left = rx + "px"; el.style.top = ry + "px"; DOM.stack.appendChild(el); setTimeout(() => el.remove(), 1200); }
+    function showToastNearBox(text, points) { 
+      if(!points || points.length < 2) return; 
+      const el = document.createElement("div"); 
+      el.className = "toast"; 
+      el.textContent = text; 
+      const x = (points[0].x + points[1].x) / 2; 
+      const y = Math.min(points[0].y, points[1].y); 
+      const rx = x / DOM.overlay.width * DOM.video.clientWidth; 
+      const ry = y / DOM.overlay.height * DOM.video.clientHeight; 
+      el.style.left = rx + "px"; 
+      el.style.top = ry + "px"; 
+      DOM.stack.appendChild(el); 
+      setTimeout(() => el.remove(), 1200); 
+    }
+    
     function fitOverlay() { if (DOM.video.videoWidth === 0) return; DOM.overlay.width = DOM.video.videoWidth; DOM.overlay.height = DOM.video.videoHeight; DOM.overlay.style.width = DOM.video.clientWidth + "px"; DOM.overlay.style.height = DOM.video.clientHeight + "px"; }
     function stopCam() { if (state.rafId) cancelAnimationFrame(state.rafId); state.rafId = null; if (state.stream) state.stream.getTracks().forEach(t => t.stop()); state.stream = null; DOM.btnStart.disabled = false; DOM.btnStop.disabled = true; updateStatus("停止中"); }
     function showError(e) { console.error(e); DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; }
@@ -153,22 +151,18 @@
           const isMatch = key && key === state.targetKey;
           anyMatch = anyMatch || isMatch;
           const color = isMatch ? CONFIG.colors.ok : CONFIG.colors.ng;
-          // ▼▼▼ 提案1: 不一致時にスキャン内容を表示 ▼▼▼
-          const label = isMatch ? "一致" : (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致");
+          // ▼▼▼ 一致時は「型が見つかりました」、不一致時は詳細を表示 ▼▼▼
+          const label = isMatch ? "型が見つかりました" : (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致");
           drawBox(pts, color, label);
           updateHistory(raw, 'die', isMatch);
           if (isMatch && !state.isLocked) {
             state.isLocked = true;
             confirmationBeep();
-            // ▼▼▼ 提案2: 振動フィードバック ▼▼▼
+            // ▼▼▼ 振動フィードバック ▼▼▼
             if (navigator.vibrate) { navigator.vibrate(150); }
-            // ▼▼▼ 提案3: フラッシュ効果 ▼▼▼
-            const flash = document.createElement('div');
-            flash.className = 'flash-overlay';
-            DOM.stack.appendChild(flash);
-            setTimeout(() => flash.remove(), 600);
             
-            showToastNearBox("ロック", pts);
+            // ▼▼▼ フラッシュ効果を削除し、代わりにトーストメッセージを表示 ▼▼▼
+            showToastNearBox("ターゲットの型を発見！", pts);
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
