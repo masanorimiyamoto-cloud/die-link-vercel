@@ -135,11 +135,21 @@
       scanHistory: new Map(),
     };
 
+    // ---- 環境判定（Android対策）----
+    const isAndroid = /Android/i.test(navigator.userAgent);
+
+    // CSS変数→色の取得（空ならフォールバック）
+    function cssVarOr(name, fallback) {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+      const s = (v || '').trim();
+      return s || fallback;
+    }
+
     const CONFIG = {
       colors: {
-        ok: getComputedStyle(document.documentElement).getPropertyValue('--ok').trim(),
-        ng: getComputedStyle(document.documentElement).getPropertyValue('--ng').trim(),
-        loc: getComputedStyle(document.documentElement).getPropertyValue('--loc').trim(),
+        ok: cssVarOr('--ok', '#1c7ed6'),
+        ng: cssVarOr('--ng', '#e03131'),
+        loc: cssVarOr('--loc', '#2b8a3e'),
       },
       holdDuration: 3000,
       lockCooldown: 700,
@@ -195,13 +205,26 @@
 
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
-    function drawBox(points, color, label) {
+    function drawBox(points, color, label, style = 'solid') {
       if (!points || points.length < 4) return;
       overlayCtx.save();
-      overlayCtx.lineWidth = (color === CONFIG.colors.ok) ? 5 : 3;
+
+      // Androidでは赤枠をより強く（太線＋点線＋影なし）
+      const isNG = (color === CONFIG.colors.ng);
+      overlayCtx.lineWidth = isNG
+        ? (isAndroid ? 5 : 4)
+        : (color === CONFIG.colors.ok ? 5 : 3);
+
+      if (isAndroid && isNG) {
+        overlayCtx.setLineDash([10, 7]); // 目立つ点線
+        overlayCtx.shadowBlur = 0;       // 影を切る（描画差異対策）
+      } else {
+        overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
+        overlayCtx.shadowColor = color;
+        overlayCtx.shadowBlur = 4;
+      }
+
       overlayCtx.strokeStyle = color;
-      overlayCtx.shadowColor = color;
-      overlayCtx.shadowBlur = 4;
       overlayCtx.beginPath();
       overlayCtx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
@@ -236,7 +259,6 @@
     }
 
     function showBigMessage(text, sub = "") {
-      // 既存バナーがあれば削除
       document.querySelectorAll(".bigmsg").forEach(el => el.remove());
       const el = document.createElement("div");
       el.className = "bigmsg";
@@ -248,7 +270,7 @@
         el.appendChild(s);
       }
       document.body.appendChild(el);
-      setTimeout(() => el.remove(), 1500); // 1.2sアニメ＋バッファ
+      setTimeout(() => el.remove(), 1500);
     }
 
     function fitOverlay() {
@@ -369,30 +391,28 @@
           const key = p ? dieKey(p.bn, p.wc) : "";
           const isMatch = key && key === state.targetKey;
           anyMatch = anyMatch || isMatch;
-          const color = isMatch ? CONFIG.colors.ok : CONFIG.colors.ng;
 
-          // 不一致時は内容を表示して即判断可能に
-          const label = isMatch ? "一致" : (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致");
-          drawBox(pts, color, label);
+          if (isMatch) {
+            drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
+          } else {
+            // Androidでの視認性を最大化（点線＋太線）
+            drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
+          }
+
           updateHistory(raw, 'die', isMatch);
 
           if (isMatch && !state.isLocked) {
             state.isLocked = true;
             confirmationBeep();
             if (navigator.vibrate) { navigator.vibrate(150); }
-
-            // ★ 中央に大きなメッセージ
             showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
-
-            // 近接トースト（必要なければ削除可）
             showToastNearBox("ロック", pts);
-
-            // 検出の一時停止で誤連続反応を抑制
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
         } else {
-          drawBox(pts, CONFIG.colors.ng, "別QR");
+          // 別形式のQRにも赤点線
+          drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
           updateHistory(raw, 'other', false);
         }
       }
