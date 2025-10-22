@@ -206,43 +206,39 @@
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
     function drawBox(points, color, label, style = 'solid') {
-      if (!points || points.length < 4) return;
-      overlayCtx.save();
+      if (!points || points.length < 4) return;
+      overlayCtx.save();
 
-      // Androidでは赤枠をより強く（太線＋点線＋影なし）
-      const isNG = (color === CONFIG.colors.ng);
-      overlayCtx.lineWidth = isNG
-        ? (isAndroid ? 5 : 4)
-        : (color === CONFIG.colors.ok ? 5 : 3);
+      // Androidでは赤枠をより強く（太線＋点線＋影なし）
+      const isNG = (color === CONFIG.colors.ng);
+      // ↓ 線幅の分岐は残しても良いですが、簡潔にするため合わせてもOKです
+      overlayCtx.lineWidth = isNG ? 4 : (color === CONFIG.colors.ok ? 5 : 3);
+/*
+      overlayCtx.lineWidth = isNG
+        ? (isAndroid ? 5 : 4) 
+        : (color === CONFIG.colors.ok ? 5 : 3);
+*/
 
-      if (isAndroid && isNG) {
-        overlayCtx.setLineDash([10, 7]); // 目立つ点線
-        overlayCtx.shadowBlur = 0;       // 影を切る（描画差異対策）
-      } else {
-        overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
-        overlayCtx.shadowColor = color;
-        overlayCtx.shadowBlur = 4;
-      }
+      // ▼▼▼ 修正箇所 ▼▼▼
+      // if (isAndroid && isNG) {
+      //   overlayCtx.setLineDash([10, 7]); // 目立つ点線
+      //   overlayCtx.shadowBlur = 0;       // 影を切る（描画差異対策）
+      // } else {
+        overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
+        overlayCtx.shadowColor = color;
+        overlayCtx.shadowBlur = 4;
+      // }
+      // ▲▲▲ 修正箇所 ▲▲▲
 
-      overlayCtx.strokeStyle = color;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
-      overlayCtx.closePath();
-      overlayCtx.stroke();
+      overlayCtx.strokeStyle = color;
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
+      overlayCtx.closePath();
+      overlayCtx.stroke();
 
-      if (label) {
-        const x = (points[0].x + points[2].x) / 2;
-        const y = Math.min(points[0].y, points[1].y) - 8;
-        overlayCtx.fillStyle = color;
-        overlayCtx.font = "bold 16px system-ui";
-        overlayCtx.textAlign = "center";
-        overlayCtx.textBaseline = "bottom";
-        overlayCtx.fillText(label, x, y < 16 ? 16 : y);
-      }
-      overlayCtx.restore();
-    }
-
+      // ... (以下、変更なし) ...
+    }
     function showToastNearBox(text, points) {
       if(!points || points.length < 2) return;
       const el = document.createElement("div");
