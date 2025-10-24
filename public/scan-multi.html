@@ -157,7 +157,9 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script>
 // ========= 設定 (Settings) =========
+
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
+const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"; // ★追加: Airtable一括更新用
 const SCAN_RESOLUTION = 600; // スキャン解像度(px)。高いほど高精細だが遅くなる。600-800がおすすめ。
 
 // ========= 状態 (State) =========
@@ -419,72 +421,76 @@ async function tick() {
 // ★ 修正: wn を含め、レスポンスチェックを強化
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
-  const now = new Date(); 
+  const now = new Date();
   const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  
-  // ★ 修正: d.wn を items に追加
-  const items = [...fixedDies.values()].map(d => ({ 
-    book: d.bn, 
-    wc: d.wc, 
-    wn: d.wn || "", // wn を追加
-    loc: fixedLoc.loc, 
-    captured_at: captured_date 
+
+  const items = [...fixedDies.values()].map(d => ({
+    book: d.bn,
+    wc: d.wc,
+    wn: d.wn || "",
+    loc: fixedLoc.loc,
+    captured_at: captured_date
   }));
-  
+
   const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
-  
   if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされ、カメラは停止します)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
   btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
-  let rawResponse = ""; // エラー表示用
 
-    try {
-    const r = await fetch(SHEET_ENDPOINT, {
+  let sheetOk=false, airtableOk=false, sheetInfo="", airtableInfo="", rawSheet="", rawAir="";
+
+  try {
+    // --- Google Sheets ---
+    const r1 = await fetch(SHEET_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items })
     });
-
-    // テキスト→JSONの順に取得（壊れたJSON対策）
-    rawResponse = await r.text();
-    const j = JSON.parse(rawResponse);
-
-    // 基本のOK判定
-    const ok = r.ok && j && j.ok === true;
-    if (!ok) {
-      throw new Error(JSON.stringify(j));
+    rawSheet = await r1.text();
+    const j1 = JSON.parse(rawSheet);
+    sheetOk = r1.ok && j1?.ok === true;
+    if (sheetOk) {
+      const appended = Number(j1.appendedRows||0);
+      const updatedRows = Number(j1.updatedRows||0);
+      const updatedCells = Number(j1.updatedCells||0);
+      sheetInfo = [appended?`追加${appended}行`:null, updatedRows?`更新${updatedRows}行`:null, (!updatedRows&&updatedCells)?`更新${updatedCells}セル`:null].filter(Boolean).join(" / ");
+      if (!appended && !updatedRows && !updatedCells) sheetOk = false;
     }
 
-    // 影響件数をより柔軟に評価（追加 or 更新 のどちらでも成功）
-    const appended = Number(j.appendedRows || 0);
-    const updatedRows = Number(j.updatedRows || 0);      // APIが返すなら行ベース
-    const updatedCells = Number(j.updatedCells || 0);    // 行が無い場合はセル数で代替
-
-    // 追加・更新のいずれもゼロならエラー扱い
-    if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
-      throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
+    // --- Airtable (Book×WorkCordの全一致レコードに Location/LastSeen を一括更新) ---
+    const r2 = await fetch(AIRTABLE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: items.map(({book,wc,loc,captured_at}) => ({ book, wc, loc, lastSeen: captured_at }))
+      })
+    });
+    rawAir = await r2.text();
+    const j2 = JSON.parse(rawAir);
+    airtableOk = r2.ok && j2?.ok === true;
+    if (airtableOk) {
+      const touched = Number(j2.updatedRecords||0);
+      airtableInfo = `更新${touched}件`;
+      if (!touched) airtableOk = false;
     }
 
-    // 成功トースト（分かりやすく内訳表示）
-    const parts = [];
-    if (appended > 0) parts.push(`追加 ${appended}行`);
-    if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
-    else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
-
-    toast(`データベース登録完了（${parts.join(' / ') || '変更あり'}）`);
-    playBeep(520, 140);
-
-    // 状態リセット＆カメラ停止
-    fixedLoc = null;
-    fixedDies.clear();
-    renderDies();
-    updateUIState();
-    stopCam();
-
+    // --- 結果表示 ---
+    if (sheetOk && airtableOk) {
+      toast(`登録完了（Sheets: ${sheetInfo} / Airtable: ${airtableInfo}）`);
+      playBeep(520, 140);
+      fixedLoc = null; fixedDies.clear(); renderDies(); updateUIState(); stopCam();
+    } else {
+      let msg = "一部失敗しました。\n";
+      msg += `Sheets: ${sheetOk ? 'OK' : 'NG'} ${sheetInfo}\n`;
+      msg += `Airtable: ${airtableOk ? 'OK' : 'NG'} ${airtableInfo}\n\n`;
+      msg += sheetOk ? "" : `[Sheets応答]\n${rawSheet}\n\n`;
+      msg += airtableOk ? "" : `[Airtable応答]\n${rawAir}`;
+      alert(msg);
+    }
   } catch (e) {
-    console.error("Submit Error:", e, "Raw Response:", rawResponse);
-    alert("登録に失敗しました: " + (e.message || e) + `\n\n[API応答]: ${rawResponse}`);
+    console.error("Submit Error:", e, rawSheet, rawAir);
+    alert("登録に失敗しました: " + (e.message || e));
   } finally {
     btnUpdate.disabled = false;
     btnUpdate.classList.remove('loading');
