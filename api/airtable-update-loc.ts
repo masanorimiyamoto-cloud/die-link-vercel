@@ -77,7 +77,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const it of uniq) {
       const ids = await fetchAllRecordIds(it.book, it.wc);
       if (ids.length === 0) continue;
-      const fields = { Location: it.loc, LastSeen: it.lastSeen };
+      //const fields = { Location: it.loc, LastSeen: it.lastSeen };
+      const fields = { 型棚場所: it.loc, 型確認日: it.lastSeen };
+
       totalUpdated += await batchUpdate(ids, fields);
       await sleep(120);
     }
