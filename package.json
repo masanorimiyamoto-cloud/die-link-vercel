@@ -2,10 +2,31 @@
   "name": "die-link-vercel",
   "private": true,
   "type": "module",
-  "engines": { "node": "20.x" },
-  "scripts": { "build": "echo \"static\"" },
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "build": "echo \"static\""
+  },
   "dependencies": {
-    "googleapis": "^140.0.0",
-    "google-auth-library": "^9.0.0"
+    "google-auth-library": "^9.0.0",
+    "googleapis": "^140.0.0"
+  },
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/masanorimiyamoto-cloud/die-link-vercel.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/masanorimiyamoto-cloud/die-link-vercel/issues"
+  },
+  "homepage": "https://github.com/masanorimiyamoto-cloud/die-link-vercel#readme",
+  "devDependencies": {
+    "@vercel/node": "^5.5.0"
   }
 }
