@@ -508,7 +508,7 @@
             state.isLocked = true;
             confirmationBeep();
             if (navigator.vibrate) { navigator.vibrate(150); }
-            showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
+            showBigMessage("ターゲットが見つかりました!", "一致したQRを青枠で強調表示しています");
             showToastNearBox("ロック", pts);
 
             // ★ 音声: 一致した瞬間に読み上げ（URLの wn 優先、無ければQR内の wn）
