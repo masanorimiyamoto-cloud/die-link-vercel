@@ -133,7 +133,7 @@
       scanHistory: new Map(),
     };
 
-    /* ====== 音声読み上げ（アニメの若い女性風に調整） ====== */
+    /* ====== 音声読み上げ ====== */
     let __ttsReady = false;
     let __jpVoices = [];
     let __lastSpeak = 0;
@@ -146,17 +146,15 @@
       const synth = window.speechSynthesis;
       function loadVoices() {
         const voices = synth.getVoices();
-        // 若い女性の声を優先して選択（Kyoko, Otoya, 高い声のボイスを優先）
         __jpVoices = voices
           .filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name))
           .sort((a,b) => {
-            const pref = ['Kyoko', 'Otoya', 'Google 日本語 Female', '女性', '女', 'Female', 'Samantha'];
+            const pref = ['Google 日本語', 'Kyoko', 'Otoya'];
             const ia = pref.findIndex(p => a.name.includes(p));
             const ib = pref.findIndex(p => b.name.includes(p));
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
           });
         __ttsReady = true;
-        console.log("利用可能なボイス:", __jpVoices.map(v => v.name));
       }
       loadVoices();
       synth.onvoiceschanged = loadVoices;
@@ -179,7 +177,7 @@
         const voices = synth.getVoices();
         if (voices && voices.length && __jpVoices.length === 0) {
           __jpVoices = voices.filter(v =>
-            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Otoya|Female/i.test(v.name)
+            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
           );
           if (__jpVoices.length) utterance.voice = __jpVoices[0];
         }
@@ -199,21 +197,16 @@
 
       const hasWN = !!workName && String(workName).trim().length > 0;
       const text = hasWN
-        ? `見つかったよ！お探しの型、${workName}、だよ！`
-        : `やったー！お探しの型が見つかったよ！`;
+        ? `お探しの型、${workName}、が見つかりました。`
+        : `お探しの型が見つかりました。`;
 
       const u = new SpeechSynthesisUtterance(punct(text));
       u.lang   = 'ja-JP';
-      u.rate   = 1.15;   // 少し速めで活発に
-      u.pitch  = 1.8;    // ★ かなり高めのピッチでアニメ声風に
+      u.rate   = 1.05;
+      u.pitch  = 1.3;
       u.volume = 1.0;
 
-      // 若い女性の声を優先選択
-      if (__jpVoices.length > 0) {
-        u.voice = __jpVoices[0];
-        console.log("使用ボイス:", u.voice.name);
-      }
-
+      if (__jpVoices.length > 0) u.voice = __jpVoices[0];
       speakAfterReady(u);
     }
 
@@ -223,15 +216,13 @@
       if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
       __lastLocSpeak = now;
 
-      const u = new SpeechSynthesisUtterance("わーい！正しい棚を見つけたよ！");
+      const u = new SpeechSynthesisUtterance("正しい棚を探しています");
       u.lang   = 'ja-JP';
-      u.rate   = 1.1;    // 明るく速め
-      u.pitch  = 1.7;    // ★ 高めのピッチで可愛らしく
-      u.volume = 0.9;
+      u.rate   = 1.0;
+      u.pitch  = 1.1;
+      u.volume = 0.8;
 
-      // 若い女性の声を優先選択
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
-
       speakAfterReady(u);
     }
 
@@ -265,8 +256,8 @@
           const t0 = audioCtx.currentTime;
           const osc = audioCtx.createOscillator();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(800, t0); // 高い音に変更
-          osc.frequency.exponentialRampToValueAtTime(1600, t0 + 0.1);
+          osc.frequency.setValueAtTime(600, t0);
+          osc.frequency.exponentialRampToValueAtTime(1200, t0 + 0.1);
           const gain = audioCtx.createGain();
           gain.gain.setValueAtTime(0.0001, t0);
           gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
@@ -283,7 +274,7 @@
 
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      console.log("QRコード解析:", text);
+      console.log("QRコード解析:", text); // デバッグ用
       
       if (/^loc-/i.test(text)) return "loc";
       if (/^die-/i.test(text)) return "die";
@@ -485,7 +476,7 @@
       let locFound = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
-      console.log("検出されたQRコード数:", detections.length);
+      console.log("検出されたQRコード数:", detections.length); // デバッグ用
 
       for (const d of (detections || [])) {
         const raw = (d.rawValue || "").trim(); 
@@ -494,7 +485,7 @@
         const kind = classify(raw); 
         const pts = d.cornerPoints;
 
-        console.log("QRコード種類:", kind, "内容:", raw);
+        console.log("QRコード種類:", kind, "内容:", raw); // デバッグ用
 
         if (kind === 'die') {
           const p = parseDie(raw);
@@ -504,7 +495,7 @@
 
           if (isMatch) {
             drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
-            console.log("ターゲット一致:", p);
+            console.log("ターゲット一致:", p); // デバッグ用
           } else {
             drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
           }
@@ -515,7 +506,7 @@
             state.isLocked = true;
             confirmationBeep();
             if (navigator.vibrate) { navigator.vibrate(150); }
-            showBigMessage("ターゲットが見つかりました！", "一致したQRを青枠で強調表示しています");
+            showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
             showToastNearBox("ロック", pts);
 
             speakFoundOnce(state.currentTarget.wn || (p && p.wn) || "");
@@ -524,13 +515,15 @@
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
         } else if (kind === 'loc') {
+          // loc QRコードを見つけた場合
           const locData = parseLoc(raw);
           drawBox(pts, CONFIG.colors.loc, "棚", 'solid');
           updateHistory(raw, 'loc', false);
           locFound = true;
           
-          console.log("棚QRコード検出:", locData);
+          console.log("棚QRコード検出:", locData); // デバッグ用
           
+          // 棚QRコードを見つけたときの音声
           speakLocFound();
         } else {
           drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
@@ -544,10 +537,10 @@
         
         if (detections.length > 0) {
           if (anyMatch) {
-            msg = "ターゲット発見！";
+            msg = "ターゲット発見";
             statusType = "ok";
           } else if (locFound) {
-            msg = "棚を発見！";
+            msg = "棚を発見";
             statusType = "loc";
           } else {
             msg = `${detections.length}件検知`;
@@ -655,7 +648,7 @@
         wn: (params.get("wn") || "").trim()
       };
       
-      console.log("ターゲット設定:", state.currentTarget);
+      console.log("ターゲット設定:", state.currentTarget); // デバッグ用
       
       if (!state.currentTarget.book || !state.currentTarget.wc) {
         updateStatus("ターゲット未指定", "ng");
@@ -667,7 +660,7 @@
         DOM.tgtWN.textContent = state.currentTarget.wn;
         state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
         updateStatus("準備完了");
-        console.log("ターゲットキー:", state.targetKey);
+        console.log("ターゲットキー:", state.targetKey); // デバッグ用
       }
 
       const locParam = (params.get("loc") || "").trim();
