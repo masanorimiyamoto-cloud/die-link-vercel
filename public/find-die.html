@@ -153,6 +153,64 @@
       synth.onvoiceschanged = loadVoices;
     }
     const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
+    // --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
+    function unlockTTS() {
+      if (!('speechSynthesis' in window)) return;
+      const u = new SpeechSynthesisUtterance(' '); // 無音に近い短い発話で起こす
+      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
+      try { window.speechSynthesis.speak(u); } catch {}
+    }
+
+    /** voices がまだでも少し待ってから確実に発話 */
+    function speakAfterReady(utterance) {
+      if (!('speechSynthesis' in window)) return;
+      const synth = window.speechSynthesis;
+      // すぐに voices が空なら少し待ってから再試行
+      const trySpeak = (retries = 2) => {
+        try { synth.cancel(); } catch {}
+        const voices = synth.getVoices();
+        if (voices && voices.length && __jpVoices.length === 0) {
+          __jpVoices = voices.filter(v =>
+            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
+          );
+          if (__jpVoices.length) utterance.voice = __jpVoices[0];
+        }
+        try { synth.speak(utterance); }
+        catch (e) {
+          if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
+        }
+      };
+      trySpeak();
+    }// --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
+    function unlockTTS() {
+      if (!('speechSynthesis' in window)) return;
+      const u = new SpeechSynthesisUtterance(' '); // 無音に近い短い発話で起こす
+      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
+      try { window.speechSynthesis.speak(u); } catch {}
+    }
+
+    /** voices がまだでも少し待ってから確実に発話 */
+    function speakAfterReady(utterance) {
+      if (!('speechSynthesis' in window)) return;
+      const synth = window.speechSynthesis;
+      // すぐに voices が空なら少し待ってから再試行
+      const trySpeak = (retries = 2) => {
+        try { synth.cancel(); } catch {}
+        const voices = synth.getVoices();
+        if (voices && voices.length && __jpVoices.length === 0) {
+          __jpVoices = voices.filter(v =>
+            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
+          );
+          if (__jpVoices.length) utterance.voice = __jpVoices[0];
+        }
+        try { synth.speak(utterance); }
+        catch (e) {
+          if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
+        }
+      };
+      trySpeak();
+    }
+
 
     function speakFoundOnce(workName /* string | undefined */) {
       if (!('speechSynthesis' in window)) return;
@@ -160,16 +218,17 @@
       if (now - __lastSpeak < __speakCooldownMs) return;
       __lastSpeak = now;
 
-      const synth = window.speechSynthesis;
-      try { synth.cancel(); } catch {}
       const hasWN = !!workName && String(workName).trim().length > 0;
       const text = hasWN ? `お探しの、${workName}、が見つかりました。` : `見つかりました。`;
 
       const u = new SpeechSynthesisUtterance(punct(text));
       u.lang = 'ja-JP'; u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
-      try { synth.speak(u); } catch {}
+
+      // ★ voices 未ロードでも確実に喋る
+      speakAfterReady(u);
     }
+
 
     document.addEventListener('pointerdown', function __once() {
       initTTS();
@@ -481,7 +540,12 @@
       DOM.historyModal.style.display = 'block';
     }
 
-    DOM.btnStart.addEventListener("click", startCam);
+    DOM.btnStart.addEventListener("click", () => {
+      initTTS();      // ← ユーザー操作中に初期化
+      unlockTTS();    // ← iOSで声が出ない問題の回避
+      startCam();
+    });
+
     DOM.btnStop.addEventListener("click", stopCam);
     DOM.btnHistory.addEventListener("click", showHistoryModal);
     DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
