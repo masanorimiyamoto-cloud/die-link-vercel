@@ -160,7 +160,7 @@
     }
     // ------- 追加：任意メッセージを一回だけ喋るヘルパー -------
     let __lastGenericSpeak = 0;
-    function speakLineOnce(text, {rate=1.05, pitch=1.25, cooldown=1200} = {}) {
+    function speakLineOnce(text, {rate=1.0, pitch=1.25, cooldown=1200} = {}) {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastGenericSpeak < cooldown) return;
