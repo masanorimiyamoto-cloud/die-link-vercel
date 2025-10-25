@@ -160,7 +160,8 @@
     }
 
     const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
-    // --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
+
+    // TTSの"起こし"と確実実行ユーティリティ
     function unlockTTS() {
       if (!('speechSynthesis' in window)) return;
       const u = new SpeechSynthesisUtterance(' '); // 無音に近い短い発話で起こす
@@ -188,36 +189,7 @@
         }
       };
       trySpeak();
-    }// --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
-    function unlockTTS() {
-      if (!('speechSynthesis' in window)) return;
-      const u = new SpeechSynthesisUtterance(' '); // 無音に近い短い発話で起こす
-      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
-      try { window.speechSynthesis.speak(u); } catch {}
     }
-
-    /** voices がまだでも少し待ってから確実に発話 */
-    function speakAfterReady(utterance) {
-      if (!('speechSynthesis' in window)) return;
-      const synth = window.speechSynthesis;
-      // すぐに voices が空なら少し待ってから再試行
-      const trySpeak = (retries = 2) => {
-        try { synth.cancel(); } catch {}
-        const voices = synth.getVoices();
-        if (voices && voices.length && __jpVoices.length === 0) {
-          __jpVoices = voices.filter(v =>
-            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
-          );
-          if (__jpVoices.length) utterance.voice = __jpVoices[0];
-        }
-        try { synth.speak(utterance); }
-        catch (e) {
-          if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
-        }
-      };
-      trySpeak();
-    }
-
 
     function speakFoundOnce(workName /* string | undefined */) {
       if (!('speechSynthesis' in window)) return;
@@ -240,11 +212,10 @@
       // 好みの日本語ボイスがあれば選択
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
 
-      speakAfterReady(u);  // ← 前回入れた“確実に発話”ユーティリティを使う
+      speakAfterReady(u);
     }
 
-
-
+    // 早期TTS初期化のためのイベントリスナー
     document.addEventListener('pointerdown', function __once() {
       initTTS();
       document.removeEventListener('pointerdown', __once, true);
@@ -388,7 +359,10 @@
       updateStatus("停止中");
     }
 
-    function showError(e) { console.error(e); DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; }
+    function showError(e) { 
+      console.error(e); 
+      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; 
+    }
 
     async function startCam() {
       stopCam();
@@ -637,6 +611,7 @@
         DOM.currentShelf.className = "chip loc";
       }
     }
+
     initialize();
   });
   </script>
