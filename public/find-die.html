@@ -142,19 +142,34 @@
     function initTTS() {
       if (!('speechSynthesis' in window)) return;
       const synth = window.speechSynthesis;
-      function loadVoices() {
+
+      const scoreVoice = (v) => {
+        const name = (v.name || "");
+        const lang = (v.lang || "");
+        let score = 0;
+        // 日本語以外は除外方向
+        if (!/ja|jpn|日本語/i.test(lang) && !/日本語/i.test(name)) score -= 1000;
+
+        // 若い/女性っぽいワードを加点（端末により名称が異なるため広めに）
+        if (/Google\s*日本語/i.test(name)) score += 50;     // Android/Chrome系の自然な日本語
+        if (/Female|女性|Girl/i.test(name)) score += 30;
+        if (/Natsumi|Hikari|Mizuki|Haru|Nozomi|Akane/i.test(name)) score += 20; // ありがちな日本語名
+        if (/Kyoko/i.test(name)) score += 10; // iOSの定番（やや大人め）
+        if (/Otoya/i.test(name)) score -= 15; // 男声は若めでも女性より低め評価
+
+        // 端末依存の“若い系”キーワード（あればラッキー）
+        if (/Young|Lite|Neural/i.test(name)) score += 15;
+
+        return score;
+      };
+
+      const loadVoices = () => {
         const voices = synth.getVoices();
-        // 日本語ボイス抽出＋好みの順に並べ替え（高めトーンに合いやすい候補を先頭へ）
         __jpVoices = voices
           .filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name))
-          .sort((a,b) => {
-            const pref = ['Google 日本語', 'Kyoko', 'Otoya']; // 上にあるほど優先
-            const ia = pref.findIndex(p => a.name.includes(p));
-            const ib = pref.findIndex(p => b.name.includes(p));
-            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-          });
-        __ttsReady = true;
-      }
+          .sort((a, b) => scoreVoice(b) - scoreVoice(a)); // スコア高い順
+      };
+
       loadVoices();
       synth.onvoiceschanged = loadVoices;
     }
