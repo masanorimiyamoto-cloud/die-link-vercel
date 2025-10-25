@@ -199,13 +199,13 @@
 
       const hasWN = !!workName && String(workName).trim().length > 0;
       const text = hasWN
-        ? `見つかったよ！お探しの型、${workName}、だよ！`
-        : `やったー！お探しの型が見つかったよ！`;
+        ? `お探しの抜き型、${workName}、見つかりました！`
+        : `ターゲットの抜き型にヒットしています！`;
 
       const u = new SpeechSynthesisUtterance(punct(text));
       u.lang   = 'ja-JP';
-      u.rate   = 1.15;   // 少し速めで活発に
-      u.pitch  = 1.8;    // ★ かなり高めのピッチでアニメ声風に
+      u.rate   = 1.12;   // 少し速めで活発に
+      u.pitch  = 1.5;    // ★ かなり高めのピッチでアニメ声風に
       u.volume = 1.0;
 
       // 若い女性の声を優先選択
@@ -223,10 +223,10 @@
       if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
       __lastLocSpeak = now;
 
-      const u = new SpeechSynthesisUtterance("わーい！正しい棚を見つけたよ！");
+      const u = new SpeechSynthesisUtterance("正しい棚を探しています");
       u.lang   = 'ja-JP';
       u.rate   = 1.1;    // 明るく速め
-      u.pitch  = 1.7;    // ★ 高めのピッチで可愛らしく
+      u.pitch  = 1.5;    // ★ 高めのピッチで可愛らしく
       u.volume = 0.9;
 
       // 若い女性の声を優先選択
