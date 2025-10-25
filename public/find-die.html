@@ -144,14 +144,21 @@
       const synth = window.speechSynthesis;
       function loadVoices() {
         const voices = synth.getVoices();
-        __jpVoices = voices.filter(v =>
-          /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
-        );
+        // 日本語ボイス抽出＋好みの順に並べ替え（高めトーンに合いやすい候補を先頭へ）
+        __jpVoices = voices
+          .filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name))
+          .sort((a,b) => {
+            const pref = ['Google 日本語', 'Kyoko', 'Otoya']; // 上にあるほど優先
+            const ia = pref.findIndex(p => a.name.includes(p));
+            const ib = pref.findIndex(p => b.name.includes(p));
+            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+          });
         __ttsReady = true;
       }
       loadVoices();
       synth.onvoiceschanged = loadVoices;
     }
+
     const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
     // --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
     function unlockTTS() {
@@ -218,16 +225,24 @@
       if (now - __lastSpeak < __speakCooldownMs) return;
       __lastSpeak = now;
 
+      // ★ セリフを変更（WorkNameがあれば差し込み）
       const hasWN = !!workName && String(workName).trim().length > 0;
-      const text = hasWN ? `お探しの、${workName}、が見つかりました。` : `見つかりました。`;
+      const text = hasWN
+        ? `お探しの型、${workName}、が見つかりました。`
+        : `お探しの型が見つかりました。`;
 
       const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang = 'ja-JP'; u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+      u.lang   = 'ja-JP';
+      u.rate   = 1.05;   // 少し速め
+      u.pitch  = 1.3;    // ★ 高めのトーン
+      u.volume = 1.0;
+
+      // 好みの日本語ボイスがあれば選択
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
 
-      // ★ voices 未ロードでも確実に喋る
-      speakAfterReady(u);
+      speakAfterReady(u);  // ← 前回入れた“確実に発話”ユーティリティを使う
     }
+
 
 
     document.addEventListener('pointerdown', function __once() {
