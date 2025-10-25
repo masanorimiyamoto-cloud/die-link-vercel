@@ -274,24 +274,39 @@
 
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
+      console.log("QRコード解析:", text); // デバッグ用
+      
       if (/^loc-/i.test(text)) return "loc";
       if (/^die-/i.test(text)) return "die";
       try {
         const url = new URL(text);
         if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
+        if (url.searchParams.has("loc")) return "loc";
       } catch {}
       return "other";
     };
 
     const parseDie = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/.exec(text);
+      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
       if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
       try {
         const url = new URL(text);
         const book = url.searchParams.get("book") || "";
         const wc = url.searchParams.get("wc") || "";
         if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() };
+      } catch {}
+      return null;
+    };
+
+    const parseLoc = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      let match = /^loc-(.+)$/i.exec(text);
+      if (match) return { loc: match[1].trim() };
+      try {
+        const url = new URL(text);
+        const loc = url.searchParams.get("loc") || "";
+        if (loc) return { loc: loc.trim() };
       } catch {}
       return null;
     };
@@ -461,9 +476,16 @@
       let locFound = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
+      console.log("検出されたQRコード数:", detections.length); // デバッグ用
+
       for (const d of (detections || [])) {
-        const raw = (d.rawValue || "").trim(); if (!raw) continue;
-        const kind = classify(raw); const pts = d.cornerPoints;
+        const raw = (d.rawValue || "").trim(); 
+        if (!raw) continue;
+        
+        const kind = classify(raw); 
+        const pts = d.cornerPoints;
+
+        console.log("QRコード種類:", kind, "内容:", raw); // デバッグ用
 
         if (kind === 'die') {
           const p = parseDie(raw);
@@ -473,6 +495,7 @@
 
           if (isMatch) {
             drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
+            console.log("ターゲット一致:", p); // デバッグ用
           } else {
             drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
           }
@@ -493,9 +516,12 @@
           }
         } else if (kind === 'loc') {
           // loc QRコードを見つけた場合
+          const locData = parseLoc(raw);
           drawBox(pts, CONFIG.colors.loc, "棚", 'solid');
           updateHistory(raw, 'loc', false);
           locFound = true;
+          
+          console.log("棚QRコード検出:", locData); // デバッグ用
           
           // 棚QRコードを見つけたときの音声
           speakLocFound();
@@ -621,6 +647,9 @@
         wc: (params.get("wc") || "").trim(),
         wn: (params.get("wn") || "").trim()
       };
+      
+      console.log("ターゲット設定:", state.currentTarget); // デバッグ用
+      
       if (!state.currentTarget.book || !state.currentTarget.wc) {
         updateStatus("ターゲット未指定", "ng");
         DOM.error.textContent = "URLに ?book=...&wc=... を指定してください。";
@@ -631,6 +660,7 @@
         DOM.tgtWN.textContent = state.currentTarget.wn;
         state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
         updateStatus("準備完了");
+        console.log("ターゲットキー:", state.targetKey); // デバッグ用
       }
 
       const locParam = (params.get("loc") || "").trim();
