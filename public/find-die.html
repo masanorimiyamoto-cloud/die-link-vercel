@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>抜型ファインダー voice</title>
+<title>抜型ファインダー v3</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
@@ -38,21 +38,19 @@
   @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
   .legend { font-size: 12px; color: #555; margin-top: 8px; }
 
-  /* Modal Styles */
   .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
   .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid var(--bd); width: 80%; max-width: 600px; border-radius: 12px; }
   .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
   .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
   #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
 
-  /* ▼ 一致メッセージの大きなバナー ▼ */
   .bigmsg {
     position: fixed;
     left: 50%;
     top: 18%;
     transform: translateX(-50%);
     z-index: 1200;
-    background: rgba(28, 126, 214, 0.95); /* --ok */
+    background: rgba(28, 126, 214, 0.95);
     color: #fff;
     padding: 16px 22px;
     border-radius: 12px;
@@ -131,34 +129,59 @@
       targetKey: '',
       currentShelf: null,
       scanHistory: new Map(),
+      __saidShelfMatch: false,   // 棚一致を一度だけ発話するためのフラグ
     };
 
-    /* ====== 音声読み上げ（見つかりました / WorkName 付き） ====== */
-    let __ttsReady = false;
+    /* ====== TTS（音声合成） ====== */
     let __jpVoices = [];
-    let __lastSpeak = 0;           // 連続検出の連呼防止
+    let __lastSpeak = 0;
     const __speakCooldownMs = 1500;
+    const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
 
     function initTTS() {
       if (!('speechSynthesis' in window)) return;
       const synth = window.speechSynthesis;
-      function loadVoices() {
+      const loadVoices = () => {
         const voices = synth.getVoices();
-        // 日本語ボイス抽出＋好みの順に並べ替え（高めトーンに合いやすい候補を先頭へ）
         __jpVoices = voices
           .filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name))
           .sort((a,b) => {
-            const pref = ['Google 日本語', 'Kyoko', 'Otoya']; // 上にあるほど優先
-            const ia = pref.findIndex(p => a.name.includes(p));
-            const ib = pref.findIndex(p => b.name.includes(p));
+            const pref = ['Google 日本語', 'Kyoko', 'Otoya'];
+            const ia = pref.findIndex(p => (a.name||'').includes(p));
+            const ib = pref.findIndex(p => (b.name||'').includes(p));
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
           });
-        __ttsReady = true;
-      }
+      };
       loadVoices();
       synth.onvoiceschanged = loadVoices;
     }
-    // ------- 追加：任意メッセージを一回だけ喋るヘルパー -------
+
+    // iOSで声が出ない問題の回避：無音に近い発話で“起こす”
+    function unlockTTS() {
+      if (!('speechSynthesis' in window)) return;
+      const u = new SpeechSynthesisUtterance(' ');
+      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
+      try { window.speechSynthesis.speak(u); } catch {}
+    }
+
+    // voices未ロードでも少し待って確実に発話
+    function speakAfterReady(utterance) {
+      if (!('speechSynthesis' in window)) return;
+      const synth = window.speechSynthesis;
+      const trySpeak = (retries = 2) => {
+        try { synth.cancel(); } catch {}
+        const voices = synth.getVoices();
+        if (voices && voices.length && __jpVoices.length === 0) {
+          __jpVoices = voices.filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name));
+          if (__jpVoices.length) utterance.voice = __jpVoices[0];
+        }
+        try { synth.speak(utterance); }
+        catch { if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200); }
+      };
+      trySpeak();
+    }
+
+    // 任意メッセージ一回読み上げ
     let __lastGenericSpeak = 0;
     function speakLineOnce(text, {rate=1.05, pitch=1.25, cooldown=1200} = {}) {
       if (!('speechSynthesis' in window)) return;
@@ -167,83 +190,36 @@
       __lastGenericSpeak = now;
 
       const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang   = 'ja-JP';
-      u.rate   = rate;
-      u.pitch  = pitch;
-      u.volume = 1.0;
-      if (typeof __jpVoices !== 'undefined' && __jpVoices.length > 0) u.voice = __jpVoices[0];
-
-      // “確実に発話”のユーティリティがある場合は使う
-      if (typeof speakAfterReady === 'function') speakAfterReady(u);
-      else window.speechSynthesis.speak(u);
+      u.lang = 'ja-JP'; u.rate = rate; u.pitch = pitch; u.volume = 1.0;
+      if (__jpVoices.length > 0) u.voice = __jpVoices[0];
+      speakAfterReady(u);
     }
 
-    const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
-    // --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
-    function unlockTTS() {
-      if (!('speechSynthesis' in window)) return;
-      const u = new SpeechSynthesisUtterance(' '); // 無音に近い短い発話で起こす
-      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
-      try { window.speechSynthesis.speak(u); } catch {}
-    }
-
-    /** voices がまだでも少し待ってから確実に発話 */
-    function speakAfterReady(utterance) {
-      if (!('speechSynthesis' in window)) return;
-      const synth = window.speechSynthesis;
-      // すぐに voices が空なら少し待ってから再試行
-      const trySpeak = (retries = 2) => {
-        try { synth.cancel(); } catch {}
-        const voices = synth.getVoices();
-        if (voices && voices.length && __jpVoices.length === 0) {
-          __jpVoices = voices.filter(v =>
-            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
-          );
-          if (__jpVoices.length) utterance.voice = __jpVoices[0];
-        }
-        try { synth.speak(utterance); }
-        catch (e) {
-          if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
-        }
-      };
-      trySpeak();
-    }// --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
-    
-
-
-    function speakFoundOnce(workName /* string | undefined */) {
+    // 型が見つかった時の読み上げ（WorkName対応）
+    function speakFoundOnce(workName) {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastSpeak < __speakCooldownMs) return;
       __lastSpeak = now;
 
-      // ★ セリフを変更（WorkNameがあれば差し込み）
       const hasWN = !!workName && String(workName).trim().length > 0;
       const text = hasWN
         ? `お探しの型、${workName}、が見つかりました。`
         : `お探しの型が見つかりました。`;
 
       const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang   = 'ja-JP';
-      u.rate   = 1.05;   // 少し速め
-      u.pitch  = 1.3;    // ★ 高めのトーン
-      u.volume = 1.0;
-
-      // 好みの日本語ボイスがあれば選択
+      u.lang = 'ja-JP'; u.rate = 1.05; u.pitch = 1.3; u.volume = 1.0;
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
-
-      speakAfterReady(u);  // ← 前回入れた“確実に発話”ユーティリティを使う
+      speakAfterReady(u);
     }
 
-
-
+    // 初回タップで声帯アンロック（保険）
     document.addEventListener('pointerdown', function __once() {
-      initTTS();
+      initTTS(); unlockTTS();
       document.removeEventListener('pointerdown', __once, true);
     }, true);
-    /* ====== /音声読み上げ ====== */
+    /* ====== /TTS ====== */
 
-    // ---- 環境判定（Android対策）----
     const isAndroid = /Android/i.test(navigator.userAgent);
 
     function cssVarOr(name, fallback) {
@@ -315,20 +291,16 @@
     function drawBox(points, color, label, style = 'solid') {
       if (!points || points.length < 4) return;
       overlayCtx.save();
-
-      const isNG = (color === CONFIG.colors.ng);
-      overlayCtx.lineWidth = isNG ? 4 : (color === CONFIG.colors.ok ? 5 : 3);
+      overlayCtx.lineWidth = (color === CONFIG.colors.ng) ? 4 : (color === CONFIG.colors.ok ? 5 : 3);
       overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
       overlayCtx.shadowColor = color;
       overlayCtx.shadowBlur = 4;
-
       overlayCtx.strokeStyle = color;
       overlayCtx.beginPath();
       overlayCtx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
       overlayCtx.closePath();
       overlayCtx.stroke();
-
       overlayCtx.restore();
     }
 
@@ -394,18 +366,22 @@
         await DOM.video.play();
         DOM.btnStart.disabled = true;
         DOM.btnStop.disabled = false;
-        // ★ 音声ガイド：探すべき棚の案内
+
+        // 音声ガイド：探すべき棚の案内
         if (state.currentShelf) {
           speakLineOnce(`${state.currentShelf} の棚を探してください。`, { rate: 1.05, pitch: 1.25 });
         }
-      } catch (e) {
-        showError(e);
-        stopCam();
-      }
-    
 
+        if (state.useBarcodeDetector) {
+          try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
+          catch { state.useBarcodeDetector = false; state.detector = null; }
+        }
+        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
+        fitOverlay();
+        tick();
+      } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
     }
-    
+
     async function detectCombined() {
       if (!DOM.video.videoWidth) return [];
       const tmpCanvas = document.createElement("canvas");
@@ -498,35 +474,38 @@
             showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
             showToastNearBox("ロック", pts);
 
-            // ★ 音声: 一致した瞬間に読み上げ（URLの wn 優先、無ければQR内の wn）
-            speakFoundOnce(state.currentTarget.wn || (p && p.wn) || "");
+            // 音声：型が見つかった
+            const wnText = state.currentTarget.wn || (p && p.wn) || "";
+            speakFoundOnce(wnText);
 
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
+
         } else if (kind === 'loc') {
-       // ▼ LOC の値を取り出す（"loc-XXX" → "XXX"）
-       const m = /^loc-(.+)$/i.exec(raw);
-       const locVal = m ? m[1].trim() : "";
-       // 画面の指定棚と一致したら 1 回だけガイド
-       if (state.currentShelf && locVal && locVal.toLowerCase() === state.currentShelf.toLowerCase()) {
-         if (!state.__saidShelfMatch) {
-           state.__saidShelfMatch = true;
-           // ★ 音声ガイド：指示どおりの棚QRを読んだ
-           speakLineOnce(`正しい棚を探しています。`, { rate: 1.05, pitch: 1.25 });
-         }
-         // 視覚上は緑枠で棚を強調したければこちら
-         drawBox(pts, CONFIG.colors.loc, "棚", 'solid');
-       } else {
-         // LOC だがターゲット棚でない場合（必要なら点線表示）
-         drawBox(pts, CONFIG.colors.ng, (locVal ? `別棚 [${locVal}]` : "別QR"), 'dashed');
-       }
-       updateHistory(raw, 'loc', !!(state.currentShelf && locVal && locVal.toLowerCase() === state.currentShelf.toLowerCase()));
-     } else {
-       // その他のQR
-       drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
-       updateHistory(raw, 'other', false);
-     }
+          // LOC QR: "loc-XXXX" を抽出
+          const m = /^loc-(.+)$/i.exec(raw);
+          const locVal = m ? m[1].trim() : "";
+
+          // 見た目
+          if (state.currentShelf && locVal && locVal.toLowerCase() === state.currentShelf.toLowerCase()) {
+            drawBox(pts, CONFIG.colors.loc, "棚", 'solid');
+
+            // 正しい棚QRを読んだときに一度だけ音声
+            if (!state.__saidShelfMatch) {
+              state.__saidShelfMatch = true;
+              speakLineOnce(`正しい棚を探しています。`, { rate: 1.05, pitch: 1.25 });
+            }
+            updateHistory(raw, 'loc', true);
+          } else {
+            drawBox(pts, CONFIG.colors.ng, (locVal ? `別棚 [${locVal}]` : "別QR"), 'dashed');
+            updateHistory(raw, 'loc', false);
+          }
+
+        } else {
+          drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
+          updateHistory(raw, 'other', false);
+        }
       }
 
       if (!state.holdTimer) {
@@ -560,6 +539,7 @@
           const li = document.createElement('li');
           let status = '';
           if(data.kind === 'die') status = data.isMatch ? '✔️ 一致' : '❌ 不一致';
+          else if (data.kind === 'loc') status = data.isMatch ? '📦 棚一致' : '📦 別棚';
           else status = '❓ その他';
           li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`;
           DOM.historyList.appendChild(li);
@@ -568,12 +548,11 @@
       DOM.historyModal.style.display = 'block';
     }
 
+    // ★開始ボタンでTTS初期化＆アンロック→カメラ起動（iOS対策）
     DOM.btnStart.addEventListener("click", () => {
-      initTTS();      // ← ユーザー操作中に初期化
-      unlockTTS();    // ← iOSで声が出ない問題の回避
+      initTTS(); unlockTTS();
       startCam();
     });
-
     DOM.btnStop.addEventListener("click", stopCam);
     DOM.btnHistory.addEventListener("click", showHistoryModal);
     DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
