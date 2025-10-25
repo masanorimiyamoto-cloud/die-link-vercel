@@ -158,6 +158,25 @@
       loadVoices();
       synth.onvoiceschanged = loadVoices;
     }
+    // ------- 追加：任意メッセージを一回だけ喋るヘルパー -------
+    let __lastGenericSpeak = 0;
+    function speakLineOnce(text, {rate=1.05, pitch=1.25, cooldown=1200} = {}) {
+      if (!('speechSynthesis' in window)) return;
+      const now = performance.now();
+      if (now - __lastGenericSpeak < cooldown) return;
+      __lastGenericSpeak = now;
+
+      const u = new SpeechSynthesisUtterance(punct(text));
+      u.lang   = 'ja-JP';
+      u.rate   = rate;
+      u.pitch  = pitch;
+      u.volume = 1.0;
+      if (typeof __jpVoices !== 'undefined' && __jpVoices.length > 0) u.voice = __jpVoices[0];
+
+      // “確実に発話”のユーティリティがある場合は使う
+      if (typeof speakAfterReady === 'function') speakAfterReady(u);
+      else window.speechSynthesis.speak(u);
+    }
 
     const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
     // --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
@@ -189,34 +208,7 @@
       };
       trySpeak();
     }// --- 追加：TTSの“起こし”と確実実行ユーティリティ ---
-    function unlockTTS() {
-      if (!('speechSynthesis' in window)) return;
-      const u = new SpeechSynthesisUtterance(' '); // 無音に近い短い発話で起こす
-      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
-      try { window.speechSynthesis.speak(u); } catch {}
-    }
-
-    /** voices がまだでも少し待ってから確実に発話 */
-    function speakAfterReady(utterance) {
-      if (!('speechSynthesis' in window)) return;
-      const synth = window.speechSynthesis;
-      // すぐに voices が空なら少し待ってから再試行
-      const trySpeak = (retries = 2) => {
-        try { synth.cancel(); } catch {}
-        const voices = synth.getVoices();
-        if (voices && voices.length && __jpVoices.length === 0) {
-          __jpVoices = voices.filter(v =>
-            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
-          );
-          if (__jpVoices.length) utterance.voice = __jpVoices[0];
-        }
-        try { synth.speak(utterance); }
-        catch (e) {
-          if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
-        }
-      };
-      trySpeak();
-    }
+    
 
 
     function speakFoundOnce(workName /* string | undefined */) {
@@ -402,16 +394,18 @@
         await DOM.video.play();
         DOM.btnStart.disabled = true;
         DOM.btnStop.disabled = false;
-        if (state.useBarcodeDetector) {
-          try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
-          catch { state.useBarcodeDetector = false; state.detector = null; }
+        // ★ 音声ガイド：探すべき棚の案内
+        if (state.currentShelf) {
+          speakLineOnce(`${state.currentShelf} の棚を探してください。`, { rate: 1.05, pitch: 1.25 });
         }
-        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
-        fitOverlay();
-        tick();
-      } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
-    }
+      } catch (e) {
+        showError(e);
+        stopCam();
+      }
+    
 
+    }
+    
     async function detectCombined() {
       if (!DOM.video.videoWidth) return [];
       const tmpCanvas = document.createElement("canvas");
@@ -510,10 +504,29 @@
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
-        } else {
-          drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
-          updateHistory(raw, 'other', false);
-        }
+        } else if (kind === 'loc') {
+       // ▼ LOC の値を取り出す（"loc-XXX" → "XXX"）
+       const m = /^loc-(.+)$/i.exec(raw);
+       const locVal = m ? m[1].trim() : "";
+       // 画面の指定棚と一致したら 1 回だけガイド
+       if (state.currentShelf && locVal && locVal.toLowerCase() === state.currentShelf.toLowerCase()) {
+         if (!state.__saidShelfMatch) {
+           state.__saidShelfMatch = true;
+           // ★ 音声ガイド：指示どおりの棚QRを読んだ
+           speakLineOnce(`正しい棚を探しています。`, { rate: 1.05, pitch: 1.25 });
+         }
+         // 視覚上は緑枠で棚を強調したければこちら
+         drawBox(pts, CONFIG.colors.loc, "棚", 'solid');
+       } else {
+         // LOC だがターゲット棚でない場合（必要なら点線表示）
+         drawBox(pts, CONFIG.colors.ng, (locVal ? `別棚 [${locVal}]` : "別QR"), 'dashed');
+       }
+       updateHistory(raw, 'loc', !!(state.currentShelf && locVal && locVal.toLowerCase() === state.currentShelf.toLowerCase()));
+     } else {
+       // その他のQR
+       drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
+       updateHistory(raw, 'other', false);
+     }
       }
 
       if (!state.holdTimer) {
