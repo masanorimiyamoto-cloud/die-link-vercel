@@ -89,8 +89,8 @@
     <div class="panel">
       <div class="card"><h4>🎯 ターゲット</h4><div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div></div>
       <div class="card"><h4> 棚 探すべき棚</h4><div id="currentShelf" class="muted">（URL未指定）</div></div>
-      <div class="card"><h4>⚙️ 操作</h4><div class="controls"><button id="btnStart" class="primary">カメラ開始</button><button id="btnStop" disabled>停止</button><button id="btnHistory">スキャン履歴</button></div><div class="legend"><span class="chip ok">一致</span><span class="chip ng">不一致</span><span class="chip loc">棚</span></div></div>
-      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>・棚のQRコードは<strong style="color:var(--loc)">緑枠</strong>で表示します。</div></div>
+      <div class="card"><h4>⚙️ 操作</h4><div class="controls"><button id="btnStart" class="primary">カメラ開始</button><button id="btnStop" disabled>停止</button><button id="btnHistory">スキャン履歴</button></div><div class="legend"><span class="chip ok">一致(型)</span><span class="chip loc">一致(棚)</span><span class="chip ng">不一致</span></div></div>
+      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。</div></div>
     </div>
   </div>
   <div id="historyModal" class="modal"><div class="modal-content"><div class="modal-header"><h4>スキャン履歴</h4><span id="closeModal" class="close-button">&times;</span></div><ul id="historyList"></ul></div></div>
@@ -203,20 +203,20 @@
       const u = new SpeechSynthesisUtterance(punct(text));
       u.lang   = 'ja-JP';
       u.rate   = 1.05;
-      u.pitch  = 1.1;
+      u.pitch  = 1.3;
       u.volume = 1.0;
 
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
       speakAfterReady(u);
     }
 
-    function speakLocFound() {
+    function speakTargetLocFound() {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
       __lastLocSpeak = now;
 
-      const u = new SpeechSynthesisUtterance("正しい棚を探しています");
+      const u = new SpeechSynthesisUtterance("目的の棚です");
       u.lang   = 'ja-JP';
       u.rate   = 1.0;
       u.pitch  = 1.1;
@@ -274,7 +274,6 @@
 
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      console.log("QRコード解析:", text); // デバッグ用
       
       if (/^loc-/i.test(text)) return "loc";
       if (/^die-/i.test(text)) return "die";
@@ -286,6 +285,21 @@
       return "other";
     };
 
+    const tryExtractWN = (rawUrl) => {
+      try {
+        const u = new URL(rawUrl);
+        const m = /[#&]d=([^&]+)/.exec(u.hash || "");
+        if (!m) return "";
+        const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
+        const json = atob(b64 + pad);
+        const obj = JSON.parse(json);
+        return (obj.wn || "").trim();
+      } catch {
+        return "";
+      }
+    };
+
     const parseDie = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
@@ -294,7 +308,15 @@
         const url = new URL(text);
         const book = url.searchParams.get("book") || "";
         const wc = url.searchParams.get("wc") || "";
-        if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() };
+        if (book || wc) {
+          const wnFromParam = (url.searchParams.get("wn") || "").trim();
+          const wnFromHash = tryExtractWN(text);
+          return { 
+            bn: book.trim(), 
+            wc: wc.trim(), 
+            wn: wnFromParam || wnFromHash
+          };
+        }
       } catch {}
       return null;
     };
@@ -474,9 +496,8 @@
     function applyDetections(detections) {
       let anyMatch = false;
       let locFound = false;
+      let anyLocMatch = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
-
-      console.log("検出されたQRコード数:", detections.length); // デバッグ用
 
       for (const d of (detections || [])) {
         const raw = (d.rawValue || "").trim(); 
@@ -484,8 +505,6 @@
         
         const kind = classify(raw); 
         const pts = d.cornerPoints;
-
-        console.log("QRコード種類:", kind, "内容:", raw); // デバッグ用
 
         if (kind === 'die') {
           const p = parseDie(raw);
@@ -495,7 +514,6 @@
 
           if (isMatch) {
             drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
-            console.log("ターゲット一致:", p); // デバッグ用
           } else {
             drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
           }
@@ -515,16 +533,25 @@
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
         } else if (kind === 'loc') {
-          // loc QRコードを見つけた場合
           const locData = parseLoc(raw);
-          drawBox(pts, CONFIG.colors.loc, "棚", 'solid');
-          updateHistory(raw, 'loc', false);
           locFound = true;
-          
-          console.log("棚QRコード検出:", locData); // デバッグ用
-          
-          // 棚QRコードを見つけたときの音声
-          speakLocFound();
+
+          const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
+          anyLocMatch = anyLocMatch || isLocMatch;
+
+          if (isLocMatch) {
+            drawBox(pts, CONFIG.colors.loc, `棚 一致 [${locData.loc}]`, 'solid');
+            updateHistory(raw, 'loc', true);
+            if (!state.isLocked) showToastNearBox("目的の棚です", pts);
+            speakTargetLocFound();
+          } else {
+            const label = `棚 違い [${locData?.loc || '?'}]`;
+            drawBox(pts, CONFIG.colors.ng, label, 'dashed');
+            updateHistory(raw, 'loc', false);
+            if (!state.isLocked && state.currentShelf) {
+              showToastNearBox(`棚が違います (→ ${state.currentShelf})`, pts);
+            }
+          }
         } else {
           drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
           updateHistory(raw, 'other', false);
@@ -539,9 +566,12 @@
           if (anyMatch) {
             msg = "ターゲット発見";
             statusType = "ok";
-          } else if (locFound) {
-            msg = "棚を発見";
+          } else if (anyLocMatch) {
+            msg = "目的の棚を検知";
             statusType = "loc";
+          } else if (locFound) {
+            msg = "別の棚を検知";
+            statusType = "ng";
           } else {
             msg = `${detections.length}件検知`;
             statusType = "ng";
@@ -571,12 +601,17 @@
       if(state.scanHistory.size === 0){
         DOM.historyList.innerHTML = '<li>スキャン履歴はありません。</li>';
       } else {
-        for (const [raw, data] of state.scanHistory.entries()) {
+        const sortedHistory = Array.from(state.scanHistory.entries()).reverse();
+        for (const [raw, data] of sortedHistory) {
           const li = document.createElement('li');
           let status = '';
-          if(data.kind === 'die') status = data.isMatch ? '✔️ 一致' : '❌ 不一致';
-          else if(data.kind === 'loc') status = '📚 棚';
-          else status = '❓ その他';
+          if (data.kind === 'die') {
+            status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
+          } else if (data.kind === 'loc') {
+            status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
+          } else {
+            status = '❓ その他';
+          }
           li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`;
           DOM.historyList.appendChild(li);
         }
@@ -648,8 +683,6 @@
         wn: (params.get("wn") || "").trim()
       };
       
-      console.log("ターゲット設定:", state.currentTarget); // デバッグ用
-      
       if (!state.currentTarget.book || !state.currentTarget.wc) {
         updateStatus("ターゲット未指定", "ng");
         DOM.error.textContent = "URLに ?book=...&wc=... を指定してください。";
@@ -660,7 +693,6 @@
         DOM.tgtWN.textContent = state.currentTarget.wn;
         state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
         updateStatus("準備完了");
-        console.log("ターゲットキー:", state.targetKey); // デバッグ用
       }
 
       const locParam = (params.get("loc") || "").trim();
