@@ -323,7 +323,6 @@
         return "other";
         };
 
-
     /* === 各種パーサ === */
     const tryExtractWN = (rawUrl) => {
       try {
@@ -345,33 +344,43 @@
         let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
         if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
 
-        // URL 形式（別名にも対応）
+        // URL 形式（より包括的なパラメータ名対応）
         try {
             const url = new URL(text);
-            const book =
-            (url.searchParams.get("book") ||
-            url.searchParams.get("Book") ||
-            url.searchParams.get("BookName") ||
-            url.searchParams.get("bookname") ||
-            "").trim();
+            
+            // book パラメータの様々なバリエーション
+            const book = (
+                url.searchParams.get("book") ||
+                url.searchParams.get("Book") ||
+                url.searchParams.get("BookName") ||
+                url.searchParams.get("bookname") ||
+                url.searchParams.get("b") ||  // 短縮形
+                ""
+            ).trim();
 
-            const wc =
-            (url.searchParams.get("wc") ||
-            url.searchParams.get("WorkCord") ||
-            url.searchParams.get("workcord") ||
-            "").trim();
+            // workcord パラメータの様々なバリエーション  
+            const wc = (
+                url.searchParams.get("wc") ||
+                url.searchParams.get("WorkCord") ||
+                url.searchParams.get("workcord") ||
+                url.searchParams.get("work") ||  // 短縮形
+                url.searchParams.get("w") ||     // 短縮形
+                ""
+            ).trim();
 
             if (book || wc) {
-            const wnFromParam = (url.searchParams.get("wn") || "").trim();
-            const wnFromHash  = tryExtractWN(text);
-            return { bn: book, wc: wc, wn: wnFromParam || wnFromHash };
+                const wnFromParam = (
+                    url.searchParams.get("wn") || 
+                    url.searchParams.get("d") ||  // 別名
+                    ""
+                ).trim();
+                const wnFromHash  = tryExtractWN(text);
+                return { bn: book, wc: wc, wn: wnFromParam || wnFromHash };
             }
         } catch {}
 
         return null;
         };
-
-
 
     const parseLoc = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
@@ -403,7 +412,12 @@
       return null;
     };
 
-    const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
+    // ★ デバッグ用：キー比較を詳細に表示
+    const dieKey = (bn, wc) => {
+        const key = `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
+        console.log("dieKey generated:", { bn, wc, key }); // デバッグ用
+        return key;
+    };
 
     /* === 描画・UI === */
     function drawBox(points, color, label, style = 'solid') {
@@ -569,6 +583,9 @@
       let anyLocMatch = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
+      // ★ デバッグ：現在のターゲット情報を表示
+      console.log("=== 現在のターゲット ===", state.currentTarget, "キー:", state.targetKey);
+
       for (const d of (detections || [])) {
         const raw = (d.rawValue || "").trim(); 
         if (!raw) continue;
@@ -576,16 +593,30 @@
         const kind = classify(raw); 
         const pts = d.cornerPoints;
 
+        // ★ デバッグ：検出したQRの情報
+        console.log("検出QR:", { raw, kind });
+
         if (kind === 'die') {
           const p = parseDie(raw);
           const key = p ? dieKey(p.bn, p.wc) : "";
           const isMatch = key && key === state.targetKey;
+          
+          // ★ デバッグ：比較結果を詳細に表示
+          console.log("比較:", { 
+            parsed: p, 
+            parsedKey: key, 
+            targetKey: state.targetKey, 
+            isMatch 
+          });
+
           anyMatch = anyMatch || isMatch;
 
           if (isMatch) {
             drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
+            console.log("✅ 一致しました！"); // デバッグ用
           } else {
             drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
+            console.log("❌ 不一致:", p); // デバッグ用
           }
 
           updateHistory(raw, 'die', isMatch);
@@ -784,16 +815,31 @@
 
     function initialize() {
       const params = new URLSearchParams(location.search);
+      
+      // URLパラメータの様々なバリエーションに対応
       state.currentTarget = {
-        book: (params.get("book") || "").trim(),
-        wc: (params.get("wc") || "").trim(),
+        book: (
+          params.get("book") ||
+          params.get("Book") || 
+          params.get("BookName") ||
+          params.get("b") || // 短縮形
+          ""
+        ).trim(),
+        wc: (
+          params.get("wc") ||
+          params.get("WorkCord") ||
+          params.get("workcord") || 
+          params.get("w") || // 短縮形
+          ""
+        ).trim(),
         wn: (params.get("wn") || "").trim()
       };
+      
+      console.log("URLパラメータから設定:", state.currentTarget); // デバッグ用
       
       if (!state.currentTarget.book || !state.currentTarget.wc) {
         updateStatus("ターゲット未指定（作業指示QRを読み取るか、URLで指定）", "ng");
         DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざしてください。";
-        // start ボタンは押せる：order_Plain を読ませるため
         DOM.btnStart.disabled = false;
       } else {
         DOM.tgtBN.textContent = state.currentTarget.book;
@@ -801,6 +847,7 @@
         DOM.tgtWN.textContent = state.currentTarget.wn;
         state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
         updateStatus("準備完了");
+        console.log("ターゲット設定完了:", state.targetKey); // デバッグ用
       }
 
       const locParam = (params.get("loc") || "").trim();
