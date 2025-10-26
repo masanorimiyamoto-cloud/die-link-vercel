@@ -296,11 +296,12 @@
             const url = new URL(text);
             if (url.searchParams.has("loc")) return "loc";
         } catch {}
+
         // die
         if (/^die-/i.test(text)) return "die";
         try {
             const url = new URL(text);
-            // ↓ ここを広げる（Book/BookName, wc/WorkCord）
+            // 大文字別名も拾う
             if (
             url.searchParams.has("book") ||
             url.searchParams.has("Book") ||
@@ -311,14 +312,17 @@
             url.searchParams.has("workcord")
             ) return "die";
         } catch {}
-        // order
+
+        // order（そのままでOK）
         if (/order[_-]?plain/i.test(text)) return "order";
         try {
             const url = new URL(text);
             if (/order[_-]?plain/i.test(url.pathname)) return "order";
         } catch {}
+
         return "other";
         };
+
 
     /* === 各種パーサ === */
     const tryExtractWN = (rawUrl) => {
@@ -341,10 +345,9 @@
         let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
         if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
 
-        // URL 形式
+        // URL 形式（別名にも対応）
         try {
             const url = new URL(text);
-            // ← ここを拡張：別名も見る
             const book =
             (url.searchParams.get("book") ||
             url.searchParams.get("Book") ||
@@ -367,6 +370,7 @@
 
         return null;
         };
+
 
 
     const parseLoc = (raw) => {
