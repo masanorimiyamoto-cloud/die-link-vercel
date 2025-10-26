@@ -289,36 +289,36 @@
 
     /* === 種別判定 === */
     const classify = (raw) => {
-  const text = normalizeHyphen((raw || "").trim());
-  // loc
-  if (/^loc-/i.test(text)) return "loc";
-  try {
-    const url = new URL(text);
-    if (url.searchParams.has("loc")) return "loc";
-  } catch {}
-  // die
-  if (/^die-/i.test(text)) return "die";
-  try {
-    const url = new URL(text);
-    // ↓ ここを広げる（Book/BookName, wc/WorkCord）
-    if (
-      url.searchParams.has("book") ||
-      url.searchParams.has("Book") ||
-      url.searchParams.has("BookName") ||
-      url.searchParams.has("bookname") ||
-      url.searchParams.has("wc") ||
-      url.searchParams.has("WorkCord") ||
-      url.searchParams.has("workcord")
-    ) return "die";
-  } catch {}
-  // order
-  if (/order[_-]?plain/i.test(text)) return "order";
-  try {
-    const url = new URL(text);
-    if (/order[_-]?plain/i.test(url.pathname)) return "order";
-  } catch {}
-  return "other";
-};
+        const text = normalizeHyphen((raw || "").trim());
+        // loc
+        if (/^loc-/i.test(text)) return "loc";
+        try {
+            const url = new URL(text);
+            if (url.searchParams.has("loc")) return "loc";
+        } catch {}
+        // die
+        if (/^die-/i.test(text)) return "die";
+        try {
+            const url = new URL(text);
+            // ↓ ここを広げる（Book/BookName, wc/WorkCord）
+            if (
+            url.searchParams.has("book") ||
+            url.searchParams.has("Book") ||
+            url.searchParams.has("BookName") ||
+            url.searchParams.has("bookname") ||
+            url.searchParams.has("wc") ||
+            url.searchParams.has("WorkCord") ||
+            url.searchParams.has("workcord")
+            ) return "die";
+        } catch {}
+        // order
+        if (/order[_-]?plain/i.test(text)) return "order";
+        try {
+            const url = new URL(text);
+            if (/order[_-]?plain/i.test(url.pathname)) return "order";
+        } catch {}
+        return "other";
+        };
 
     /* === 各種パーサ === */
     const tryExtractWN = (rawUrl) => {
