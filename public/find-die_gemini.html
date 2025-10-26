@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>抜型ファインダー deep</title>
+<title>抜型ファインダー jemini</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
@@ -33,6 +33,7 @@
   .chip.ok { background: var(--bg-ok); color: var(--ok); border: 1px solid #a5d8ff; }
   .chip.ng { background: var(--bg-ng); color: var(--ng); border: 1px solid #ffc9c9; }
   .chip.loc { background: var(--bg-loc); color: var(--loc); border: 1px solid #96f2d7; }
+  .chip.info { background: #fff9db; color: #b68600; border: 1px solid #ffe066; }
   .muted { color: var(--sub); font-size: 14px; }
   .toast { position: absolute; padding: 8px 12px; background: #000c; color: #fff; border-radius: 8px; font-size: 14px; transform: translate(-50%, -150%); pointer-events: none; animation: fade-out 1.2s forwards; }
   @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
@@ -88,9 +89,9 @@
     </div>
     <div class="panel">
       <div class="card"><h4>🎯 ターゲット</h4><div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div></div>
-      <div class="card"><h4> 棚 探すべき棚</h4><div id="currentShelf" class="muted">（URL未指定）</div></div>
+      <div class="card"><h4> 棚 探すべき棚</h4><div id="currentShelf" class="muted">（指示書で指定）</div></div>
       <div class="card"><h4>⚙️ 操作</h4><div class="controls"><button id="btnStart" class="primary">カメラ開始</button><button id="btnStop" disabled>停止</button><button id="btnHistory">スキャン履歴</button></div><div class="legend"><span class="chip ok">一致(型)</span><span class="chip loc">一致(棚)</span><span class="chip ng">不一致</span></div></div>
-      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。</div></div>
+      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・起動したら、まず「作業指示書」のQRコードをスキャンします。<br>・ターゲットが設定されると、自動で探索モードに切り替わります。<br>・（または <code>?book=...</code> で直接ターゲットを指定することも可能です）</div></div>
     </div>
   </div>
   <div id="historyModal" class="modal"><div class="modal-content"><div class="modal-header"><h4>スキャン履歴</h4><span id="closeModal" class="close-button">&times;</span></div><ul id="historyList"></ul></div></div>
@@ -128,7 +129,7 @@
       isLocked: false,
       holdTimer: null,
       currentTarget: {},
-      targetKey: '',
+      targetKey: '', // ★ これが空の時は「指示書待機モード」
       currentShelf: null,
       scanHistory: new Map(),
     };
@@ -137,9 +138,9 @@
     let __ttsReady = false;
     let __jpVoices = [];
     let __lastSpeak = 0;
-    let __lastLocSpeak = 0;
+    let __lastLocSpeak = 0; 
     const __speakCooldownMs = 1500;
-    const __locSpeakCooldownMs = 3000;
+    const __locSpeakCooldownMs = 3000; 
 
     function initTTS() {
       if (!('speechSynthesis' in window)) return;
@@ -216,7 +217,7 @@
       if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
       __lastLocSpeak = now;
 
-      const u = new SpeechSynthesisUtterance("目的の棚です");
+      const u = new SpeechSynthesisUtterance("目的の棚です"); 
       u.lang   = 'ja-JP';
       u.rate   = 1.0;
       u.pitch  = 1.1;
@@ -243,6 +244,7 @@
         ok: cssVarOr('--ok', '#1c7ed6'),
         ng: cssVarOr('--ng', '#e03131'),
         loc: cssVarOr('--loc', '#2b8a3e'),
+        info: cssVarOr('--info', '#f59f00'), // ★ 追加: 待機中
       },
       holdDuration: 3000,
       lockCooldown: 700,
@@ -250,21 +252,21 @@
 
     const confirmationBeep = (() => {
       let audioCtx;
-      const play = () => {
+      const play = (freq = 600, dur = 0.1, peak = 1200) => { // ★ 引数を追加
         try {
           audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
           const t0 = audioCtx.currentTime;
           const osc = audioCtx.createOscillator();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(600, t0);
-          osc.frequency.exponentialRampToValueAtTime(1200, t0 + 0.1);
+          osc.frequency.setValueAtTime(freq, t0);
+          osc.frequency.exponentialRampToValueAtTime(peak, t0 + dur);
           const gain = audioCtx.createGain();
           gain.gain.setValueAtTime(0.0001, t0);
           gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 2);
           osc.connect(gain).connect(audioCtx.destination);
           osc.start(t0);
-          osc.stop(t0 + 0.25);
+          osc.stop(t0 + dur * 2.5);
         } catch (e) { console.error("Audio playback failed:", e); }
       };
       return play;
@@ -275,6 +277,9 @@
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       
+      // ★ 追加: 'order' を最優先で判定
+      if (/^order-(.+)$/i.test(text)) return "order"; 
+
       if (/^loc-/i.test(text)) return "loc";
       if (/^die-/i.test(text)) return "die";
       try {
@@ -330,6 +335,22 @@
         const loc = url.searchParams.get("loc") || "";
         if (loc) return { loc: loc.trim() };
       } catch {}
+      return null;
+    };
+    
+    // ★ 追加: 指示書QRパーサー
+    const parseOrder = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      let match = /^order-(.+)$/i.exec(text);
+      if (match) {
+        try {
+          // JSON文字列をパース
+          return JSON.parse(match[1]); 
+        } catch (e) {
+          console.error("Order JSON parse error:", e);
+          return null;
+        }
+      }
       return null;
     };
     
@@ -493,92 +514,157 @@
       state.scanHistory.set(raw, { kind, isMatch, time: new Date() });
     }
 
+    // ★ 修正: ターゲットをUIとStateに設定するヘルパー関数
+    function setTarget(data) {
+      const book = (data.book || "").trim();
+      const wc = (data.wc || "").trim();
+      const wn = (data.wn || "").trim();
+      const loc = (data.loc || "").trim();
+
+      if (!book || !wc) {
+        console.error("Invalid target data", data);
+        showError({ message: "無効なターゲットデータです。" });
+        return false;
+      }
+
+      state.currentTarget = { book, wc, wn };
+      state.targetKey = dieKey(book, wc);
+      DOM.tgtBN.textContent = book;
+      DOM.tgtWC.textContent = wc;
+      DOM.tgtWN.textContent = wn;
+      DOM.tgtWN.style.display = wn ? 'block' : 'none';
+
+      if (loc) {
+        state.currentShelf = loc;
+        DOM.currentShelf.textContent = loc;
+        DOM.currentShelf.className = "chip loc";
+      } else {
+        // 指示書に棚指定がなかった場合
+        state.currentShelf = null;
+        DOM.currentShelf.textContent = "（棚指定なし）";
+        DOM.currentShelf.className = "muted";
+      }
+      return true;
+    }
+
+    // ★ 修正: applyDetections に「指示書待機モード」を追加
     function applyDetections(detections) {
-      let anyMatch = false;
-      let locFound = false;
-      let anyLocMatch = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
-      for (const d of (detections || [])) {
-        const raw = (d.rawValue || "").trim(); 
-        if (!raw) continue;
+      // ★★★ モード分岐 ★★★
+      if (!state.targetKey) {
+        // --- 1. ターゲット未設定 (指示書待機モード) ---
+        let orderFound = false;
+        for (const d of (detections || [])) {
+          const raw = (d.rawValue || "").trim(); if (!raw) continue;
+          const kind = classify(raw); const pts = d.cornerPoints;
+
+          if (kind === 'order') {
+            const orderData = parseOrder(raw);
+            if (orderData) {
+              // ★ ターゲット設定成功！
+              drawBox(pts, CONFIG.colors.ok, "指示書 受理", 'solid');
+              if (setTarget(orderData)) {
+                orderFound = true;
+                confirmationBeep(880, 0.05, 1000); // 指示書受理音
+                if (navigator.vibrate) { navigator.vibrate(100); }
+                showBigMessage("ターゲット設定完了", `${orderData.book}-${orderData.wc}`);
+                updateStatus("探索開始", "ok");
+              } else {
+                // JSONは読めたが中身が無効
+                drawBox(pts, CONFIG.colors.ng, "指示書 不正", 'dashed');
+                updateStatus("指示書データが不正", "ng");
+              }
+              break; // 1フレームで1つの指示書のみ処理
+            }
+          } else {
+            // 指示書以外のQR
+            drawBox(pts, CONFIG.colors.info, "指示書QRではない", 'dashed');
+          }
+        }
+        if (!orderFound && !state.holdTimer) {
+          updateStatus(detections.length > 0 ? "指示書QRを探しています" : "指示書QRをスキャン", "info");
+        }
         
-        const kind = classify(raw); 
-        const pts = d.cornerPoints;
+      } else {
+        // --- 2. ターゲット設定済み (ファインダーモード) ---
+        let anyMatch = false;
+        let locFound = false;
+        let anyLocMatch = false; 
 
-        if (kind === 'die') {
-          const p = parseDie(raw);
-          const key = p ? dieKey(p.bn, p.wc) : "";
-          const isMatch = key && key === state.targetKey;
-          anyMatch = anyMatch || isMatch;
+        for (const d of (detections || [])) {
+          const raw = (d.rawValue || "").trim(); if (!raw) continue;
+          const kind = classify(raw); const pts = d.cornerPoints;
 
-          if (isMatch) {
-            drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
+          if (kind === 'die') {
+            const p = parseDie(raw);
+            const key = p ? dieKey(p.bn, p.wc) : "";
+            const isMatch = key && key === state.targetKey;
+            anyMatch = anyMatch || isMatch;
+
+            if (isMatch) {
+              drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
+            } else {
+              drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
+            }
+            updateHistory(raw, 'die', isMatch);
+
+            if (isMatch && !state.isLocked) {
+              state.isLocked = true;
+              confirmationBeep(600, 0.1, 1200); // 型一致音
+              if (navigator.vibrate) { navigator.vibrate(150); }
+              showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
+              showToastNearBox("ロック", pts);
+              speakFoundOnce(state.currentTarget.wn || (p && p.wn) || "");
+              holdScan(CONFIG.holdDuration);
+              setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
+            }
+          } else if (kind === 'loc') {
+            const locData = parseLoc(raw);
+            locFound = true;
+            const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
+            anyLocMatch = anyLocMatch || isLocMatch;
+
+            if (isLocMatch) {
+              drawBox(pts, CONFIG.colors.loc, `棚 一致 [${locData.loc}]`, 'solid');
+              updateHistory(raw, 'loc', true);
+              if (!state.isLocked) showToastNearBox("目的の棚です", pts);
+              speakTargetLocFound();
+            } else {
+              const label = `棚 違い [${locData?.loc || '?'}]`;
+              drawBox(pts, CONFIG.colors.ng, label, 'dashed');
+              updateHistory(raw, 'loc', false);
+              if (!state.isLocked && state.currentShelf) {
+                showToastNearBox(`棚が違います (→ ${state.currentShelf})`, pts);
+              }
+            }
           } else {
-            drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
+            drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
+            updateHistory(raw, 'other', false);
           }
+        } // end for
 
-          updateHistory(raw, 'die', isMatch);
-
-          if (isMatch && !state.isLocked) {
-            state.isLocked = true;
-            confirmationBeep();
-            if (navigator.vibrate) { navigator.vibrate(150); }
-            showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
-            showToastNearBox("ロック", pts);
-
-            speakFoundOnce(state.currentTarget.wn || (p && p.wn) || "");
-
-            holdScan(CONFIG.holdDuration);
-            setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
-          }
-        } else if (kind === 'loc') {
-          const locData = parseLoc(raw);
-          locFound = true;
-
-          const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
-          anyLocMatch = anyLocMatch || isLocMatch;
-
-          if (isLocMatch) {
-            drawBox(pts, CONFIG.colors.loc, `棚 一致 [${locData.loc}]`, 'solid');
-            updateHistory(raw, 'loc', true);
-            if (!state.isLocked) showToastNearBox("目的の棚です", pts);
-            speakTargetLocFound();
-          } else {
-            const label = `棚 違い [${locData?.loc || '?'}]`;
-            drawBox(pts, CONFIG.colors.ng, label, 'dashed');
-            updateHistory(raw, 'loc', false);
-            if (!state.isLocked && state.currentShelf) {
-              showToastNearBox(`棚が違います (→ ${state.currentShelf})`, pts);
+        if (!state.holdTimer) {
+          let msg = "探索中...";
+          let statusType = "info";
+          if (detections.length > 0) {
+            if (anyMatch) {
+              msg = "ターゲット発見";
+              statusType = "ok";
+            } else if (anyLocMatch) {
+              msg = "目的の棚を検知";
+              statusType = "loc";
+            } else if (locFound) {
+              msg = "別の棚を検知";
+              statusType = "ng";
+            } else {
+              msg = `${detections.length}件検知`;
+              statusType = "ng";
             }
           }
-        } else {
-          drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
-          updateHistory(raw, 'other', false);
+          updateStatus(msg, statusType);
         }
-      }
-
-      if (!state.holdTimer) {
-        let msg = "探索中...";
-        let statusType = "info";
-        
-        if (detections.length > 0) {
-          if (anyMatch) {
-            msg = "ターゲット発見";
-            statusType = "ok";
-          } else if (anyLocMatch) {
-            msg = "目的の棚を検知";
-            statusType = "loc";
-          } else if (locFound) {
-            msg = "別の棚を検知";
-            statusType = "ng";
-          } else {
-            msg = `${detections.length}件検知`;
-            statusType = "ng";
-          }
-        }
-        updateStatus(msg, statusType);
-      }
+      } // ★★★ モード分岐終了 ★★★
     }
 
     async function tick() {
@@ -609,6 +695,8 @@
             status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
           } else if (data.kind === 'loc') {
             status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
+          } else if (data.kind === 'order') { // ★ 履歴にも 'order' を追加
+            status = '⚙️ 指示書';
           } else {
             status = '❓ その他';
           }
@@ -675,31 +763,27 @@
       return hits;
     }
 
+    // ★ 修正: 起動時の動作を分岐
     function initialize() {
       const params = new URLSearchParams(location.search);
-      state.currentTarget = {
+      const urlData = {
         book: (params.get("book") || "").trim(),
         wc: (params.get("wc") || "").trim(),
-        wn: (params.get("wn") || "").trim()
+        wn: (params.get("wn") || "").trim(),
+        loc: (params.get("loc") || "").trim()
       };
       
-      if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定してください。";
-        DOM.btnStart.disabled = true;
+      if (urlData.book && urlData.wc) {
+        // モードA: URLパラメータでターゲットが指定されている場合
+        setTarget(urlData);
+        updateStatus("準備完了", "ok");
       } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
-      }
-
-      const locParam = (params.get("loc") || "").trim();
-      if(locParam){
-        state.currentShelf = locParam;
-        DOM.currentShelf.textContent = state.currentShelf;
-        DOM.currentShelf.className = "chip loc";
+        // モードB: URLパラメータがない場合 -> 指示書待機モード
+        updateStatus("指示書QRをスキャン", "info");
+        DOM.error.textContent = ""; // エラーを消す
+        DOM.btnStart.disabled = false; // ボタンを有効化
+        DOM.tgtBN.textContent = "??";
+        DOM.tgtWC.textContent = "??";
       }
     }
 
