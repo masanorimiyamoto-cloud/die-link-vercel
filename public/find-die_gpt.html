@@ -412,12 +412,26 @@
       return null;
     };
 
-    // ★ デバッグ用：キー比較を詳細に表示
-    const dieKey = (bn, wc) => {
-        const key = `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
-        console.log("dieKey generated:", { bn, wc, key }); // デバッグ用
+    // 置き換え：強い正規化ヘルパー
+        const toHankaku = (s) => String(s ?? '')
+        .normalize('NFKC')                 // 全角→半角（記号/数字/英字）
+        .replace(/\u00A0/g, ' ');          // NBSP→通常スペース
+
+        const cleanBase = (s) => toHankaku(s)
+        .replace(/[ \t\r\n]+/g, '')        // すべての空白除去
+        .replace(/[‐-–—―ー−]/g, '-');      // いろんなハイフンを「-」に統一
+
+        const normBN = (s) => cleanBase(s).toLowerCase();                  // 大小区別なし
+        const normWC = (s) => cleanBase(s).toLowerCase().replace(/^0+/, ''); // 先頭ゼロ除去
+
+        // ★ これだけで比較が頑丈になります
+        const dieKey = (bn, wc) => {
+        const key = `${normBN(bn)}@@${normWC(wc)}`;
+        // 開発中の確認ログ（要らなければ消してOK）
+        console.log('dieKey:', { bn, wc, key });
         return key;
-    };
+        };
+
 
     /* === 描画・UI === */
     function drawBox(points, color, label, style = 'solid') {
