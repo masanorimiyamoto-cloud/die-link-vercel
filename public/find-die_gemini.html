@@ -244,7 +244,7 @@
         ok: cssVarOr('--ok', '#1c7ed6'),
         ng: cssVarOr('--ng', '#e03131'),
         loc: cssVarOr('--loc', '#2b8a3e'),
-        info: cssVarOr('--info', '#f59f00'), // ★ 追加: 待機中
+        info: cssVarOr('--info', '#f59f00'),
       },
       holdDuration: 3000,
       lockCooldown: 700,
@@ -252,7 +252,7 @@
 
     const confirmationBeep = (() => {
       let audioCtx;
-      const play = (freq = 600, dur = 0.1, peak = 1200) => { // ★ 引数を追加
+      const play = (freq = 600, dur = 0.1, peak = 1200) => {
         try {
           audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
           const t0 = audioCtx.currentTime;
@@ -277,8 +277,8 @@
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       
-      // ★ 追加: 'order' を最優先で判定
-      if (/^order-(.+)$/i.test(text)) return "order"; 
+      // ★ 修正: order の判定を改善
+      if (/^order-/i.test(text)) return "order"; 
 
       if (/^loc-/i.test(text)) return "loc";
       if (/^die-/i.test(text)) return "die";
@@ -338,19 +338,46 @@
       return null;
     };
     
-    // ★ 追加: 指示書QRパーサー
+    // ★ 修正: 指示書QRパーサーを改善
     const parseOrder = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
+      console.log("指示書QR解析:", text); // デバッグ用
+      
       let match = /^order-(.+)$/i.exec(text);
       if (match) {
         try {
           // JSON文字列をパース
-          return JSON.parse(match[1]); 
+          const jsonStr = decodeURIComponent(match[1]);
+          console.log("JSON文字列:", jsonStr); // デバッグ用
+          const orderData = JSON.parse(jsonStr);
+          console.log("パース結果:", orderData); // デバッグ用
+          return orderData;
         } catch (e) {
           console.error("Order JSON parse error:", e);
+          
+          // JSONパースに失敗した場合、従来のdie形式も試す
+          const dieMatch = /^order-die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+          if (dieMatch) {
+            return {
+              book: dieMatch[1].trim(),
+              wc: dieMatch[2].trim(),
+              wn: (dieMatch[3] || "").trim()
+            };
+          }
           return null;
         }
       }
+      
+      // order- で始まらない場合もdie形式を試す
+      const dieMatch = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+      if (dieMatch) {
+        return {
+          book: dieMatch[1].trim(),
+          wc: dieMatch[2].trim(),
+          wn: (dieMatch[3] || "").trim()
+        };
+      }
+      
       return null;
     };
     
@@ -516,14 +543,16 @@
 
     // ★ 修正: ターゲットをUIとStateに設定するヘルパー関数
     function setTarget(data) {
+      console.log("setTarget called with:", data); // デバッグ用
+      
       const book = (data.book || "").trim();
       const wc = (data.wc || "").trim();
       const wn = (data.wn || "").trim();
       const loc = (data.loc || "").trim();
 
       if (!book || !wc) {
-        console.error("Invalid target data", data);
-        showError({ message: "無効なターゲットデータです。" });
+        console.error("Invalid target data - missing book or wc:", data);
+        showError({ message: "無効なターゲットデータです。bookとwcが必要です。" });
         return false;
       }
 
@@ -531,23 +560,24 @@
       state.targetKey = dieKey(book, wc);
       DOM.tgtBN.textContent = book;
       DOM.tgtWC.textContent = wc;
-      DOM.tgtWN.textContent = wn;
-      DOM.tgtWN.style.display = wn ? 'block' : 'none';
+      DOM.tgtWN.textContent = wn || "(名称なし)";
+      DOM.tgtWN.style.display = 'block';
 
       if (loc) {
         state.currentShelf = loc;
         DOM.currentShelf.textContent = loc;
         DOM.currentShelf.className = "chip loc";
       } else {
-        // 指示書に棚指定がなかった場合
         state.currentShelf = null;
         DOM.currentShelf.textContent = "（棚指定なし）";
         DOM.currentShelf.className = "muted";
       }
+      
+      console.log("ターゲット設定完了:", state.currentTarget, "キー:", state.targetKey); // デバッグ用
       return true;
     }
 
-    // ★ 修正: applyDetections に「指示書待機モード」を追加
+    // ★ 修正: applyDetections を改善
     function applyDetections(detections) {
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
@@ -556,32 +586,42 @@
         // --- 1. ターゲット未設定 (指示書待機モード) ---
         let orderFound = false;
         for (const d of (detections || [])) {
-          const raw = (d.rawValue || "").trim(); if (!raw) continue;
-          const kind = classify(raw); const pts = d.cornerPoints;
+          const raw = (d.rawValue || "").trim(); 
+          if (!raw) continue;
+          
+          const kind = classify(raw); 
+          const pts = d.cornerPoints;
+
+          console.log("検出QR:", kind, "内容:", raw); // デバッグ用
 
           if (kind === 'order') {
             const orderData = parseOrder(raw);
-            if (orderData) {
+            console.log("指示書解析結果:", orderData); // デバッグ用
+            
+            if (orderData && orderData.book && orderData.wc) {
               // ★ ターゲット設定成功！
               drawBox(pts, CONFIG.colors.ok, "指示書 受理", 'solid');
               if (setTarget(orderData)) {
                 orderFound = true;
-                confirmationBeep(880, 0.05, 1000); // 指示書受理音
+                confirmationBeep(880, 0.05, 1000);
                 if (navigator.vibrate) { navigator.vibrate(100); }
                 showBigMessage("ターゲット設定完了", `${orderData.book}-${orderData.wc}`);
                 updateStatus("探索開始", "ok");
-              } else {
-                // JSONは読めたが中身が無効
-                drawBox(pts, CONFIG.colors.ng, "指示書 不正", 'dashed');
-                updateStatus("指示書データが不正", "ng");
+                updateHistory(raw, 'order', true);
               }
-              break; // 1フレームで1つの指示書のみ処理
+              break;
+            } else {
+              // 指示書だがデータが不正
+              drawBox(pts, CONFIG.colors.ng, "指示書 不正", 'dashed');
+              updateStatus("指示書データが不正", "ng");
+              console.error("Invalid order data:", orderData);
             }
           } else {
             // 指示書以外のQR
             drawBox(pts, CONFIG.colors.info, "指示書QRではない", 'dashed');
           }
         }
+        
         if (!orderFound && !state.holdTimer) {
           updateStatus(detections.length > 0 ? "指示書QRを探しています" : "指示書QRをスキャン", "info");
         }
@@ -593,8 +633,11 @@
         let anyLocMatch = false; 
 
         for (const d of (detections || [])) {
-          const raw = (d.rawValue || "").trim(); if (!raw) continue;
-          const kind = classify(raw); const pts = d.cornerPoints;
+          const raw = (d.rawValue || "").trim(); 
+          if (!raw) continue;
+          
+          const kind = classify(raw); 
+          const pts = d.cornerPoints;
 
           if (kind === 'die') {
             const p = parseDie(raw);
@@ -611,7 +654,7 @@
 
             if (isMatch && !state.isLocked) {
               state.isLocked = true;
-              confirmationBeep(600, 0.1, 1200); // 型一致音
+              confirmationBeep(600, 0.1, 1200);
               if (navigator.vibrate) { navigator.vibrate(150); }
               showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
               showToastNearBox("ロック", pts);
@@ -642,7 +685,7 @@
             drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
             updateHistory(raw, 'other', false);
           }
-        } // end for
+        }
 
         if (!state.holdTimer) {
           let msg = "探索中...";
@@ -664,7 +707,7 @@
           }
           updateStatus(msg, statusType);
         }
-      } // ★★★ モード分岐終了 ★★★
+      }
     }
 
     async function tick() {
@@ -695,7 +738,7 @@
             status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
           } else if (data.kind === 'loc') {
             status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
-          } else if (data.kind === 'order') { // ★ 履歴にも 'order' を追加
+          } else if (data.kind === 'order') {
             status = '⚙️ 指示書';
           } else {
             status = '❓ その他';
@@ -763,7 +806,6 @@
       return hits;
     }
 
-    // ★ 修正: 起動時の動作を分岐
     function initialize() {
       const params = new URLSearchParams(location.search);
       const urlData = {
@@ -774,14 +816,12 @@
       };
       
       if (urlData.book && urlData.wc) {
-        // モードA: URLパラメータでターゲットが指定されている場合
         setTarget(urlData);
         updateStatus("準備完了", "ok");
       } else {
-        // モードB: URLパラメータがない場合 -> 指示書待機モード
         updateStatus("指示書QRをスキャン", "info");
-        DOM.error.textContent = ""; // エラーを消す
-        DOM.btnStart.disabled = false; // ボタンを有効化
+        DOM.error.textContent = "";
+        DOM.btnStart.disabled = false;
         DOM.tgtBN.textContent = "??";
         DOM.tgtWC.textContent = "??";
       }

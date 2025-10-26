@@ -289,27 +289,36 @@
 
     /* === 種別判定 === */
     const classify = (raw) => {
-      const text = normalizeHyphen((raw || "").trim());
-      // 棚
-      if (/^loc-/i.test(text)) return "loc";
-      try {
-        const url = new URL(text);
-        if (url.searchParams.has("loc")) return "loc";
-      } catch {}
-      // 型
-      if (/^die-/i.test(text)) return "die";
-      try {
-        const url = new URL(text);
-        if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
-      } catch {}
-      // 作業指示（order_Plain / order-plain / ORDER_PLAIN など）
-      if (/order[_-]?plain/i.test(text)) return "order";
-      try {
-        const url = new URL(text);
-        if (/order[_-]?plain/i.test(url.pathname)) return "order";
-      } catch {}
-      return "other";
-    };
+  const text = normalizeHyphen((raw || "").trim());
+  // loc
+  if (/^loc-/i.test(text)) return "loc";
+  try {
+    const url = new URL(text);
+    if (url.searchParams.has("loc")) return "loc";
+  } catch {}
+  // die
+  if (/^die-/i.test(text)) return "die";
+  try {
+    const url = new URL(text);
+    // ↓ ここを広げる（Book/BookName, wc/WorkCord）
+    if (
+      url.searchParams.has("book") ||
+      url.searchParams.has("Book") ||
+      url.searchParams.has("BookName") ||
+      url.searchParams.has("bookname") ||
+      url.searchParams.has("wc") ||
+      url.searchParams.has("WorkCord") ||
+      url.searchParams.has("workcord")
+    ) return "die";
+  } catch {}
+  // order
+  if (/order[_-]?plain/i.test(text)) return "order";
+  try {
+    const url = new URL(text);
+    if (/order[_-]?plain/i.test(url.pathname)) return "order";
+  } catch {}
+  return "other";
+};
 
     /* === 各種パーサ === */
     const tryExtractWN = (rawUrl) => {
@@ -326,21 +335,39 @@
     };
 
     const parseDie = (raw) => {
-      const text = normalizeHyphen((raw || "").trim());
-      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
-      if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
-      try {
-        const url = new URL(text);
-        const book = url.searchParams.get("book") || "";
-        const wc = url.searchParams.get("wc") || "";
-        if (book || wc) {
-          const wnFromParam = (url.searchParams.get("wn") || "").trim();
-          const wnFromHash = tryExtractWN(text);
-          return { bn: book.trim(), wc: wc.trim(), wn: wnFromParam || wnFromHash };
-        }
-      } catch {}
-      return null;
-    };
+        const text = normalizeHyphen((raw || "").trim());
+
+        // die-Ta-7455(-WN) 形式
+        let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+        if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
+
+        // URL 形式
+        try {
+            const url = new URL(text);
+            // ← ここを拡張：別名も見る
+            const book =
+            (url.searchParams.get("book") ||
+            url.searchParams.get("Book") ||
+            url.searchParams.get("BookName") ||
+            url.searchParams.get("bookname") ||
+            "").trim();
+
+            const wc =
+            (url.searchParams.get("wc") ||
+            url.searchParams.get("WorkCord") ||
+            url.searchParams.get("workcord") ||
+            "").trim();
+
+            if (book || wc) {
+            const wnFromParam = (url.searchParams.get("wn") || "").trim();
+            const wnFromHash  = tryExtractWN(text);
+            return { bn: book, wc: wc, wn: wnFromParam || wnFromHash };
+            }
+        } catch {}
+
+        return null;
+        };
+
 
     const parseLoc = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
