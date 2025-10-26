@@ -38,21 +38,19 @@
   @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
   .legend { font-size: 12px; color: #555; margin-top: 8px; }
 
-  /* Modal Styles */
   .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
   .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid var(--bd); width: 80%; max-width: 600px; border-radius: 12px; }
   .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
   .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
   #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
 
-  /* ▼ 一致メッセージの大きなバナー ▼ */
   .bigmsg {
     position: fixed;
     left: 50%;
     top: 18%;
     transform: translateX(-50%);
     z-index: 1200;
-    background: rgba(28, 126, 214, 0.95); /* --ok */
+    background: rgba(28, 126, 214, 0.95);
     color: #fff;
     padding: 16px 22px;
     border-radius: 12px;
@@ -131,6 +129,8 @@
       targetKey: '',
       currentShelf: null,
       scanHistory: new Map(),
+      __lastOrderKey: '',     // ← 追加：直近の order_Plain で設定した key
+      __orderSetAt: 0,        // ← 追加：いつセットしたか（ms）
     };
 
     /* ====== 音声読み上げ ====== */
@@ -150,8 +150,8 @@
           .filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name))
           .sort((a,b) => {
             const pref = ['Google 日本語', 'Kyoko', 'Otoya'];
-            const ia = pref.findIndex(p => a.name.includes(p));
-            const ib = pref.findIndex(p => b.name.includes(p));
+            const ia = pref.findIndex(p => (a.name||'').includes(p));
+            const ib = pref.findIndex(p => (b.name||'').includes(p));
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
           });
         __ttsReady = true;
@@ -226,6 +226,19 @@
       speakAfterReady(u);
     }
 
+    // 任意一言
+    let __lastGenericSpeak = 0;
+    function speakLineOnce(text, {rate=1.08, pitch=1.4, cooldown=1200} = {}) {
+      if (!('speechSynthesis' in window)) return;
+      const now = performance.now();
+      if (now - __lastGenericSpeak < cooldown) return;
+      __lastGenericSpeak = now;
+      const u = new SpeechSynthesisUtterance(punct(text));
+      u.lang='ja-JP';u.rate=rate;u.pitch=pitch;u.volume=1.0;
+      if (__jpVoices.length>0) u.voice=__jpVoices[0];
+      speakAfterReady(u);
+    }
+
     document.addEventListener('pointerdown', function __once() {
       initTTS();
       document.removeEventListener('pointerdown', __once, true);
@@ -243,9 +256,11 @@
         ok: cssVarOr('--ok', '#1c7ed6'),
         ng: cssVarOr('--ng', '#e03131'),
         loc: cssVarOr('--loc', '#2b8a3e'),
+        info: cssVarOr('--info', '#f59f00'),
       },
       holdDuration: 3000,
       lockCooldown: 700,
+      orderResetCooldownMs: 2000, // order 読み取り後すぐは連続更新を抑える
     };
 
     const confirmationBeep = (() => {
@@ -265,26 +280,38 @@
           osc.connect(gain).connect(audioCtx.destination);
           osc.start(t0);
           osc.stop(t0 + 0.25);
-        } catch (e) { console.error("Audio playback failed:", e); }
+        } catch {}
       };
       return play;
     })();
 
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
+    /* === 種別判定 === */
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      
+      // 棚
       if (/^loc-/i.test(text)) return "loc";
+      try {
+        const url = new URL(text);
+        if (url.searchParams.has("loc")) return "loc";
+      } catch {}
+      // 型
       if (/^die-/i.test(text)) return "die";
       try {
         const url = new URL(text);
         if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
-        if (url.searchParams.has("loc")) return "loc";
+      } catch {}
+      // 作業指示（order_Plain / order-plain / ORDER_PLAIN など）
+      if (/order[_-]?plain/i.test(text)) return "order";
+      try {
+        const url = new URL(text);
+        if (/order[_-]?plain/i.test(url.pathname)) return "order";
       } catch {}
       return "other";
     };
 
+    /* === 各種パーサ === */
     const tryExtractWN = (rawUrl) => {
       try {
         const u = new URL(rawUrl);
@@ -295,9 +322,7 @@
         const json = atob(b64 + pad);
         const obj = JSON.parse(json);
         return (obj.wn || "").trim();
-      } catch {
-        return "";
-      }
+      } catch { return ""; }
     };
 
     const parseDie = (raw) => {
@@ -311,11 +336,7 @@
         if (book || wc) {
           const wnFromParam = (url.searchParams.get("wn") || "").trim();
           const wnFromHash = tryExtractWN(text);
-          return { 
-            bn: book.trim(), 
-            wc: wc.trim(), 
-            wn: wnFromParam || wnFromHash
-          };
+          return { bn: book.trim(), wc: wc.trim(), wn: wnFromParam || wnFromHash };
         }
       } catch {}
       return null;
@@ -332,26 +353,42 @@
       } catch {}
       return null;
     };
-    
+
+    // ★ 新規：作業指示 QR（order_Plain）→ {bn, wc}
+    const parseOrderPlain = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      // 1) URL 形式
+      try {
+        const url = new URL(text);
+        if (/order[_-]?plain/i.test(url.pathname + url.search)) {
+          const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
+          const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
+          if (book || wc) return { bn: book, wc };
+        }
+      } catch {}
+      // 2) 非URL・ゆるパターン（例：order_Plain:Ta-8742 / order_plain Ta 8742 / order-plain Ta/8742）
+      const m = /order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+      return null;
+    };
+
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
+    /* === 描画・UI === */
     function drawBox(points, color, label, style = 'solid') {
       if (!points || points.length < 4) return;
       overlayCtx.save();
-
       const isNG = (color === CONFIG.colors.ng);
       overlayCtx.lineWidth = isNG ? 4 : (color === CONFIG.colors.ok ? 5 : 3);
       overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
       overlayCtx.shadowColor = color;
       overlayCtx.shadowBlur = 4;
-
       overlayCtx.strokeStyle = color;
       overlayCtx.beginPath();
       overlayCtx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
       overlayCtx.closePath();
       overlayCtx.stroke();
-
       overlayCtx.restore();
     }
 
@@ -430,6 +467,7 @@
       } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
     }
 
+    /* === 検出 === */
     async function detectCombined() {
       if (!DOM.video.videoWidth) return [];
       const tmpCanvas = document.createElement("canvas");
@@ -493,6 +531,7 @@
       state.scanHistory.set(raw, { kind, isMatch, time: new Date() });
     }
 
+    /* === 検出結果適用 === */
     function applyDetections(detections) {
       let anyMatch = false;
       let locFound = false;
@@ -532,6 +571,7 @@
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
+
         } else if (kind === 'loc') {
           const locData = parseLoc(raw);
           locFound = true;
@@ -552,6 +592,43 @@
               showToastNearBox(`棚が違います (→ ${state.currentShelf})`, pts);
             }
           }
+
+        } else if (kind === 'order') {
+          // ★ 作業指示QR（order_Plain）を読むとターゲットを設定
+          const od = parseOrderPlain(raw);
+          if (od && (od.bn || od.wc)) {
+            const newKey = dieKey(od.bn, od.wc);
+            const now = performance.now();
+            const sameAsBefore = (newKey === state.__lastOrderKey);
+            const stillCooling = (now - state.__orderSetAt) < CONFIG.orderResetCooldownMs;
+
+            drawBox(pts, CONFIG.colors.info, `作業指示 [${od.bn||'-'}/${od.wc||'-'}]`, 'solid');
+            updateHistory(raw, 'order', true);
+
+            if (!sameAsBefore || !stillCooling || newKey !== state.targetKey) {
+              // ターゲット更新
+              state.currentTarget = { book: od.bn || "", wc: od.wc || "", wn: "" };
+              state.targetKey = newKey;
+              state.__lastOrderKey = newKey;
+              state.__orderSetAt = now;
+
+              // UI反映
+              DOM.tgtBN.textContent = state.currentTarget.book || "-";
+              DOM.tgtWC.textContent = state.currentTarget.wc || "-";
+              DOM.tgtWN.textContent = "";
+
+              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
+              showToastNearBox("ターゲット更新", pts);
+              speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
+
+              // 直後の連続検出で UI がブレないよう、短いホールド
+              holdScan(800);
+            }
+          } else {
+            drawBox(pts, CONFIG.colors.ng, "作業指示（形式不明）", 'dashed');
+            updateHistory(raw, 'order', false);
+          }
+
         } else {
           drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
           updateHistory(raw, 'other', false);
@@ -569,9 +646,6 @@
           } else if (anyLocMatch) {
             msg = "目的の棚を検知";
             statusType = "loc";
-          } else if (locFound) {
-            msg = "別の棚を検知";
-            statusType = "ng";
           } else {
             msg = `${detections.length}件検知`;
             statusType = "ng";
@@ -609,6 +683,8 @@
             status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
           } else if (data.kind === 'loc') {
             status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
+          } else if (data.kind === 'order') {
+            status = data.isMatch ? '🧾 作業指示 読み取り' : '🧾 作業指示 形式不明';
           } else {
             status = '❓ その他';
           }
@@ -684,9 +760,10 @@
       };
       
       if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定してください。";
-        DOM.btnStart.disabled = true;
+        updateStatus("ターゲット未指定（作業指示QRを読み取るか、URLで指定）", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざしてください。";
+        // start ボタンは押せる：order_Plain を読ませるため
+        DOM.btnStart.disabled = false;
       } else {
         DOM.tgtBN.textContent = state.currentTarget.book;
         DOM.tgtWC.textContent = state.currentTarget.wc;
