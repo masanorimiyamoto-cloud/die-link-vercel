@@ -288,44 +288,27 @@
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
     /* === 種別判定 === */
+    // 置き換え
     const classify = (raw) => {
-        const text = normalizeHyphen((raw || "").trim());
-        // loc
-        if (/^loc-/i.test(text)) return "loc";
-        try {
-            const url = new URL(text);
-            if (url.searchParams.has("loc")) return "loc";
-        } catch {}
+    const text = normalizeHyphen((raw || "").trim());
+    if (/^loc-/i.test(text)) return "loc";
+    if (/^die-/i.test(text)) return "die";
+    try {
+        const url = new URL(text);
+        const sp = url.searchParams;
+        // ← パラメータ名の別名も拾う
+        if (
+        sp.has("book") || sp.has("Book") || sp.has("BookName") || sp.has("bookname") || sp.has("b") ||
+        sp.has("wc")   || sp.has("WorkCord") || sp.has("workcord") || sp.has("work") || sp.has("w")
+        ) return "die";
+        if (sp.has("loc")) return "loc";
+    } catch {}
+    return "other";
+    };
 
-        // die
-        if (/^die-/i.test(text)) return "die";
-        try {
-            const url = new URL(text);
-            // 大文字別名も拾う
-            if (
-            url.searchParams.has("book") ||
-            url.searchParams.has("Book") ||
-            url.searchParams.has("BookName") ||
-            url.searchParams.has("bookname") ||
-            url.searchParams.has("wc") ||
-            url.searchParams.has("WorkCord") ||
-            url.searchParams.has("workcord")
-            ) return "die";
-        } catch {}
-
-        // order（そのままでOK）
-        if (/order[_-]?plain/i.test(text)) return "order";
-        try {
-            const url = new URL(text);
-            if (/order[_-]?plain/i.test(url.pathname)) return "order";
-        } catch {}
-
-        return "other";
-        };
-
-    /* === 各種パーサ === */
+        // 置き換え
     const tryExtractWN = (rawUrl) => {
-      try {
+    try {
         const u = new URL(rawUrl);
         const m = /[#&]d=([^&]+)/.exec(u.hash || "");
         if (!m) return "";
@@ -334,53 +317,31 @@
         const json = atob(b64 + pad);
         const obj = JSON.parse(json);
         return (obj.wn || "").trim();
-      } catch { return ""; }
+    } catch { return ""; }
     };
 
     const parseDie = (raw) => {
-        const text = normalizeHyphen((raw || "").trim());
+    const text = normalizeHyphen((raw || "").trim());
 
-        // die-Ta-7455(-WN) 形式
-        let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
-        if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
+    // 文字列形式: die-Ta-7455(-WN)
+    let m = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+    if (m) return { bn: m[1].trim(), wc: m[2].trim(), wn: (m[3] || "").trim() };
 
-        // URL 形式（より包括的なパラメータ名対応）
-        try {
-            const url = new URL(text);
-            
-            // book パラメータの様々なバリエーション
-            const book = (
-                url.searchParams.get("book") ||
-                url.searchParams.get("Book") ||
-                url.searchParams.get("BookName") ||
-                url.searchParams.get("bookname") ||
-                url.searchParams.get("b") ||  // 短縮形
-                ""
-            ).trim();
-
-            // workcord パラメータの様々なバリエーション  
-            const wc = (
-                url.searchParams.get("wc") ||
-                url.searchParams.get("WorkCord") ||
-                url.searchParams.get("workcord") ||
-                url.searchParams.get("work") ||  // 短縮形
-                url.searchParams.get("w") ||     // 短縮形
-                ""
-            ).trim();
-
-            if (book || wc) {
-                const wnFromParam = (
-                    url.searchParams.get("wn") || 
-                    url.searchParams.get("d") ||  // 別名
-                    ""
-                ).trim();
-                const wnFromHash  = tryExtractWN(text);
-                return { bn: book, wc: wc, wn: wnFromParam || wnFromHash };
-            }
-        } catch {}
-
-        return null;
-        };
+    // URL 形式（パラメータ名の別名を網羅）
+    try {
+        const url = new URL(text);
+        const sp = url.searchParams;
+        const book =
+        sp.get("book") || sp.get("Book") || sp.get("BookName") || sp.get("bookname") || sp.get("b") || "";
+        const wc =
+        sp.get("wc") || sp.get("WorkCord") || sp.get("workcord") || sp.get("work") || sp.get("w") || "";
+        if (book || wc) {
+        const wn = (sp.get("wn") || sp.get("d") || tryExtractWN(text) || "").trim();
+        return { bn: (book || "").trim(), wc: (wc || "").trim(), wn };
+        }
+    } catch {}
+    return null;
+    };
 
     const parseLoc = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
@@ -412,25 +373,18 @@
       return null;
     };
 
-    // 置き換え：強い正規化ヘルパー
-        const toHankaku = (s) => String(s ?? '')
-        .normalize('NFKC')                 // 全角→半角（記号/数字/英字）
-        .replace(/\u00A0/g, ' ');          // NBSP→通常スペース
+    // 置き換え
+    const toHankaku = (s) => String(s ?? '').normalize('NFKC').replace(/\u00A0/g, ' ');
+    const cleanBase  = (s) => toHankaku(s).replace(/[ \t\r\n]+/g, '').replace(/[‐-–—―ー−]/g, '-');
+    const normBN     = (s) => cleanBase(s).toLowerCase();
+    const normWC     = (s) => cleanBase(s).toLowerCase().replace(/^0+/, '');
 
-        const cleanBase = (s) => toHankaku(s)
-        .replace(/[ \t\r\n]+/g, '')        // すべての空白除去
-        .replace(/[‐-–—―ー−]/g, '-');      // いろんなハイフンを「-」に統一
-
-        const normBN = (s) => cleanBase(s).toLowerCase();                  // 大小区別なし
-        const normWC = (s) => cleanBase(s).toLowerCase().replace(/^0+/, ''); // 先頭ゼロ除去
-
-        // ★ これだけで比較が頑丈になります
-        const dieKey = (bn, wc) => {
-        const key = `${normBN(bn)}@@${normWC(wc)}`;
-        // 開発中の確認ログ（要らなければ消してOK）
-        console.log('dieKey:', { bn, wc, key });
-        return key;
-        };
+    const dieKey = (bn, wc) => {
+    const key = `${normBN(bn)}@@${normWC(wc)}`;
+    // 開発中の確認用ログ（不要なら削除可）
+    console.log('dieKey:', { bn, wc, key });
+    return key;
+    };
 
 
     /* === 描画・UI === */

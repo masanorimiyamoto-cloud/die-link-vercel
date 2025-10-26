@@ -272,29 +272,58 @@
 
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
+    // 置き換え
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      console.log("QRコード解析:", text); // デバッグ用
-      
       if (/^loc-/i.test(text)) return "loc";
       if (/^die-/i.test(text)) return "die";
       try {
         const url = new URL(text);
-        if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
-        if (url.searchParams.has("loc")) return "loc";
+        const sp = url.searchParams;
+        // ← パラメータ名の別名も拾う
+        if (
+          sp.has("book") || sp.has("Book") || sp.has("BookName") || sp.has("bookname") || sp.has("b") ||
+          sp.has("wc")   || sp.has("WorkCord") || sp.has("workcord") || sp.has("work") || sp.has("w")
+        ) return "die";
+        if (sp.has("loc")) return "loc";
       } catch {}
       return "other";
     };
 
+
+        // 置き換え
+    const tryExtractWN = (rawUrl) => {
+      try {
+        const u = new URL(rawUrl);
+        const m = /[#&]d=([^&]+)/.exec(u.hash || "");
+        if (!m) return "";
+        const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
+        const json = atob(b64 + pad);
+        const obj = JSON.parse(json);
+        return (obj.wn || "").trim();
+      } catch { return ""; }
+    };
+
     const parseDie = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
-      if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
+
+      // 文字列形式: die-Ta-7455(-WN)
+      let m = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim(), wn: (m[3] || "").trim() };
+
+      // URL 形式（パラメータ名の別名を網羅）
       try {
         const url = new URL(text);
-        const book = url.searchParams.get("book") || "";
-        const wc = url.searchParams.get("wc") || "";
-        if (book || wc) return { bn: book.trim(), wc: wc.trim(), wn: (url.searchParams.get("wn") || "").trim() };
+        const sp = url.searchParams;
+        const book =
+          sp.get("book") || sp.get("Book") || sp.get("BookName") || sp.get("bookname") || sp.get("b") || "";
+        const wc =
+          sp.get("wc") || sp.get("WorkCord") || sp.get("workcord") || sp.get("work") || sp.get("w") || "";
+        if (book || wc) {
+          const wn = (sp.get("wn") || sp.get("d") || tryExtractWN(text) || "").trim();
+          return { bn: (book || "").trim(), wc: (wc || "").trim(), wn };
+        }
       } catch {}
       return null;
     };
@@ -311,7 +340,19 @@
       return null;
     };
     
-    const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
+        // 置き換え
+    const toHankaku = (s) => String(s ?? '').normalize('NFKC').replace(/\u00A0/g, ' ');
+    const cleanBase  = (s) => toHankaku(s).replace(/[ \t\r\n]+/g, '').replace(/[‐-–—―ー−]/g, '-');
+    const normBN     = (s) => cleanBase(s).toLowerCase();
+    const normWC     = (s) => cleanBase(s).toLowerCase().replace(/^0+/, '');
+
+    const dieKey = (bn, wc) => {
+      const key = `${normBN(bn)}@@${normWC(wc)}`;
+      // 開発中の確認用ログ（不要なら削除可）
+      console.log('dieKey:', { bn, wc, key });
+      return key;
+    };
+
 
     function drawBox(points, color, label, style = 'solid') {
       if (!points || points.length < 4) return;
