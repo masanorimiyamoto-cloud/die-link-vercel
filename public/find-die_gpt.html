@@ -288,6 +288,7 @@
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
     /* === 種別判定 === */
+    // === 種別判定 ===
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       // 棚
@@ -296,18 +297,22 @@
         const url = new URL(text);
         if (url.searchParams.has("loc")) return "loc";
       } catch {}
+
       // 型
       if (/^die-/i.test(text)) return "die";
       try {
         const url = new URL(text);
         if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
       } catch {}
-      // 作業指示（order_Plain / order-plain / ORDER_PLAIN など）
+
+      // 作業指示（order, order-plain/order_plain の両方を許可）
+      if (/^order-/i.test(text)) return "order";                     // ← 追加：order-Book-WC
       if (/order[_-]?plain/i.test(text)) return "order";
       try {
         const url = new URL(text);
-        if (/order[_-]?plain/i.test(url.pathname)) return "order";
+        if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order";
       } catch {}
+
       return "other";
     };
 
@@ -354,23 +359,32 @@
       return null;
     };
 
-    // ★ 新規：作業指示 QR（order_Plain）→ {bn, wc}
-    const parseOrderPlain = (raw) => {
-      const text = normalizeHyphen((raw || "").trim());
-      // 1) URL 形式
-      try {
-        const url = new URL(text);
-        if (/order[_-]?plain/i.test(url.pathname + url.search)) {
-          const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
-          const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
-          if (book || wc) return { bn: book, wc };
-        }
-      } catch {}
-      // 2) 非URL・ゆるパターン（例：order_Plain:Ta-8742 / order_plain Ta 8742 / order-plain Ta/8742）
-      const m = /order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
-      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-      return null;
-    };
+    
+    // ★ 作業指示 QR（order 系）→ {bn, wc} を取り出す
+const parseOrderPlain = (raw) => {
+  const text = normalizeHyphen((raw || "").trim());
+
+  // 0) 「order-Book-WC」
+  let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+  if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+
+  // 1) URL 形式（/order_plain など）
+  try {
+    const url = new URL(text);
+    if (/order[_-]?plain/i.test(url.pathname + url.search)) {
+      const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
+      const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
+      if (book || wc) return { bn: book, wc };
+    }
+  } catch {}
+
+  // 2) 非URL・ゆるパターン（例：order_plain:Ta-8742 / order Ta 8742 など）
+  m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
+  if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+
+  return null;
+};
+
 
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
