@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚→型 QRスキャン登録_gpt</title>
+<title>棚→型 QRスキャン登録_jemmi</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
@@ -90,7 +90,7 @@
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_gpt</h1>
+  <h1>棚→型 QRスキャン登録_jemi</h1>
   <div class="cam-controls">
     <button id="btnStart" class="btn btn-primary">カメラ開始</button>
     <button id="btnStop" class="btn" disabled>停止</button>
@@ -157,18 +157,10 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script>
 // ========= 設定 (Settings) =========
-
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
-const AIRTABLE_ENDPOINT = "/api/airtable-update-loc";
-
-// Airtableレート制限対策設定
-const AIRTABLE_CONFIG = {
-  MAX_RETRIES: 3,
-  DELAY_MS: 1000,
-  BATCH_SIZE: 10
-};
-
-const SCAN_RESOLUTION = 600;
+const AIRTABLE_ENDPOINT = "/api/airtable-update"; // Airtable APIエンドポイント
+const AIRTABLE_ENABLED = false; // ★ Airtable更新を一時停止
+const SCAN_RESOLUTION = 600; // スキャン解像度(px)。高いほど高精細だが遅くなる。600-800がおすすめ。
 
 // ========= 状態 (State) =========
 let fixedLoc = null;
@@ -184,54 +176,6 @@ const octx = ov.getContext("2d");
 const sctx = scanCanvas.getContext("2d", { willReadFrequently: true });
 const errEl = $("#err"), toasts = $("#toasts");
 const btnUpdate = $("#btnUpdate");
-
-// ========= Airtableレート制限対策 =========
-async function callAirtableWithRetry(endpoint, data, retries = AIRTABLE_CONFIG.MAX_RETRIES) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      });
-      
-      if (response.status === 429) { // レート制限
-        const delay = AIRTABLE_CONFIG.DELAY_MS * Math.pow(2, attempt);
-        console.warn(`Airtable rate limit hit, retrying in ${delay}ms (attempt ${attempt}/${retries})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      
-      return response;
-    } catch (error) {
-      console.warn(`Airtable request failed (attempt ${attempt}/${retries}):`, error);
-      if (attempt === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, AIRTABLE_CONFIG.DELAY_MS));
-    }
-  }
-}
-
-// ========= データ検証 =========
-function validateAirtableData(items) {
-  const errors = [];
-  
-  items.forEach((item, index) => {
-    if (!item.book || typeof item.book !== 'string' || item.book.trim() === '') {
-      errors.push(`アイテム ${index}: bookが無効です`);
-    }
-    if (!item.wc || typeof item.wc !== 'string' || item.wc.trim() === '') {
-      errors.push(`アイテム ${index}: wcが無効です`);
-    }
-    if (!item.loc || typeof item.loc !== 'string' || item.loc.trim() === '') {
-      errors.push(`アイテム ${index}: locが無効です`);
-    }
-    if (!item.lastSeen || !/^\d{4}-\d{2}-\d{2}$/.test(item.lastSeen)) {
-      errors.push(`アイテム ${index}: lastSeenの日付形式が無効です`);
-    }
-  });
-  
-  return errors;
-}
 
 // ========= UI更新 (UI Updates) =========
 function updateUIState() {
@@ -474,103 +418,108 @@ async function tick() {
 }
 
 // ========= 送信 (Submission) =========
+// ★ 修正: wn を含め、レスポンスチェックを強化
+// ========= 送信 (Submission) =========
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
-  
-  const now = new Date();
+  const now = new Date(); 
   const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-  const items = [...fixedDies.values()].map(d => ({
-    book: (d.bn || "").trim(),
-    wc: (d.wc || "").trim(),
-    loc: (fixedLoc.loc || "").trim(),
-    lastSeen: captured_date
+  
+  const items = [...fixedDies.values()].map(d => ({ 
+    book: d.bn, 
+    wc: d.wc, 
+    wn: d.wn || "",
+    loc: fixedLoc.loc, 
+    captured_at: captured_date 
   }));
-
-  // データ検証
-  const validationErrors = validateAirtableData(items);
-  if (validationErrors.length > 0) {
-    alert(`データ形式エラー:\n${validationErrors.join('\n')}`);
-    return;
-  }
-
-  const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
-  if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n\n(登録が成功すると、この画面の棚と型のリストはクリアされ、カメラは停止します)`)) return;
+  
+  const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
+  
+  // Airtableの状態を表示
+  const airtableStatus = AIRTABLE_ENABLED ? "有効" : "停止中";
+  if (!confirm(`以下の内容を登録しますか？\n\n${msg}\n\n📊 Googleスプレッドシート: 登録\n🗄️ Airtable: ${airtableStatus}\n\n(成功すると画面はクリアされ、カメラは停止します)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
   btnUpdate.disabled = true; 
   btnUpdate.classList.add('loading'); 
   btnLabel.textContent = "登録中...";
-
-  let sheetOk = false, airtableOk = false, sheetInfo = "", airtableInfo = "";
+  
+  let rawResponse = "";
+  let success = false;
+  let message = "";
 
   try {
-    // --- Google Sheets ---
-    const sheetResponse = await fetch(SHEET_ENDPOINT, {
+    // Googleスプレッドシートへの登録
+    const r = await fetch(SHEET_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        items: items.map(item => ({
-          book: item.book,
-          wc: item.wc,
-          wn: "", // 必要に応じて追加
-          loc: item.loc,
-          captured_at: captured_date
-        }))
-      })
+      body: JSON.stringify({ items })
     });
-    
-    const sheetResult = await sheetResponse.text();
-    const sheetData = JSON.parse(sheetResult);
-    sheetOk = sheetResponse.ok && sheetData?.ok === true;
-    
-    if (sheetOk) {
-      const appended = Number(sheetData.appendedRows||0);
-      const updatedRows = Number(sheetData.updatedRows||0);
-      const updatedCells = Number(sheetData.updatedCells||0);
-      sheetInfo = [appended?`追加${appended}行`:null, updatedRows?`更新${updatedRows}行`:null, (!updatedRows&&updatedCells)?`更新${updatedCells}セル`:null].filter(Boolean).join(" / ");
+
+    rawResponse = await r.text();
+    const j = JSON.parse(rawResponse);
+
+    const ok = r.ok && j && j.ok === true;
+    if (!ok) {
+      throw new Error(JSON.stringify(j));
     }
 
-    // --- Airtable (レート制限対策付き) ---
-    const airtableResponse = await callAirtableWithRetry(AIRTABLE_ENDPOINT, { items });
-    const airtableResult = await airtableResponse.text();
-    const airtableData = JSON.parse(airtableResult);
-    
-    airtableOk = airtableResponse.ok && airtableData?.ok === true;
-    
-    if (airtableOk) {
-      const touched = Number(airtableData.updatedRecords||0);
-      airtableInfo = `更新${touched}件`;
+    const appended = Number(j.appendedRows || 0);
+    const updatedRows = Number(j.updatedRows || 0);
+    const updatedCells = Number(j.updatedCells || 0);
+
+    if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
+      throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
     }
 
-    // --- 結果表示 ---
-    if (sheetOk && airtableOk) {
-      toast(`登録完了（Sheets: ${sheetInfo} / Airtable: ${airtableInfo}）`);
-      playBeep(520, 140);
-      fixedLoc = null; 
-      fixedDies.clear(); 
-      renderDies(); 
-      updateUIState(); 
-      stopCam();
+    // Googleスプレッドシート成功
+    success = true;
+    const parts = [];
+    if (appended > 0) parts.push(`追加 ${appended}行`);
+    if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
+    else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
+    
+    message = `Googleスプレッドシート登録完了（${parts.join(' / ') || '変更あり'}）`;
+
+    // Airtableへの登録（設定が有効な場合のみ）
+    if (AIRTABLE_ENABLED) {
+      try {
+        const airtableResponse = await fetch(AIRTABLE_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items })
+        });
+        
+        const airtableResult = await airtableResponse.json();
+        if (airtableResponse.ok && airtableResult.success) {
+          message += " / Airtable更新完了";
+        } else {
+          message += " / Airtable更新スキップ";
+        }
+      } catch (airtableError) {
+        console.warn("Airtable update skipped:", airtableError);
+        message += " / Airtable更新スキップ";
+      }
     } else {
-      let errorMsg = "一部失敗しました。\n";
-      errorMsg += `Sheets: ${sheetOk ? 'OK' : 'NG'} ${sheetInfo || sheetResult}\n`;
-      errorMsg += `Airtable: ${airtableOk ? 'OK' : 'NG'} ${airtableInfo || airtableResult}`;
-      
-      alert(errorMsg);
+      message += " / Airtableは停止中";
     }
-    
-  } catch (error) {
-    console.error("Submit Error:", error);
-    let errorMessage = `登録に失敗しました: ${error.message || error}`;
-    
-    // レート制限エラーの場合は特別なメッセージを表示
-    if (error.message && error.message.includes('429')) {
-      errorMessage = "Airtableのレート制限に達しました。しばらく待ってから再試行してください。";
-    }
-    
-    alert(errorMessage);
+
+  } catch (e) {
+    console.error("Submit Error:", e, "Raw Response:", rawResponse);
+    alert("登録に失敗しました: " + (e.message || e) + `\n\n[API応答]: ${rawResponse}`);
   } finally {
+    if (success) {
+      toast(message);
+      playBeep(520, 140);
+      
+      // 状態リセット＆カメラ停止
+      fixedLoc = null;
+      fixedDies.clear();
+      renderDies();
+      updateUIState();
+      stopCam();
+    }
+    
     btnUpdate.disabled = false;
     btnUpdate.classList.remove('loading');
     btnLabel.textContent = "データベースに登録";
