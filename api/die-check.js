@@ -1,6 +1,14 @@
 // pages/api/die-check.js
 export const config = { runtime: 'edge' };
 
+/* ===========================================================
+   セキュア版 die-check：URL直叩きを禁止し、社内ページ → POST のみ許可
+   - GETクエリ (?book=&wc= / ?recordId=) は受け付けません（405/400）
+   - 同一オリジン + CSRF（Cookie xcsrf とヘッダ X-CSRF の一致）を検証
+   - 事前に /api/session などで xcsrf Cookie を発行してください
+     （フロントで X-CSRF ヘッダにも同値を付けて POST する）
+   =========================================================== */
+
 /* =========================
    環境変数（必須）
    =========================
@@ -34,7 +42,7 @@ const GS_WORKSHEET_NAME = process.env.GS_WORKSHEET_NAME || 'wsTableCD';
 const SA_JSON = process.env.GOOGLE_SA_JSON || '';
 
 /* ------------------------------
-   共通ユーティリティ
+   ユーティリティ
 -------------------------------- */
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -75,6 +83,23 @@ function renderJSON(payload, code = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
     status: code, headers: { 'content-type': 'application/json; charset=utf-8' },
   });
+}
+function parseCookies(req) {
+  const h = req.headers.get('cookie') || '';
+  const out = {};
+  h.split(';').forEach(kv => {
+    const [k, ...vs] = kv.split('=');
+    if (!k) return;
+    out[k.trim()] = decodeURIComponent((vs.join('=') || '').trim());
+  });
+  return out;
+}
+function sameOrigin(req) {
+  // 自ドメインのみ許可（プレビュー/本番どちらでも有効）
+  const selfOrigin = new URL(req.url).origin;
+  const origin  = req.headers.get('origin')  || '';
+  const referer = req.headers.get('referer') || '';
+  return (origin.startsWith(selfOrigin) || referer.startsWith(selfOrigin));
 }
 
 /* ------------------------------
@@ -177,10 +202,22 @@ function renderAttachmentsHTML(attachments) {
    Google Sheets helpers
    - wsTableCD のヘッダは以下想定：
      A:WorkCord B:ItemName C:BookName D:Kname E:Material F:Paper_Size G:Cut_Size
-     H:Location I:LastSeen J:Ndate  …（列名はヘッダ文字列で照合します）
+     H:Location I:LastSeen J:Ndate
 -------------------------------- */
 
-// WebCrypto（Edge Runtime）で RS256 署名して Google の Access Token を取得
+// base64url utils（Edge Runtime互換：Bufferなし）
+function bytesToBase64Url(bytes) {
+  let bin = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin);
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+function utf8ToBase64Url(str) {
+  const enc = new TextEncoder();
+  return bytesToBase64Url(enc.encode(str));
+}
+
 async function getGoogleAccessToken() {
   if (!SA_JSON) throw new Error('GOOGLE_SA_JSON が未設定です');
   const svc = JSON.parse(SA_JSON);
@@ -196,16 +233,17 @@ async function getGoogleAccessToken() {
     exp: now + 3600
   };
 
-  const enc = (o)=>Buffer.from(JSON.stringify(o)).toString('base64url');
-  const header = Buffer.from('{"alg":"RS256","typ":"JWT"}').toString('base64url');
-  const unsigned = `${header}.${enc(claim)}`;
+  const headerB64 = utf8ToBase64Url('{"alg":"RS256","typ":"JWT"}');
+  const payloadB64 = utf8ToBase64Url(JSON.stringify(claim));
+  const unsigned = `${headerB64}.${payloadB64}`;
 
   const pkcs8 = pemToArrayBuffer(keyPem);
   const cryptoKey = await crypto.subtle.importKey(
     'pkcs8', pkcs8, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
   );
   const sigBuf = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(unsigned));
-  const jwt = `${unsigned}.${Buffer.from(sigBuf).toString('base64url')}`;
+  const signatureB64 = bytesToBase64Url(new Uint8Array(sigBuf));
+  const jwt = `${unsigned}.${signatureB64}`;
 
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method:'POST',
@@ -231,7 +269,6 @@ function pemToArrayBuffer(pem) {
 async function fetchSheetRowByBookWc(book, wc) {
   if (!GS_SPREADSHEET_ID) throw new Error('GS_SPREADSHEET_ID が未設定です');
   const token = await getGoogleAccessToken();
-  // 十分広い範囲を読む（ヘッダ行を必須）
   const range = encodeURIComponent(`${GS_WORKSHEET_NAME}!A1:Z10000`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${GS_SPREADSHEET_ID}/values/${range}`;
   const r = await fetch(url, { headers:{ Authorization:`Bearer ${token}` } });
@@ -259,8 +296,8 @@ async function fetchSheetRowByBookWc(book, wc) {
         Material : get(row,'Material'),
         Paper_Size: get(row,'Paper_Size'),
         Cut_Size : get(row,'Cut_Size'),
-        Location : get(row,'Location'),  // ← H列
-        LastSeen : get(row,'LastSeen'),  // ← I列
+        Location : get(row,'Location'),
+        LastSeen : get(row,'LastSeen'),
         Ndate    : get(row,'Ndate'),
       };
     }
@@ -269,22 +306,38 @@ async function fetchSheetRowByBookWc(book, wc) {
 }
 
 /* ------------------------------
-   エンドポイント本体
+   本体：POST + 同一オリジン + CSRF検証
 -------------------------------- */
 export default async function handler(req) {
   try {
-    const { searchParams } = new URL(req.url);
-    const wantJSON = (searchParams.get('json') || '') === '1';
-    const limit = Math.max(1, Math.min(1000, Number(searchParams.get('limit') || 100)));
-
+    // 1) メソッド & トークン
+    if (req.method !== 'POST') {
+      return renderHTML({ ok:false, title:'NG', html:'<pre>POSTのみ許可</pre>', code:405 });
+    }
     if (!TOKEN) {
       const msg = 'AIRTABLE_TOKEN が未設定です（Vercel 環境変数）。';
-      return wantJSON ? renderJSON({ ok:false, error: msg }, 500)
-                      : renderHTML({ ok:false, title:'NG', html:`<pre>${escapeHtml(msg)}</pre>`, code:500 });
+      return renderHTML({ ok:false, title:'NG', html:`<pre>${escapeHtml(msg)}</pre>`, code:500 });
     }
 
-    // 1) recordId 指定（単票）
-    const recId = (searchParams.get('recordId') || '').trim();
+    // 2) 同一オリジン & CSRF 検証
+    if (!sameOrigin(req)) {
+      return renderHTML({ ok:false, title:'NG', html:'<pre>Origin/Referer 不一致</pre>', code:403 });
+    }
+    const cookies = parseCookies(req);
+    const csrfCookie = cookies['xcsrf'] || '';
+    const csrfHeader = req.headers.get('x-csrf') || '';
+    if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+      return renderHTML({ ok:false, title:'NG', html:'<pre>CSRF 検証NG</pre>', code:403 });
+    }
+
+    // 3) JSON ボディ
+    let body = {};
+    try { body = await req.json(); } catch {}
+    const wantJSON = body?.json === 1 || body?.json === true;
+    const limit = Math.max(1, Math.min(1000, Number(body?.limit ?? 100)));
+
+    // 4) recordId 指定（単票）
+    const recId = (body?.recordId || '').trim();
     if (recId) {
       const rec = await fetchRecordById(recId);
       if (!rec) {
@@ -294,7 +347,7 @@ export default async function handler(req) {
       }
       const row = mapRecord(rec);
 
-      // 可能ならシートから Location/LastSeen 他も取得（Book/WorkCord が揃っていれば）
+      // 可能なら Google Sheets 情報も付与
       let gs = null;
       if (row.book && row.workcord != null) {
         try { gs = await fetchSheetRowByBookWc(row.book, row.workcord); } catch {}
@@ -302,7 +355,6 @@ export default async function handler(req) {
 
       if (wantJSON) return renderJSON({ ok:true, hits:[row], gs }, 200);
 
-      
       const gsHtml = gs ? `
         <h3 style="margin:14px 0 6px">Google Sheets 情報</h3>
         <div><b>Location:</b> ${escapeHtml(gs.Location || '')}</div>
@@ -321,42 +373,37 @@ export default async function handler(req) {
         <div><b>${escapeHtml(FIELD_ITEM)}:</b> ${escapeHtml(row.itemName ?? '')}</div>
         <div><b>${escapeHtml(FIELD_QTY)}:</b> ${row.amount ?? ''}</div>
         <div><b>${escapeHtml(FIELD_DATE)}:</b> ${escapeHtml(row.ndate ?? '')}</div>
-
         <div style="margin-top:10px"><b>${escapeHtml(FIELD_MATERIAL)}:</b> ${escapeHtml(row.material ?? '')}</div>
         <div><b>${escapeHtml(FIELD_PAPER)}:</b> ${escapeHtml(row.paperSize ?? '')}</div>
         <div><b>${escapeHtml(FIELD_CUT)}:</b> ${escapeHtml(row.cutSize ?? '')}</div>
-
         <div style="margin-top:10px"><b>${escapeHtml(FIELD_ATTACH)}:</b></div>
         ${renderAttachmentsHTML(row.attachments)}
-
         <hr style="margin:16px 0">
         ${gsHtml}
-
         <hr style="margin:16px 0">
         <div style="font-weight:bold;color:#0a0">この抜型を使用する注文があります。</div>
       `;
       return renderHTML({ ok:true, title:'照合結果（単票）', html, code:200 });
     }
 
-    // 2) book & wc 指定（複数行 → 納期昇順）
-    const book = (searchParams.get('book') || '').trim();
-    const wc   = (searchParams.get('wc')   || '').trim();
+    // 5) book & wc 指定（複数行 → 納期昇順）
+    const book = (body?.book || '').trim();
+    const wc   = (body?.wc   || '').trim();
     if (!book || !wc) {
-      const msg = 'パラメータ不足：?book=〇〇&wc=□□  または  ?recordId=recXXXX を指定してください。';
+      const msg = 'パラメータ不足：{ book, wc } または { recordId } をJSONでPOSTしてください。';
       return wantJSON ? renderJSON({ ok:false, error: msg }, 400)
                       : renderHTML({ ok:false, title:'NG', html:`<pre>${escapeHtml(msg)}</pre>`, code:400 });
     }
 
-    // Google Sheets 側の基本情報（Location/LastSeen を含む）
+    // Google Sheets 基本情報
     let gsRow = null;
-    try { gsRow = await fetchSheetRowByBookWc(book, wc); } catch (e) { /* シート未設定でも続行 */ }
+    try { gsRow = await fetchSheetRowByBookWc(book, wc); } catch {}
 
-    // Airtable（受注ヒット & 添付）
+    // Airtable 受注
     const recs = await fetchByBookAndWcAll(book, wc, limit);
-     if (recs.length === 0) {
-     // 受注は0件でも、Google Sheets の全情報を丁寧に出す（200で返す）
+    if (recs.length === 0) {
       if (gsRow) {
-         const htmlGs = `
+        const htmlGs = `
           <div style="margin-bottom:8px">
             <b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(book)}　
             <b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(wc)}
@@ -374,11 +421,10 @@ export default async function handler(req) {
           </div>
           <div style="color:#b36; font-weight:700">この抜型に紐づく受注は見つかりませんでした（Airtable 0件）。</div>
         `;
-      return wantJSON
+        return wantJSON
           ? renderJSON({ ok:true, count:0, book, workcord: wc, gs: gsRow, hits: [] }, 200)
           : renderHTML({ ok:true, title:'受注なし（Google Sheets 情報のみ）', html: htmlGs, code:200 });
       }
-      // Sheets にも無い場合だけ従来通りの「該当なし」
       const msg = `該当なし：${BOOK_FIELD}='${book}' / ${WORKCORD_FIELD}='${wc}'`;
       return wantJSON
         ? renderJSON({ ok:false, error: msg, gs: null }, 404)
@@ -393,7 +439,7 @@ export default async function handler(req) {
         count: rows.length,
         book,
         workcord: wc,
-        gs: gsRow || null,   // ← Sheets 情報を同梱
+        gs: gsRow || null,
         hits: rows
       }, 200);
     }
@@ -414,7 +460,6 @@ export default async function handler(req) {
              </a>`;
         if (r.attachments.length > 1) attachCell += ` <span style="color:#666">(+${r.attachments.length-1})</span>`;
       }
-
       return `
         <tr>
           <td style="padding:6px 8px;white-space:nowrap">${escapeHtml(r.ndate ?? '')}</td>
@@ -447,9 +492,7 @@ export default async function handler(req) {
         <b>${escapeHtml(BOOK_FIELD)}:</b> ${escapeHtml(book)}　
         <b>${escapeHtml(WORKCORD_FIELD)}:</b> ${escapeHtml(wc)}
       </div>
-
       ${gsHtml}
-
       <div style="margin:10px 0 6px;color:#0a0;font-weight:bold">この抜型を使用する受注があります（${rows.length}件ヒット）</div>
       <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:15px">
         <thead style="background:#f7f7f7">
