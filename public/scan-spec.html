@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
+    --tx:#212529; --sub:#6c757d; --bg:#f8f9fa; --bd:#dee2e6;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:14px}
+  h1{margin:8px 0 12px;font-size:clamp(18px,2.8vw,24px)}
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .panel{flex:1 1 420px;min-width:340px}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.05);padding:12px;margin-bottom:12px}
+  .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
+  video{display:block;width:100%;max-width:580px;background:#000}
+  canvas{position:absolute;inset:0;pointer-events:none}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600}
+  button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--bd);background:#fff}
+  .chip.info{background:#e3fafc;color:#0b7285;border-color:#99e9f2}
+  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
+  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
+  .muted{color:var(--sub);font-size:13px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
+  .kvs b{color:#333}
+  .thumbs{display:flex;flex-wrap:wrap;gap:6px}
+  .thumbs img{height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:#fff}
+  .err{color:#b00020;white-space:pre-wrap}
+  .hint{padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fcfcff}
+  .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:#f1f3f5;font-size:12px}
+  .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:13px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
+  @keyframes fade-out{from{opacity:1}to{opacity:0}}
+  .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .rowbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  input[type=text]{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch}
+  .tbl{width:100%;border-collapse:collapse;font-size:14px}
+  .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
+  .tbl thead th{background:#f8f9fb}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>仕様照会モード｜die / order → Airtable(図面) + Google Sheets(仕様)</h1>
+
+  <div class="row">
+    <!-- 左：カメラ -->
+    <div class="panel">
+      <div class="card">
+        <div class="stack" id="stack">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="controls">
+          <button id="btnStart" class="primary">カメラ開始</button>
+          <button id="btnStop" disabled>停止</button>
+          <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
+          <span id="detectorInfo" class="badge"></span>
+          <span id="scanStatus" class="chip info">待機中</span>
+        </div>
+        <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
+        <div id="errCam" class="err" style="margin-top:6px;"></div>
+      </div>
+
+      <!-- 手入力クイック照会 -->
+      <div class="card">
+        <div class="hdr">
+          <div class="rowbar">
+            <b>手入力で照会</b>
+            <span class="muted">（Book と WC を指定）</span>
+          </div>
+          <button id="btnQuery" class="primary">照会</button>
+        </div>
+        <div class="rowbar" style="margin-top:8px">
+          <label>Book: <input type="text" id="inBook" placeholder="例: Ta"></label>
+          <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
+          <button id="btnFillTarget">スキャン中の値で埋める</button>
+        </div>
+        <div id="csrfWarn" class="hint" style="display:none;margin-top:10px;color:#b07000;">
+          ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。先に社内ページからログイン／セッション開始して、<br>
+          <code>xcsrf</code> を発行してください（ヘッダ <code>X-CSRF</code> と一致させてPOST）。
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：結果 -->
+    <div class="panel">
+      <div class="card">
+        <div class="hdr">
+          <div class="rowbar">
+            <span class="chip">ターゲット</span>
+            <span>Book: <b id="tBN">-</b> / WC: <b id="tWC">-</b></span>
+          </div>
+          <div class="rowbar">
+            <button id="btnOpenHtml">詳細を別タブ(HTML)</button>
+          </div>
+        </div>
+        <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
+        <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
+
+        <div id="result" style="margin-top:10px;display:none">
+          <div class="grid">
+            <!-- Sheets -->
+            <div>
+              <h3>Google Sheets（仕様）</h3>
+              <div id="gsBox" class="muted">—</div>
+            </div>
+            <!-- Airtable -->
+            <div>
+              <h3>Airtable（受注・図面）</h3>
+              <div id="atBox" class="muted">—</div>
+            </div>
+          </div>
+
+          <div id="ordersBox" style="margin-top:12px">
+            <h3>関連受注（納期の早い順）</h3>
+            <div id="ordersEmpty" class="muted">—</div>
+            <div id="ordersTableWrap" style="display:none">
+              <table class="tbl" id="ordersTbl">
+                <thead>
+                  <tr>
+                    <th>納期</th><th>品名</th><th>数量</th><th>Material</th><th>Paper</th><th>Cut</th><th>画像</th><th>Kname</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- jsQR フォールバック -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+<script>
+(() => {
+  // ===== DOM =====
+  const D = {
+    video: q('#video'), overlay: q('#overlay'), stack: q('#stack'),
+    btnStart: q('#btnStart'), btnStop: q('#btnStop'), fileTest: q('#fileTest'),
+    detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'), scanMsg: q('#scanMsg'),
+    errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
+    tBN: q('#tBN'), tWC: q('#tWC'),
+    gsBox: q('#gsBox'), atBox: q('#atBox'),
+    result: q('#result'), ordersBox: q('#ordersBox'), ordersEmpty: q('#ordersEmpty'),
+    ordersTableWrap: q('#ordersTableWrap'), ordersTbody: q('#ordersTbody'),
+    inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
+    btnOpenHtml: q('#btnOpenHtml'), csrfWarn: q('#csrfWarn')
+  };
+  const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
+
+  // ===== State =====
+  const S = {
+    stream: null, rafId: null,
+    detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
+    current: { book:'', wc:'' }, lastQueryKey: '',
+    csrf: readCookie('xcsrf') || '',
+  };
+
+  // 初期のCSRF警告
+  if(!S.csrf){ D.csrfWarn.style.display = 'block'; }
+
+  // ===== Utils =====
+  function q(s){ return document.querySelector(s); }
+  function readCookie(name){
+    const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
+  const dieKey = (bn,wc)=> `${(bn||'').toLowerCase()}@@${(wc||'').toLowerCase()}`;
+  function setStatus(text, kind='info'){ D.scanStatus.textContent=text; D.scanStatus.className=`chip ${kind}`; }
+  function showToastNear(text, pts){
+    if(!pts || pts.length<2) return;
+    const el=document.createElement('div'); el.className='toast'; el.textContent=text;
+    const x=(pts[0].x+pts[1].x)/2, y=Math.min(pts[0].y,pts[1].y);
+    const rx = x / D.overlay.width * D.video.clientWidth;
+    const ry = y / D.overlay.height * D.video.clientHeight;
+    el.style.left=rx+'px'; el.style.top=ry+'px'; D.stack.appendChild(el); setTimeout(()=>el.remove(),1200);
+  }
+  function drawBox(points, color, solid=true){
+    if(!points || points.length<4) return;
+    ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+  }
+  function fitOverlay(){
+    if(!D.video.videoWidth) return;
+    D.overlay.width = D.video.videoWidth;
+    D.overlay.height= D.video.videoHeight;
+    D.overlay.style.width = D.video.clientWidth + 'px';
+    D.overlay.style.height= D.video.clientHeight + 'px';
+  }
+
+  // ===== Parse & classify =====
+  function classify(raw){
+    const t = normHyphen(raw);
+    if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
+    if(/^die-/i.test(t)) return 'die';
+    try{
+      const u = new URL(t);
+      if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
+      if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
+    }catch{}
+    return 'other';
+  }
+  function parseOrder(raw){
+    const t = normHyphen(raw);
+    try{
+      const u=new URL(t);
+      if(/order[_-]?plain/i.test(u.pathname+u.search)){
+        const book = (u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
+        const wc   = (u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
+        if(book||wc) return { bn:book, wc:wc };
+      }
+    }catch{}
+    const m = /order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
+    return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
+  }
+  function parseDie(raw){
+    const t = normHyphen(raw);
+    const m = /^die-([^-\n]+)-([^-]+)/i.exec(t);
+    if(m) return { bn:m[1].trim(), wc:m[2].trim() };
+    try{
+      const u = new URL(t);
+      const book=(u.searchParams.get('book')||'').trim();
+      const wc  =(u.searchParams.get('wc')||'').trim();
+      if(book||wc) return { bn:book, wc:wc };
+    }catch{}
+    return null;
+  }
+
+  // ===== Camera =====
+  function stopCam(){
+    if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
+    if(S.stream) S.stream.getTracks().forEach(t=>t.stop()); S.stream=null;
+    D.btnStart.disabled=false; D.btnStop.disabled=true;
+    setStatus('停止中','info');
+  }
+  async function startCam(){
+    stopCam(); D.errCam.textContent='';
+    try{
+      S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio:false });
+      D.video.srcObject=S.stream; await D.video.play();
+      D.btnStart.disabled=true; D.btnStop.disabled=false;
+      if(S.useBarcodeDetector){
+        try{ S.detector = new BarcodeDetector({ formats:['qr_code'] }); }
+        catch{ S.useBarcodeDetector=false; S.detector=null; }
+      }
+      const detName = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
+      D.detectorInfo.textContent = detName; setStatus('探索中…','info');
+      fitOverlay(); tick();
+    }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
+  }
+
+  async function detectCombinedOnce(){
+    if(!D.video.videoWidth) return [];
+    const tmp = document.createElement('canvas'); tmp.width=D.video.videoWidth; tmp.height=D.video.videoHeight;
+    const tctx = tmp.getContext('2d',{willReadFrequently:true}); tctx.drawImage(D.video,0,0,tmp.width,tmp.height);
+    const all = new Map();
+
+    if(S.useBarcodeDetector && S.detector){
+      try{ (await S.detector.detect(tmp)).forEach(c => all.set(c.rawValue, { rawValue:c.rawValue, cornerPoints:c.cornerPoints })); }catch{}
+    }
+
+    // jsQR: 単発
+    const img = tctx.getImageData(0,0,tmp.width,tmp.height);
+    const hit = jsQR(img.data, img.width, img.height, { inversionAttempts:"dontInvert" });
+    if(hit){
+      const raw = hit.data;
+      if(!all.has(raw)){
+        all.set(raw, { rawValue: raw, cornerPoints:[
+          hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner
+        ]});
+      }
+    }
+    return Array.from(all.values());
+  }
+
+  async function tick(){
+    if(!S.stream) return;
+    if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
+      fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      const ds = await detectCombinedOnce();
+      applyDetections(ds);
+    }
+    S.rafId = requestAnimationFrame(tick);
+  }
+
+  function applyDetections(ds){
+    for(const d of ds){
+      const raw=(d.rawValue||'').trim(); if(!raw) continue;
+      const kind = classify(raw); const pts = d.cornerPoints;
+      if(kind==='order'){
+        const od = parseOrder(raw);
+        if(od && (od.bn || od.wc)){
+          drawBox(pts, '#f59f00', true); showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
+          setTarget(od.bn||'', od.wc||''); querySpec();
+        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
+      }else if(kind==='die'){
+        const p = parseDie(raw);
+        if(p && (p.bn || p.wc)){
+          drawBox(pts, '#1c7ed6', true); showToastNear(`die: ${p.bn||'-'}/${p.wc||'-'}`, pts);
+          setTarget(p.bn||'', p.wc||''); querySpec();
+        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
+      }else{
+        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
+      }
+    }
+  }
+
+  function setTarget(book, wc){
+    S.current.book = String(book||'').trim();
+    S.current.wc   = String(wc||'').trim();
+    D.tBN.textContent = S.current.book || '-';
+    D.tWC.textContent = S.current.wc   || '-';
+  }
+
+  // ===== Query to /api/die-check (JSON) =====
+  async function querySpec(){
+    const book=S.current.book, wc=S.current.wc;
+    if(!book || !wc) return;
+    const key = dieKey(book,wc);
+    if(key === S.lastQueryKey) return; // 同一連打防止
+    S.lastQueryKey = key;
+
+    D.errApi.style.display='none'; D.errApi.textContent='';
+    D.loading.style.display='block'; D.result.style.display='none';
+
+    try{
+      const r = await fetch('/api/die-check', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf || '' },
+        body: JSON.stringify({ book, wc, json:true, limit: 200 })
+      });
+      const txt = await r.text();
+      let j = {};
+      try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+
+      if(!r.ok || j.ok!==true){
+        throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
+      }
+      renderResult(j);
+    }catch(e){
+      D.errApi.style.display='block'; D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
+    }finally{
+      D.loading.style.display='none';
+    }
+  }
+
+  function renderResult(payload){
+    const { gs, hits=[], book, workcord } = payload || {};
+    // Sheets側
+    if(gs){
+      D.gsBox.innerHTML = `
+        <div class="kvs">
+          <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
+          <b>Kname</b><div>${esc(gs.Kname||'')}</div>
+          <b>Material</b><div>${esc(gs.Material||'')}</div>
+          <b>Paper_Size</b><div>${esc(gs.Paper_Size||'')}</div>
+          <b>Cut_Size</b><div>${esc(gs.Cut_Size||'')}</div>
+          <b>Location</b><div>${esc(gs.Location||'')}</div>
+          <b>LastSeen</b><div>${esc(gs.LastSeen||'')}</div>
+          <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
+        </div>
+      `;
+    }else{
+      D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
+    }
+
+    // Airtable側(直近レコードのサマリ＋サムネ)
+    if(hits.length>0){
+      const latest = hits[0]; // byDateAscで最も早い納期（die-check側が昇順返却）
+      const thumbs = [];
+      const atts = (latest.attachments||[]).slice(0,4);
+      for(const a of atts){
+        const isImg = String(a.type||'').startsWith('image/');
+        const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
+        if(isImg){
+          thumbs.push(`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt=""></a>`);
+        }else{
+          thumbs.push(`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`);
+        }
+      }
+      D.atBox.innerHTML = `
+        <div class="kvs" style="margin-bottom:8px">
+          <b>最も早い納期</b><div>${esc(latest.ndate||'')}</div>
+          <b>品名</b><div>${esc(latest.itemName||'')}</div>
+          <b>数量</b><div>${latest.amount ?? ''}</div>
+          <b>Kname</b><div>${esc(latest.kname||'')}</div>
+          <b>Material</b><div>${esc(latest.material||'')}</div>
+          <b>Paper_Size</b><div>${esc(latest.paperSize||'')}</div>
+          <b>Cut_Size</b><div>${esc(latest.cutSize||'')}</div>
+        </div>
+        <div><b>図面・添付</b></div>
+        <div class="thumbs" style="margin-top:6px">${thumbs.join('') || '<span class="muted">（添付なし）</span>'}</div>
+        ${ (latest.attachments||[]).length>4 ? `<div class="muted" style="margin-top:4px">…他 ${(latest.attachments.length-4)} 件</div>`:'' }
+      `;
+    }else{
+      D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
+    }
+
+    // 受注一覧テーブル
+    if(hits.length>0){
+      D.ordersEmpty.style.display='none';
+      D.ordersTableWrap.style.display='block';
+      D.ordersTbody.innerHTML = hits.map(r => {
+        const a = (r.attachments||[])[0];
+        let cell = '—';
+        if(a){
+          const isImg = String(a.type||'').startsWith('image/');
+          const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
+          cell = isImg
+            ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:4px"></a>`
+            : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`;
+          if((r.attachments||[]).length>1) cell += ` <span class="muted">(+${r.attachments.length-1})</span>`;
+        }
+        return `
+          <tr>
+            <td>${esc(r.ndate||'')}</td>
+            <td>${esc(r.itemName||'')}</td>
+            <td style="text-align:right">${r.amount ?? ''}</td>
+            <td>${esc(r.material||'')}</td>
+            <td>${esc(r.paperSize||'')}</td>
+            <td>${esc(r.cutSize||'')}</td>
+            <td>${cell}</td>
+            <td>${esc(r.kname||'')}</td>
+          </tr>
+        `;
+      }).join('');
+    }else{
+      D.ordersTableWrap.style.display='none';
+      D.ordersEmpty.style.display='block';
+      D.ordersEmpty.textContent = '—';
+    }
+
+    D.result.style.display='block';
+    // 手入力欄にも反映
+    D.inBook.value = book || '';
+    D.inWc.value   = workcord || '';
+  }
+
+  // 別タブで HTML 版（POST）を開く
+  D.btnOpenHtml.addEventListener('click', () => {
+    const book=S.current.book, wc=S.current.wc;
+    if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
+    if(!S.csrf){ alert('CSRF Cookie(xcsrf)がありません。社内ページからログイン/セッション開始してください。'); return; }
+
+    const f = document.createElement('form');
+    f.method='POST'; f.action='/api/die-check'; f.target='_blank'; f.style.display='none';
+    const i1=document.createElement('input'); i1.name='book'; i1.value=book;
+    const i2=document.createElement('input'); i2.name='wc';   i2.value=wc;
+    const i3=document.createElement('input'); i3.name='json'; i3.value='0';
+    f.append(i1,i2,i3);
+    // ヘッダに X-CSRF は付けられないので、サーバ側で Cookie を検証している前提
+    document.body.appendChild(f); f.submit(); setTimeout(()=>f.remove(),100);
+  });
+
+  // 手入力で照会
+  D.btnQuery.addEventListener('click', () => {
+    setTarget(D.inBook.value, D.inWc.value);
+    if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
+    S.lastQueryKey=''; querySpec();
+  });
+  D.btnFillTarget.addEventListener('click', () => {
+    D.inBook.value = S.current.book || '';
+    D.inWc.value   = S.current.wc   || '';
+  });
+
+  // カメラ制御
+  D.btnStart.addEventListener('click', startCam);
+  D.btnStop.addEventListener('click', stopCam);
+  window.addEventListener('resize', fitOverlay);
+
+  // 画像静止画テスト
+  D.fileTest.addEventListener('change', async ev=>{
+    const file = ev.target.files?.[0]; if(!file) return;
+    const img = new Image();
+    img.onload = ()=>{
+      const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+      const cctx=c.getContext('2d',{willReadFrequently:true}); cctx.drawImage(img,0,0);
+      const data=cctx.getImageData(0,0,c.width,c.height);
+      const hit=jsQR(data.data, data.width, data.height, { inversionAttempts:'dontInvert' });
+      if(hit){
+        const raw=hit.data;
+        const kind=classify(raw);
+        if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'', od.wc||''); } }
+        else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'', d.wc||''); } }
+        S.lastQueryKey=''; querySpec();
+      }else{
+        alert('QR が検出できませんでした');
+      }
+      ev.target.value="";
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
+  // URL パラメータで事前指定
+  (function initFromParams(){
+    const p = new URLSearchParams(location.search);
+    const book=(p.get('book')||'').trim();
+    const wc  =(p.get('wc')||'').trim();
+    if(book || wc){
+      setTarget(book, wc);
+      S.lastQueryKey=''; querySpec();
+    }
+  })();
+
+  function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+})();
+</script>
+</body>
+</html>
