@@ -188,6 +188,11 @@ async function initSession() {
 
 // ========= 状態 =========
 let fixedLoc = null;
+// すでにある let AC = null; などの近くに追記
+let scanCooldownUntil = 0;        // この時刻までスキャンを完全停止
+let lastDecodedText = '';         // 直近に処理したQR文字列
+let lastDecodedAt = 0;            // その時刻(ms)
+
 const fixedDies = new Map();
 const flashes = [];
 const bubbles = [];
@@ -435,6 +440,16 @@ async function queryDie(book, wc, wantJSON=false) {
 // ========= スキャン結果処理 =========
 function processScanResult(hit) {
   if (!hit) { candidates = []; return; }
+   // ▼ 追加：同一QRの連続処理を 800ms 抑止
+  const now = performance.now();
+  if (hit.raw === lastDecodedText && (now - lastDecodedAt) < 800) {
+    candidates = [];
+    return;
+  }
+  lastDecodedText = hit.raw;
+  lastDecodedAt = now;
+
+  // （この下は既存の処理そのまま）
   const kind = classify(hit.raw);
   const parsed = parse(hit.raw);
 
@@ -442,6 +457,7 @@ function processScanResult(hit) {
   const mDie = /^die-([^-\n]+)-(.+)$/.exec(hit.raw);
   const mRec = /^record-([a-zA-Z0-9]+)$/.exec(hit.raw);
 
+  // ---- lookupMode（照会モード）内：die-Book-WC を拾った分岐 ----
   if (mDie) {
     const rawBook = mDie[1].trim();
     const rawWc   = mDie[2].trim();
@@ -454,20 +470,22 @@ function processScanResult(hit) {
     addBubble('die', hit.corners, '照会');
     playBeep(880, 120); buzz(30);
 
-    // デバッグ・トースト（必要なら）
-    // toast(`照会: ${book}-${wc}`);
-
+    // ← ここで die-check を投げる
     queryDie(book, wc, false)
       .catch(e => {
-        // HTMLが返っても長文alertにならないよう短縮
         const msg = String(e.message || e).slice(0, 300);
         alert('die-check失敗: ' + msg);
       });
 
-    candidates = []; // 一度処理したら候補は消す
-    return;
-  }
+  // ★★★ クールダウン（1.2秒スキャン停止）★★★
+  scanCooldownUntil = performance.now() + 1200;
 
+  candidates = []; // 一度処理したら候補は消す
+  return;
+}
+
+
+  // ---- lookupMode（照会モード）内：record-XXXX を拾った分岐 ----
   if (mRec) {
     const recId = mRec[1];
     const key   = `rec:${recId}`;
@@ -477,6 +495,7 @@ function processScanResult(hit) {
     addBubble('die', hit.corners, '照会');
     playBeep(880, 120); buzz(30);
 
+    // ← ここで die-check を投げる
     fetch('/api/die-check', {
       method: 'POST',
       credentials: 'same-origin',
@@ -487,14 +506,13 @@ function processScanResult(hit) {
     .then(html => { const w = window.open('', '_blank'); if (w) w.document.write(html); })
     .catch(e => alert('die-check失敗: ' + (e.message || e)));
 
+    // ★★★ クールダウン（1.2秒スキャン停止）★★★
+    scanCooldownUntil = performance.now() + 1200;
+
     candidates = [];
     return;
   }
 
-  // 照会モード中は他形式は無視
-  candidates = [];
-  return;
-}
 
 
   // ▼ 登録モード（従来のまま）
@@ -511,6 +529,7 @@ function processScanResult(hit) {
 
   // 自動ロック（従来）
   if (candidate && !candidate.registered) {
+    // ---- 登録モード：LOC を初めて読んだときの固定処理 ----
     if (candidate.kind === 'loc' && !fixedLoc) {
       fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
       updateUIState();
@@ -518,7 +537,13 @@ function processScanResult(hit) {
       addBubble('loc', candidate.corners, '棚を固定');
       playBeep(660, 130); buzz(40);
       toast("棚を固定", candidate.parsed.loc);
-    } else if (candidate.kind === 'die' && fixedLoc) {
+
+      // ★★★ クールダウン（1.2秒スキャン停止）★★★
+      scanCooldownUntil = performance.now() + 1200;
+    }
+
+    } // ---- 登録モード：DIE を追加した直後 ----
+    else if (candidate.kind === 'die' && fixedLoc) {
       const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
       if (!fixedDies.has(key)) {
         fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
@@ -527,18 +552,33 @@ function processScanResult(hit) {
         addBubble('die', candidate.corners, '型を追加');
         playBeep(880, 120); buzz(30);
         toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
+
+        // ★★★ クールダウン（1.2秒スキャン停止）★★★
+        scanCooldownUntil = performance.now() + 1200;
       }
     }
+
   }
 }
 
-async function tick() { 
-  if (!stream) return; 
+async function tick() {
+  if (!stream) return;
+
+  // ▼ 追加：クールダウン中は何もしない（オーバーレイだけ継続表示）
+  const now = performance.now();
+  if (now < scanCooldownUntil) {
+    drawOverlays();
+    rafId = requestAnimationFrame(tick);
+    return;
+  }
+
   const hit = scan();
   processScanResult(hit);
-  drawOverlays(); 
-  rafId = requestAnimationFrame(tick); 
+  drawOverlays();
+
+  rafId = requestAnimationFrame(tick);
 }
+
 
 // ========= 送信（従来の登録処理） =========
 async function submitUpdate() {
