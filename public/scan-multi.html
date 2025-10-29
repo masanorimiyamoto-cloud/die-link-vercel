@@ -553,8 +553,7 @@ function processScanResult(hit) {
         playBeep(880, 120); buzz(30);
         toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
 
-        // ★★★ クールダウン（1.2秒スキャン停止）★★★
-        scanCooldownUntil = performance.now() + 1200;
+        
       }
     }
 
