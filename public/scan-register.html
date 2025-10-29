@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚→型 QRスキャン登録_紹介_AirOFF</title>
+<title>棚→型 QRスキャン登録_air_off</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
@@ -23,8 +23,10 @@
     background: #fff; border-bottom: 1px solid var(--border);
     padding: 12px 16px; position: sticky; top: 0; z-index: 100;
   }
-  header h1 { font-size: 1.4rem; margin: 0; text-align: center; }
-  .cam-controls { display: flex; gap: 12px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+  header h1 {
+    font-size: 1.4rem; margin: 0; text-align: center;
+  }
+  .cam-controls { display: flex; gap: 12px; justify-content: center; margin-top: 12px; }
 
   /* --- Camera View --- */
   .view-wrapper { position: relative; width: 100%; max-width: 420px; margin: 20px auto; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px var(--shadow); }
@@ -83,28 +85,15 @@
   .icon-trash { stroke: currentColor; }
   .icon-clear { stroke: currentColor; }
   .icon-upload { stroke: #fff; }
-
-  /* トグルUI（照会モード） */
-  .toggle { display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border); border-radius:10px; background:#fff; }
-  .toggle input { accent-color: var(--primary); transform: scale(1.2); }
-  .badge { font-size:.8rem; padding:2px 8px; border-radius:999px; background: var(--primary-light); color: var(--primary); border:1px solid var(--primary); }
-  .badge.off { background: var(--danger-light); color: var(--danger); border-color: var(--danger); }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_jemi</h1>
+  <h1>棚→型 QRスキャン登録_air_off_deep</h1>
   <div class="cam-controls">
     <button id="btnStart" class="btn btn-primary">カメラ開始</button>
     <button id="btnStop" class="btn" disabled>停止</button>
-
-    <!-- ▼ 追加：照会モード（die-check）トグル -->
-    <label class="toggle" title="ONにするとプレーンQRでdie-checkを安全に照会します">
-      <input id="toggleMode" type="checkbox">
-      <span>照会モード（die-check）</span>
-      <span class="badge off" id="modeBadge">OFF</span>
-    </label>
   </div>
 </header>
 
@@ -167,54 +156,34 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script>
-// ========= 設定 =========
-const SHEET_ENDPOINT = "/api/gsheet-seen-bulk"; // 従来の登録エンドポイント
-const SCAN_RESOLUTION = 600; // px
+// ========= 設定 (Settings) =========
+const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
+const AIRTABLE_ENDPOINT = "/api/airtable-update"; // Airtable APIエンドポイント
+const AIRTABLE_ENABLED = false; // ★ Airtable更新を一時停止
+const SCAN_RESOLUTION = 600; // スキャン解像度(px)。高いほど高精細だが遅くなる。600-800がおすすめ。
 
-// ========= 照会モード用 CSRF =========
-let CSRF_TOKEN = '';
-async function initSession() {
-  try {
-    const r = await fetch('/api/session', { method: 'GET', credentials: 'same-origin' });
-    const j = await r.json();
-    if (!j?.ok || !j?.token) throw new Error('CSRF初期化失敗');
-    CSRF_TOKEN = j.token; // ヘッダ送信用（Cookie xcsrf はサーバが Set-Cookie）
-  } catch (e) {
-    console.error(e);
-    document.querySelector('#toggleMode')?.setAttribute('disabled','');
-    toast('照会モードの初期化に失敗（/api/session）', 'OFF固定');
-  }
-}
-
-// ========= 状態 =========
+// ========= 状態 (State) =========
 let fixedLoc = null;
-// すでにある let AC = null; などの近くに追記
-let scanCooldownUntil = 0;        // この時刻までスキャンを完全停止
-let lastDecodedText = '';         // 直近に処理したQR文字列
-let lastDecodedAt = 0;            // その時刻(ms)
-
 const fixedDies = new Map();
 const flashes = [];
 const bubbles = [];
 let candidates = [];
-let lookupMode = false; // false=登録モード(従来), true=照会モード(die-check)
 
-// ========= DOM =========
+// ========= DOM要素 (DOM Elements) =========
 const $ = (q) => document.querySelector(q);
 const v = $("#v"), scanCanvas = $("#scanCanvas"), ov = $("#ov");
 const octx = ov.getContext("2d");
 const sctx = scanCanvas.getContext("2d", { willReadFrequently: true });
 const errEl = $("#err"), toasts = $("#toasts");
 const btnUpdate = $("#btnUpdate");
-const toggleMode = $("#toggleMode");
-const modeBadge  = $("#modeBadge");
 
-// ========= UI =========
+// ========= UI更新 (UI Updates) =========
 function updateUIState() {
   const step1 = $("#step1"), step2 = $("#step2");
   const locSection = $("#loc-section"), dieSection = $("#die-section");
   const locContent = $("#loc-content");
 
+  // Step 1: 棚 (LOC)
   if (fixedLoc) {
     step1.classList.add('active');
     locContent.innerHTML = `
@@ -230,7 +199,7 @@ function updateUIState() {
       </div>`;
     $("#btnClearLoc").addEventListener("click", () => {
       fixedLoc = null;
-      fixedDies.clear();
+      fixedDies.clear(); // 棚を解除したら型もクリア
       updateUIState();
       renderDies();
     });
@@ -242,6 +211,7 @@ function updateUIState() {
     dieSection.style.display = 'none';
   }
 
+  // Step 2: 型 (DIE)
   if (fixedLoc && fixedDies.size > 0) {
     step1.classList.remove('active');
     step2.classList.add('active');
@@ -252,39 +222,8 @@ function updateUIState() {
     step2.classList.remove('active');
   }
 
-  // 登録ボタン: 照会モード中は押せない
-  btnUpdate.disabled = lookupMode || !fixedLoc || fixedDies.size === 0;
-
-  // 送信ボタンの文言（参考）
-  const btnLabel = $("#btnUpdateLabel");
-  if (btnLabel) {
-    btnLabel.textContent = lookupMode ? "（照会モード中：登録不可）" : "データベースに登録";
-  }
-}
-// ▼ 追加：照会の連打防止
-let lookupLockUntil = 0;
-let lastLookupKey = '';
-
-function normalizeWC(wc) {
-  const s = String(wc || '').trim();
-  // 純粋な整数っぽければ Number に通して "9892" 形式に正規化
-  if (/^\d+(\.0+)?$/.test(s)) return String(Number(s));
-  // 全角→半角（簡易）
-  return s.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
-}
-
-function canTriggerLookup(key) {
-  const now = performance.now();
-  // ロック中は不可
-  if (now < lookupLockUntil) return false;
-  // 同一キーの連続読み取りを抑制（1.2秒）
-  if (key === lastLookupKey) {
-    lookupLockUntil = now + 1200;
-    return false;
-  }
-  lastLookupKey = key;
-  lookupLockUntil = now + 1200;
-  return true;
+  // Step 3: 更新ボタン (Update Button)
+  btnUpdate.disabled = !fixedLoc || fixedDies.size === 0;
 }
 
 function renderDies() {
@@ -319,7 +258,7 @@ function renderDies() {
   updateUIState();
 }
 
-// ========= ユーティリティ =========
+// ========= ユーティリティ (Utilities) =========
 const dieKey = (bn, wc) => `${bn}-${wc}`;
 function setError(t) { errEl.textContent = t || ""; errEl.style.display = t ? 'block' : 'none'; }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -328,28 +267,35 @@ let AC = null;
 function playBeep(freq = 880, dur = 120) { try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); const o = AC.createOscillator(), g = AC.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.value = 0.0001; o.connect(g); g.connect(AC.destination); const t = AC.currentTime; g.gain.exponentialRampToValueAtTime(0.08, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur / 1000); o.start(); o.stop(t + dur / 1000 + 0.02); } catch { } }
 function buzz(ms = 60) { if (navigator.vibrate) navigator.vibrate(ms); }
 function classify(s){ if(/^loc-/i.test(s)) return "loc"; if(/^die-/i.test(s)) return "die"; try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{} return "other"; }
+
+// ★ 修正: wn (WorkName) を抽出する関数を復活
 function tryExtractWN(raw){ try{ const u = new URL(raw); const m = /[#&]d=([^&]+)/.exec(u.hash||""); if(!m) return ""; const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : ''; const json = atob(b64 + pad); const obj = JSON.parse(json); return (obj.wn||"").trim(); }catch{ return ""; } }
+
+// ★ 修正: parse関数で wn も返すようにする
 function parse(text){ 
-  const m = /^die-([^-\n]+)-(.+)$/.exec(text); 
-  if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; }
-  try{ const u=new URL(text); 
-    const book=(u.searchParams.get("book")||"").trim(); 
-    const wc=(u.searchParams.get("wc")||"").trim(); 
-    if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; }
-  }catch{} 
-  const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } 
-  return {}; 
+    const m = /^die-([^-\n]+)-(.+)$/.exec(text); 
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; } // die- 形式の場合は wn は空
+    try{ const u=new URL(text); 
+        const book=(u.searchParams.get("book")||"").trim(); 
+        const wc=(u.searchParams.get("wc")||"").trim(); 
+        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; } // URL形式の場合は wn を抽出
+    }catch{} 
+    const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } 
+    return {}; 
 }
 
-// ========= 描画 =========
+// ========= 描画 (Canvas Overlays) =========
 function drawPolygon(ctx, points){ ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y); ctx.closePath(); }
 function roundedRect(ctx, x,y,w,h,r=10){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function centroid(corners){ const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y); return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) }; }
 function addFlash(kind, corners){ flashes.push({ kind, corners, until: performance.now()+1200 }); }
-function addBubble(kind, corners, text){ const c = centroid(corners); const msg = (kind==='die' && fixedLoc && !lookupMode) ? `${text} → ${fixedLoc.loc}` : text; const color = kind==='loc' ? 'rgba(42, 157, 143, 0.92)' : 'rgba(0, 95, 115, 0.92)'; const stroke= 'rgba(255,255,255,0.9)'; bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 }); }
+function addBubble(kind, corners, text){ const c = centroid(corners); const msg = (kind==='die' && fixedLoc) ? `${text} → ${fixedLoc.loc}` : text; const color = kind==='loc' ? 'rgba(42, 157, 143, 0.92)' : 'rgba(0, 95, 115, 0.92)'; const stroke= 'rgba(255,255,255,0.9)'; bubbles.push({ text: msg, x:c.x, y:c.y, color, stroke, until: performance.now()+1600 }); }
+
 function drawOverlays(){
   octx.clearRect(0,0,ov.width,ov.height);
   const scale = ov.width / scanCanvas.width;
+  
+  // 候補の枠線を描画
   for(const c of candidates){ 
     const isLoc = c.kind==='loc'; 
     const scaledCorners = c.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
@@ -359,6 +305,8 @@ function drawOverlays(){
     octx.fillStyle = isLoc ? 'rgba(42, 157, 143,0.18)' : 'rgba(0, 95, 115,0.18)'; 
     drawPolygon(octx, scaledCorners); octx.stroke(); octx.fill(); 
   }
+  
+  // フラッシュアニメーションを描画
   for(let i=flashes.length-1; i>=0; i--){ 
     const f = flashes[i]; const remain = f.until - performance.now(); if(remain <= 0){ flashes.splice(i,1); continue; } 
     const t = Math.max(0, Math.min(1, remain/1200)); 
@@ -368,6 +316,8 @@ function drawOverlays(){
     octx.fillStyle = color; octx.strokeStyle = stroke; octx.lineWidth = 4 + 4*t; 
     drawPolygon(octx, scaledCorners); octx.stroke(); octx.fill(); 
   }
+  
+  // 吹き出しを描画
   for(let i=bubbles.length-1; i>=0; i--){ 
     const b = bubbles[i]; const remain = b.until - performance.now(); if(remain <= 0){ bubbles.splice(i,1); continue; } 
     const t = Math.max(0, Math.min(1, remain/1600)); 
@@ -383,208 +333,98 @@ function drawOverlays(){
   }
 }
 
-// ========= カメラ =========
+// ========= 検出 (Detection) =========
 let stream=null, rafId=null;
 function stopCam(){ cancelAnimationFrame(rafId); rafId=null; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } $("#btnStart").disabled=false; $("#btnStop").disabled=true; }
 function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
 async function startCam(){ 
-  stopCam(); setError(""); 
-  try{ 
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} }, audio:false }); 
-  }catch(e){ showError(e); return; } 
-  v.srcObject=stream; 
-  try{ await v.play(); }catch(e){ showError(e); return; } 
-  
-  const w = v.videoWidth, h = v.videoHeight;
-  ov.width = w; ov.height = h;
-  scanCanvas.width = SCAN_RESOLUTION;
-  scanCanvas.height = SCAN_RESOLUTION * (h/w);
+    stopCam(); setError(""); 
+    try{ 
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} }, audio:false }); 
+    }catch(e){ showError(e); return; } 
+    v.srcObject=stream; 
+    try{ await v.play(); }catch(e){ showError(e); return; } 
+    
+    // Canvasのサイズをビデオのアスペクト比に合わせる
+    const w = v.videoWidth, h = v.videoHeight;
+    ov.width = w; ov.height = h;
+    scanCanvas.width = SCAN_RESOLUTION;
+    scanCanvas.height = SCAN_RESOLUTION * (h/w);
 
-  $("#btnStart").disabled=true; $("#btnStop").disabled=false; 
-  tick(); 
+    $("#btnStart").disabled=true; $("#btnStop").disabled=false; 
+    tick(); 
 }
 
 function scan() {
-  if (v.readyState !== v.HAVE_ENOUGH_DATA) return null;
-  sctx.drawImage(v, 0, 0, scanCanvas.width, scanCanvas.height);
-  const imgData = sctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-  const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
-  if (!code) return null;
-  return { raw: code.data.trim(), corners: [code.location.topLeftCorner, code.location.topRightCorner, code.location.bottomRightCorner, code.location.bottomLeftCorner] };
+    if (v.readyState !== v.HAVE_ENOUGH_DATA) return null;
+    sctx.drawImage(v, 0, 0, scanCanvas.width, scanCanvas.height);
+    const imgData = sctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+    const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+    if (!code) return null;
+    return { raw: code.data.trim(), corners: [code.location.topLeftCorner, code.location.topRightCorner, code.location.bottomRightCorner, code.location.bottomLeftCorner] };
 }
 
-// ========= die-check 呼び出し =========
-async function queryDie(book, wc, wantJSON=false) {
-  if (!CSRF_TOKEN) throw new Error('CSRFトークン未初期化（/api/session）');
-  const r = await fetch('/api/die-check', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', 'X-CSRF': CSRF_TOKEN },
-    body: JSON.stringify({ book, wc, json: wantJSON })
-  });
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`die-check HTTP ${r.status}: ${t.slice(0, 200)}`);
-  }
-  const ct = r.headers.get('content-type') || '';
-  if (wantJSON || ct.includes('application/json')) {
-    return r.json();
-  } else {
-    const html = await r.text();
-    const w = window.open('', '_blank');
-    if (w) w.document.write(html);
-    return true;
-  }
-}
-
-// ========= スキャン結果処理 =========
 function processScanResult(hit) {
-  if (!hit) { candidates = []; return; }
-   // ▼ 追加：同一QRの連続処理を 800ms 抑止
-  const now = performance.now();
-  if (hit.raw === lastDecodedText && (now - lastDecodedAt) < 800) {
-    candidates = [];
-    return;
-  }
-  lastDecodedText = hit.raw;
-  lastDecodedAt = now;
+    if (!hit) { candidates = []; return; }
+    
+    // 1フレームに1つのQRコードを処理するシンプルな形に変更
+    const kind = classify(hit.raw);
+    const parsed = parse(hit.raw); // ★修正: parseは {bn, wc, wn} または {loc} を返す
+    let candidate = null;
 
-  // （この下は既存の処理そのまま）
-  const kind = classify(hit.raw);
-  const parsed = parse(hit.raw);
-
-  if (lookupMode) {
-  const mDie = /^die-([^-\n]+)-(.+)$/.exec(hit.raw);
-  const mRec = /^record-([a-zA-Z0-9]+)$/.exec(hit.raw);
-
-  // ---- lookupMode（照会モード）内：die-Book-WC を拾った分岐 ----
-  if (mDie) {
-    const rawBook = mDie[1].trim();
-    const rawWc   = mDie[2].trim();
-    const book = rawBook;
-    const wc   = normalizeWC(rawWc);
-    const key  = `die:${book}-${wc}`;
-    if (!canTriggerLookup(key)) { candidates = []; return; }
-
-    addFlash('die', hit.corners);
-    addBubble('die', hit.corners, '照会');
-    playBeep(880, 120); buzz(30);
-
-    // ← ここで die-check を投げる
-    queryDie(book, wc, false)
-      .catch(e => {
-        const msg = String(e.message || e).slice(0, 300);
-        alert('die-check失敗: ' + msg);
-      });
-
-  // ★★★ クールダウン（1.2秒スキャン停止）★★★
-  scanCooldownUntil = performance.now() + 1200;
-
-  candidates = []; // 一度処理したら候補は消す
-  return;
-}
-
-
-  // ---- lookupMode（照会モード）内：record-XXXX を拾った分岐 ----
-  if (mRec) {
-    const recId = mRec[1];
-    const key   = `rec:${recId}`;
-    if (!canTriggerLookup(key)) { candidates = []; return; }
-
-    addFlash('die', hit.corners);
-    addBubble('die', hit.corners, '照会');
-    playBeep(880, 120); buzz(30);
-
-    // ← ここで die-check を投げる
-    fetch('/api/die-check', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'X-CSRF': CSRF_TOKEN },
-      body: JSON.stringify({ recordId: recId })
-    })
-    .then(r => r.text())
-    .then(html => { const w = window.open('', '_blank'); if (w) w.document.write(html); })
-    .catch(e => alert('die-check失敗: ' + (e.message || e)));
-
-    // ★★★ クールダウン（1.2秒スキャン停止）★★★
-    scanCooldownUntil = performance.now() + 1200;
-
-    candidates = [];
-    return;
-  }
-
-
-
-  // ▼ 登録モード（従来のまま）
-  let candidate = null;
-  if (kind === 'loc' && parsed.loc) {
-    const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
-    candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
-  } else if (kind === 'die' && parsed.bn && parsed.wc) {
-    const key = dieKey(parsed.bn, parsed.wc);
-    const registered = fixedDies.has(key);
-    candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
-  }
-  candidates = candidate ? [candidate] : [];
-
-  // 自動ロック（従来）
-  if (candidate && !candidate.registered) {
-    // ---- 登録モード：LOC を初めて読んだときの固定処理 ----
-    if (candidate.kind === 'loc' && !fixedLoc) {
-      fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
-      updateUIState();
-      addFlash('loc', candidate.corners);
-      addBubble('loc', candidate.corners, '棚を固定');
-      playBeep(660, 130); buzz(40);
-      toast("棚を固定", candidate.parsed.loc);
-
-      
+    if (kind === 'loc' && parsed.loc) {
+        const registered = !!(fixedLoc && fixedLoc.loc === parsed.loc);
+        candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
+    } else if (kind === 'die' && parsed.bn && parsed.wc) {
+        const key = dieKey(parsed.bn, parsed.wc);
+        const registered = fixedDies.has(key);
+        candidate = { kind, raw: hit.raw, parsed, corners: hit.corners, registered };
     }
+    
+    candidates = candidate ? [candidate] : [];
 
-    } // ---- 登録モード：DIE を追加した直後 ----
-    else if (candidate.kind === 'die' && fixedLoc) {
-      const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
-      if (!fixedDies.has(key)) {
-        fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
-        renderDies();
-        addFlash('die', candidate.corners);
-        addBubble('die', candidate.corners, '型を追加');
-        playBeep(880, 120); buzz(30);
-        toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
-
-        
-      }
+    // 自動ロック処理
+    if (candidate && !candidate.registered) {
+        if (candidate.kind === 'loc' && !fixedLoc) {
+            fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
+            updateUIState();
+            addFlash('loc', candidate.corners);
+            addBubble('loc', candidate.corners, '棚を固定');
+            playBeep(660, 130); buzz(40);
+            toast("棚を固定", candidate.parsed.loc);
+        } else if (candidate.kind === 'die' && fixedLoc) {
+            const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
+            if (!fixedDies.has(key)) {
+                // ★修正: parsed には wn も含まれている
+                fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
+                renderDies();
+                addFlash('die', candidate.corners);
+                addBubble('die', candidate.corners, '型を追加');
+                playBeep(880, 120); buzz(30);
+                toast("型を追加", `${candidate.parsed.bn}-${candidate.parsed.wc}`);
+            }
+        }
     }
-
-  }
 }
 
-async function tick() {
-  if (!stream) return;
-
-  // ▼ 追加：クールダウン中は何もしない（オーバーレイだけ継続表示）
-  const now = performance.now();
-  if (now < scanCooldownUntil) {
-    drawOverlays();
-    rafId = requestAnimationFrame(tick);
-    return;
-  }
-
-  const hit = scan();
-  processScanResult(hit);
-  drawOverlays();
-
-  rafId = requestAnimationFrame(tick);
+async function tick() { 
+    if (!stream) return; 
+    
+    const hit = scan();
+    processScanResult(hit);
+    drawOverlays(); 
+    
+    rafId = requestAnimationFrame(tick); 
 }
 
-
-// ========= 送信（従来の登録処理） =========
+// ========= 送信 (Submission) =========
+// ★ 修正: wn を含め、レスポンスチェックを強化
+// ========= 送信 (Submission) =========
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
-  if (lookupMode) { alert('照会モード中は登録できません'); return; }
-
   const now = new Date(); 
   const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  
   const items = [...fixedDies.values()].map(d => ({ 
     book: d.bn, 
     wc: d.wc, 
@@ -592,48 +432,94 @@ async function submitUpdate() {
     loc: fixedLoc.loc, 
     captured_at: captured_date 
   }));
+  
   const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
-  if (!confirm(`以下の内容をデータベースに登録しますか？\n\n${msg}\n`)) return;
+  
+  // Airtableの状態を表示
+  const airtableStatus = AIRTABLE_ENABLED ? "有効" : "停止中";
+  if (!confirm(`以下の内容を登録しますか？\n\n${msg}\n\n📊 Googleスプレッドシート: 登録\n🗄️ Airtable: ${airtableStatus}\n\n(成功すると画面はクリアされ、カメラは停止します)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
-  btnUpdate.disabled = true; btnUpdate.classList.add('loading'); btnLabel.textContent = "登録中...";
+  btnUpdate.disabled = true; 
+  btnUpdate.classList.add('loading'); 
+  btnLabel.textContent = "登録中...";
+  
   let rawResponse = "";
+  let success = false;
+  let message = "";
+
   try {
+    // Googleスプレッドシートへの登録
     const r = await fetch(SHEET_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items })
     });
+
     rawResponse = await r.text();
     const j = JSON.parse(rawResponse);
+
     const ok = r.ok && j && j.ok === true;
-    if (!ok) throw new Error(JSON.stringify(j));
+    if (!ok) {
+      throw new Error(JSON.stringify(j));
+    }
 
     const appended = Number(j.appendedRows || 0);
     const updatedRows = Number(j.updatedRows || 0);
     const updatedCells = Number(j.updatedCells || 0);
+
     if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
       throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
     }
 
+    // Googleスプレッドシート成功
+    success = true;
     const parts = [];
     if (appended > 0) parts.push(`追加 ${appended}行`);
     if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
     else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
+    
+    message = `Googleスプレッドシート登録完了（${parts.join(' / ') || '変更あり'}）`;
 
-    toast(`データベース登録完了（${parts.join(' / ') || '変更あり'}）`);
-    playBeep(520, 140);
-
-    fixedLoc = null;
-    fixedDies.clear();
-    renderDies();
-    updateUIState();
-    stopCam();
+    // Airtableへの登録（設定が有効な場合のみ）
+    if (AIRTABLE_ENABLED) {
+      try {
+        const airtableResponse = await fetch(AIRTABLE_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items })
+        });
+        
+        const airtableResult = await airtableResponse.json();
+        if (airtableResponse.ok && airtableResult.success) {
+          message += " / Airtable更新完了";
+        } else {
+          message += " / Airtable更新スキップ";
+        }
+      } catch (airtableError) {
+        console.warn("Airtable update skipped:", airtableError);
+        message += " / Airtable更新スキップ";
+      }
+    } else {
+      message += " / Airtableは停止中";
+    }
 
   } catch (e) {
     console.error("Submit Error:", e, "Raw Response:", rawResponse);
     alert("登録に失敗しました: " + (e.message || e) + `\n\n[API応答]: ${rawResponse}`);
   } finally {
+    if (success) {
+      toast(message);
+      playBeep(520, 140);
+      
+      // 状態リセット＆カメラ停止
+      fixedLoc = null;
+      fixedDies.clear();
+      renderDies();
+      updateUIState();
+      stopCam();
+    }
+    
     btnUpdate.disabled = false;
     btnUpdate.classList.remove('loading');
     btnLabel.textContent = "データベースに登録";
@@ -641,30 +527,14 @@ async function submitUpdate() {
   }
 }
 
-// ========= イベント =========
+// ========= イベントリスナー (Event Listeners) =========
 $("#btnStart").addEventListener("click", startCam);
 $("#btnStop").addEventListener("click", stopCam);
 $("#btnClearDies").addEventListener("click", () => { fixedDies.clear(); renderDies(); });
 $("#btnUpdate").addEventListener("click", submitUpdate);
 
-// 照会モードトグル
-if (toggleMode) {
-  toggleMode.addEventListener('change', () => {
-    lookupMode = !!toggleMode.checked;
-    modeBadge.textContent = lookupMode ? 'ON' : 'OFF';
-    modeBadge.classList.toggle('off', !lookupMode);
-    updateUIState();
-    if (lookupMode) {
-      toast('照会モード：プレーンQR（die-Book-WC / record-XXXX）をスキャン', 'die-checkにPOST');
-    } else {
-      toast('登録モード：LOC→DIE→「データベースに登録」');
-    }
-  });
-}
-
-// ========= 初期化 =========
+// ========= 初期化 (Initialization) =========
 document.addEventListener('DOMContentLoaded', () => {
-  initSession();     // 照会モード用（失敗しても登録モードは使える）
   updateUIState();
 });
 </script>
