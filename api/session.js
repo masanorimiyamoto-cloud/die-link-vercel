@@ -1,7 +1,7 @@
 // pages/api/session.js
 export const config = { runtime: 'edge' };
 
-// ランダムな 32 文字のCSRFトークンを発行
+// ランダムトークン
 function genToken(len = 32) {
   const arr = new Uint8Array(len);
   crypto.getRandomValues(arr);
@@ -10,22 +10,24 @@ function genToken(len = 32) {
 }
 
 export default async function handler(req) {
-  const xcsrf = genToken(32);
+  const url = new URL(req.url);
+  // dev=1 のときは Secure を外す（http://localhost でテストできるように）
+  const dev = url.searchParams.get('dev') === '1';
 
-  // 24h / Secure / SameSite=Lax / Path=/
-  const cookie = [
+  const xcsrf = genToken(32);
+  const parts = [
     `xcsrf=${encodeURIComponent(xcsrf)}`,
     'Path=/',
     'Max-Age=86400',
-    'SameSite=Lax',
-    'Secure'                  // ← 本番 https 前提
-  ].join('; ');
+    'SameSite=Lax'
+  ];
+  if (!dev) parts.push('Secure');
 
   return new Response(JSON.stringify({ ok: true, xcsrf }), {
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      'set-cookie': cookie
+      'set-cookie': parts.join('; ')
     }
   });
 }
