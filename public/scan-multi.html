@@ -256,6 +256,31 @@ function updateUIState() {
     btnLabel.textContent = lookupMode ? "（照会モード中：登録不可）" : "データベースに登録";
   }
 }
+// ▼ 追加：照会の連打防止
+let lookupLockUntil = 0;
+let lastLookupKey = '';
+
+function normalizeWC(wc) {
+  const s = String(wc || '').trim();
+  // 純粋な整数っぽければ Number に通して "9892" 形式に正規化
+  if (/^\d+(\.0+)?$/.test(s)) return String(Number(s));
+  // 全角→半角（簡易）
+  return s.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
+
+function canTriggerLookup(key) {
+  const now = performance.now();
+  // ロック中は不可
+  if (now < lookupLockUntil) return false;
+  // 同一キーの連続読み取りを抑制（1.2秒）
+  if (key === lastLookupKey) {
+    lookupLockUntil = now + 1200;
+    return false;
+  }
+  lastLookupKey = key;
+  lookupLockUntil = now + 1200;
+  return true;
+}
 
 function renderDies() {
   const dieListEl = $("#dieList");
@@ -413,41 +438,64 @@ function processScanResult(hit) {
   const kind = classify(hit.raw);
   const parsed = parse(hit.raw);
 
-  // ▼ 照会モード（die-check）優先
   if (lookupMode) {
-    const mDie = /^die-([^-\n]+)-(.+)$/.exec(hit.raw);
-    const mRec = /^record-([a-zA-Z0-9]+)$/.exec(hit.raw);
-    if (mDie) {
-      const book = mDie[1].trim();
-      const wc   = mDie[2].trim();
-      addFlash('die', hit.corners);
-      addBubble('die', hit.corners, '照会');
-      playBeep(880, 120); buzz(30);
-      queryDie(book, wc, false).catch(e => alert('die-check失敗: ' + e.message));
-      candidates = [];
-      return;
-    }
-    if (mRec) {
-      const recId = mRec[1];
-      addFlash('die', hit.corners);
-      addBubble('die', hit.corners, '照会');
-      playBeep(880, 120); buzz(30);
-      fetch('/api/die-check', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', 'X-CSRF': CSRF_TOKEN },
-        body: JSON.stringify({ recordId: recId })
-      })
-      .then(r => r.text())
-      .then(html => { const w = window.open('', '_blank'); if (w) w.document.write(html); })
-      .catch(e => alert('die-check失敗: ' + e.message));
-      candidates = [];
-      return;
-    }
-    // 照会モード中は LOC や die URL 等は無視
+  const mDie = /^die-([^-\n]+)-(.+)$/.exec(hit.raw);
+  const mRec = /^record-([a-zA-Z0-9]+)$/.exec(hit.raw);
+
+  if (mDie) {
+    const rawBook = mDie[1].trim();
+    const rawWc   = mDie[2].trim();
+    const book = rawBook;
+    const wc   = normalizeWC(rawWc);
+    const key  = `die:${book}-${wc}`;
+    if (!canTriggerLookup(key)) { candidates = []; return; }
+
+    addFlash('die', hit.corners);
+    addBubble('die', hit.corners, '照会');
+    playBeep(880, 120); buzz(30);
+
+    // デバッグ・トースト（必要なら）
+    // toast(`照会: ${book}-${wc}`);
+
+    queryDie(book, wc, false)
+      .catch(e => {
+        // HTMLが返っても長文alertにならないよう短縮
+        const msg = String(e.message || e).slice(0, 300);
+        alert('die-check失敗: ' + msg);
+      });
+
+    candidates = []; // 一度処理したら候補は消す
+    return;
+  }
+
+  if (mRec) {
+    const recId = mRec[1];
+    const key   = `rec:${recId}`;
+    if (!canTriggerLookup(key)) { candidates = []; return; }
+
+    addFlash('die', hit.corners);
+    addBubble('die', hit.corners, '照会');
+    playBeep(880, 120); buzz(30);
+
+    fetch('/api/die-check', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'X-CSRF': CSRF_TOKEN },
+      body: JSON.stringify({ recordId: recId })
+    })
+    .then(r => r.text())
+    .then(html => { const w = window.open('', '_blank'); if (w) w.document.write(html); })
+    .catch(e => alert('die-check失敗: ' + (e.message || e)));
+
     candidates = [];
     return;
   }
+
+  // 照会モード中は他形式は無視
+  candidates = [];
+  return;
+}
+
 
   // ▼ 登録モード（従来のまま）
   let candidate = null;
