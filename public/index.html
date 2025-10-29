@@ -5,61 +5,32 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>モード選択</title>
 <style>
-  :root{
-    --bg:#0b0f14;
-    --card:#0f1720;
-    --txt:#e6f0ff;
-    --sub:#9fb3c8;
-    --a:#4f8cff;   /* 調べる */
-    --b:#22c55e;   /* 探す   */
-    --c:#f59e0b;   /* 知らせる */
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
-  .wrap{
-    min-height:100dvh;
-    display:flex;flex-direction:column;gap:14px;
-    padding:18px; max-width:640px; margin:0 auto;
-  }
-  .btn{
-    display:block; text-decoration:none; color:#fff;
-    border-radius:18px; padding:22px 20px;
-    font-weight:800; letter-spacing:.08em;
-    font-size:clamp(28px,8vw,44px);
-    text-align:center; line-height:1;
+  :root{ --bg:#0b0f14; --txt:#e6f0ff; --a:#4f8cff; --b:#22c55e; --c:#f59e0b; }
+  *{ box-sizing:border-box }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
+  .wrap{ min-height:100dvh; display:flex; flex-direction:column; gap:14px; padding:18px;
+    max-width:640px; margin:0 auto }
+  .btn{ display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
+    border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
+    font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
     box-shadow:0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.06);
-    transform:translateZ(0);
-    -webkit-tap-highlight-color: transparent;
-  }
-  .btn:active{ transform:scale(.985); }
-  .a{
-    background:
-      radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
-      linear-gradient(135deg, #1b3bff 0%, var(--a) 55%, #38bdf8 110%);
-  }
-  .b{
-    background:
-      radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
-      linear-gradient(135deg, #059669 0%, var(--b) 55%, #86efac 110%);
-  }
-  .c{
-    background:
-      radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
-      linear-gradient(135deg, #b45309 0%, var(--c) 55%, #fca311 110%);
-  }
-  /* 縦積みを前提に、親指タップしやすい高さに */
-  .btn{ min-height:22vh; display:flex; align-items:center; justify-content:center; }
-  @media (min-width:520px){
-    .btn{ min-height:20vh; }
-  }
+    border:1px solid rgba(255,255,255,.06) }
+  .btn:active{ transform:scale(.985) }
+  .a{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#1b3bff 0%,var(--a) 55%,#38bdf8 110%) }
+  .b{ background:radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#059669 0%,var(--b) 55%,#86efac 110%) }
+  .c{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
+  @media (min-width:520px){ .btn{ min-height:20vh } }
 </style>
 </head>
 <body>
   <main class="wrap" role="navigation" aria-label="モード選択">
     <a class="btn a" href="./scan-spec.html"    aria-label="調べる">調べる</a>
     <a class="btn b" href="./scan-lookup.html"  aria-label="探す">探す</a>
-    <a class="btn c" href="./scan-multi.html"   aria-label="知らせる">知らせる</a>
+    <a class="btn c" href="./scan-register.html" aria-label="知らせる">知らせる</a>
   </main>
 </body>
 </html>
