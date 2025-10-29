@@ -82,9 +82,15 @@
           <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
           <button id="btnFillTarget">スキャン中の値で埋める</button>
         </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="csrfStatus" class="badge">CSRF: 検査中…</span>
+          <button id="btnEnableCsrf">CSRFを有効化</button>
+        </div>
+
         <div id="csrfWarn" class="hint" style="display:none;margin-top:10px;color:#b07000;">
-          ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。先に社内ページからログイン／セッション開始して、<br>
-          <code>xcsrf</code> を発行してください（ヘッダ <code>X-CSRF</code> と一致させてPOST）。
+          ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。<br>
+          下の「CSRFを有効化」を押すか、社内ページからセッション開始してください。
         </div>
       </div>
     </div>
@@ -154,7 +160,8 @@
     result: q('#result'), ordersBox: q('#ordersBox'), ordersEmpty: q('#ordersEmpty'),
     ordersTableWrap: q('#ordersTableWrap'), ordersTbody: q('#ordersTbody'),
     inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
-    btnOpenHtml: q('#btnOpenHtml'), csrfWarn: q('#csrfWarn')
+    btnOpenHtml: q('#btnOpenHtml'),
+    csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf')
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
 
@@ -163,15 +170,8 @@
     stream: null, rafId: null,
     detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
     current: { book:'', wc:'' }, lastQueryKey: '',
-    csrf: readCookie('xcsrf') || '',
+    csrf: '' // 起動時に ensureCsrf() で設定
   };
- 
-
- 
-
-
-  // 初期のCSRF警告
-  if(!S.csrf){ D.csrfWarn.style.display = 'block'; }
 
   // ===== Utils =====
   function q(s){ return document.querySelector(s); }
@@ -202,6 +202,43 @@
     D.overlay.style.width = D.video.clientWidth + 'px';
     D.overlay.style.height= D.video.clientHeight + 'px';
   }
+
+  // ===== CSRF bootstrap =====
+  function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
+  async function requestSession(){
+    const url = isLocal() ? '/api/session?dev=1' : '/api/session';
+    // Cookie を受け取るため credentials 必須
+    await fetch(url, { method:'GET', credentials:'same-origin', cache:'no-store' }).catch(()=>{});
+  }
+  async function ensureCsrf(){
+    let t = readCookie('xcsrf');
+    if(!t){
+      await requestSession();
+      t = readCookie('xcsrf');
+    }
+    if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
+    S.csrf = t;
+    D.csrfStatus.textContent = 'CSRF: 有効';
+    D.csrfStatus.style.background = '#e7f5ff';
+    D.csrfStatus.style.color = '#1c7ed6';
+    D.csrfWarn.style.display = 'none';
+  }
+
+  // 起動時にCSRF確保
+  document.addEventListener('DOMContentLoaded', async () => {
+    try{
+      await ensureCsrf();
+    }catch(e){
+      D.csrfStatus.textContent = 'CSRF: 無効（未取得）';
+      D.csrfStatus.style.background = '#fff5f5';
+      D.csrfStatus.style.color = '#e03131';
+      D.csrfWarn.style.display = 'block';
+    }
+  });
+  D.btnEnableCsrf.addEventListener('click', async () => {
+    try{ await requestSession(); await ensureCsrf(); alert('CSRFを有効化しました'); }
+    catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
+  });
 
   // ===== Parse & classify =====
   function classify(raw){
@@ -339,9 +376,11 @@
     D.loading.style.display='block'; D.result.style.display='none';
 
     try{
+      if(!S.csrf){ await ensureCsrf(); } // 念のため毎回担保
       const r = await fetch('/api/die-check', {
         method:'POST',
-        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf || '' },
+        credentials:'same-origin',         // ←← Cookie 同送が必須
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
         body: JSON.stringify({ book, wc, json:true, limit: 200 })
       });
       const txt = await r.text();
@@ -451,20 +490,28 @@
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブで HTML 版（POST）を開く
-  D.btnOpenHtml.addEventListener('click', () => {
+  // 別タブで HTML 版（ヘッダ付きPOST→新規タブへ描画）
+  D.btnOpenHtml.addEventListener('click', async () => {
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
-    if(!S.csrf){ alert('CSRF Cookie(xcsrf)がありません。社内ページからログイン/セッション開始してください。'); return; }
-
-    const f = document.createElement('form');
-    f.method='POST'; f.action='/api/die-check'; f.target='_blank'; f.style.display='none';
-    const i1=document.createElement('input'); i1.name='book'; i1.value=book;
-    const i2=document.createElement('input'); i2.name='wc';   i2.value=wc;
-    const i3=document.createElement('input'); i3.name='json'; i3.value='0';
-    f.append(i1,i2,i3);
-    // ヘッダに X-CSRF は付けられないので、サーバ側で Cookie を検証している前提
-    document.body.appendChild(f); f.submit(); setTimeout(()=>f.remove(),100);
+    try{
+      if(!S.csrf){ await ensureCsrf(); }
+      const r = await fetch('/api/die-check', {
+        method:'POST',
+        credentials:'same-origin',
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
+        body: JSON.stringify({ book, wc, json:false, limit: 200 })
+      });
+      const html = await r.text();
+      if(!r.ok) throw new Error(html.slice(0,300));
+      const w = window.open('', '_blank');
+      if(!w) throw new Error('ポップアップがブロックされました');
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }catch(e){
+      alert('HTML表示に失敗: ' + (e.message||e));
+    }
   });
 
   // 手入力で照会
