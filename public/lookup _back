@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>照会モード｜型さがし（order / die 対応）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --ok:#1c7ed6;      /* 一致=青 */
+    --ng:#e03131;      /* 不一致=赤 */
+    --info:#f59f00;    /* 情報=オレンジ */
+    --bd:#dee2e6; --tx:#212529; --sub:#6c757d; --bg:#f8f9fa;
+    --chip-bg:#f1f3f5;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:14px}
+  h1{margin:8px 0 12px;font-size:clamp(18px,2.8vw,24px)}
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .panel{flex:1 1 360px;min-width:320px}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.05);padding:12px;margin-bottom:12px}
+  .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
+  video{display:block;width:100%;max-width:520px;background:#000}
+  canvas{position:absolute;inset:0;pointer-events:none}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px}
+  button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:var(--chip-bg);font-size:12px}
+  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--bd);background:#fff}
+  .chip.ok{background:#e7f5ff;color:var(--ok);border-color:#a5d8ff}
+  .chip.ng{background:#fff5f5;color:var(--ng);border-color:#ffc9c9}
+  .chip.info{background:#fff7e6;color:#b46900;border-color:#ffd8a8}
+  .muted{color:var(--sub);font-size:13px}
+  .target b{font-size:1.1em}
+  .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:13px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
+  @keyframes fade-out{from{opacity:1}to{opacity:0}}
+  .bigmsg{
+    position:fixed;left:50%;top:18%;transform:translateX(-50%);
+    z-index:999;background:rgba(28,126,214,.96);color:#fff;padding:16px 22px;
+    border-radius:12px;font-size:clamp(18px,3.2vw,26px);box-shadow:0 8px 24px rgba(0,0,0,.2);
+    pointer-events:none;animation:big-fade 1.2s ease-out forwards;letter-spacing:.02em;text-align:center
+  }
+  .bigmsg .sub{display:block;font-size:.82em;opacity:.9;margin-top:2px}
+  @keyframes big-fade{0%{opacity:0;transform:translate(-50%,-8px)}10%{opacity:1;transform:translate(-50%,0)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-8px)}}
+  .legend{font-size:12px;color:#555;margin-top:6px}
+  .error{color:#b00020;white-space:pre-wrap}
+  .list{font-size:13px;line-height:1.5}
+  .list code{background:#f1f3f5;padding:1px 4px;border-radius:6px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>照会モード｜型さがし（order / die 対応）</h1>
+    <div class="row">
+      <div class="panel">
+        <div class="card">
+          <div class="stack" id="stack">
+            <video id="video" playsinline muted></video>
+            <canvas id="overlay"></canvas>
+          </div>
+          <div class="controls">
+            <button id="btnStart" class="primary">カメラ開始</button>
+            <button id="btnStop" disabled>停止</button>
+            <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
+            <span id="detectorInfo" class="badge"></span>
+            <span id="scanStatus" class="chip info">待機中</span>
+          </div>
+          <div id="error" class="error muted" style="margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="card">
+          <h3>🎯 ターゲット</h3>
+          <div class="target">
+            Book: <b id="tBN">-</b> / WC: <b id="tWC">-</b><br>
+            <span id="tWN" class="muted"></span>
+          </div>
+          <div class="legend" style="margin-top:8px;">
+            ・先に <code>order-book-wc</code>（作業指示QR）をかざすとターゲットに設定します。<br>
+            ・その後 <code>die-book-wc</code>（現物の抜型QR）をかざすと一致なら<strong style="color:var(--ok)">青枠</strong>で通知します。
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>操作</h3>
+          <div class="list">
+            ・URLパラメータでも指定可：<code>?book=Ta&wc=2356&wn=箱の名前</code><br>
+            ・検出エンジン：<span id="detName">-</span><br>
+            ・種別ルール：<code>order-Book-WC</code> / <code>die-Book-WC</code> または URL 形式（<code>?book=..&wc=..</code>）
+          </div>
+          <div class="legend" style="margin-top:8px;">
+            <span class="chip ok">一致（die）</span>
+            <span class="chip ng">不一致</span>
+            <span class="chip info">作業指示（order）</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>ヘルプ</h3>
+          <div class="list">
+            ・作業指示（order）読取りでターゲットを設定 → 以後の die を評価します。<br>
+            ・連続検出で誤作動しないよう、ロック＆クールダウンを自動適用します。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- jsQR（フォールバック用） -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+  <script>
+  (() => {
+    const DOM = {
+      video: document.getElementById('video'),
+      overlay: document.getElementById('overlay'),
+      stack: document.getElementById('stack'),
+      btnStart: document.getElementById('btnStart'),
+      btnStop: document.getElementById('btnStop'),
+      fileTest: document.getElementById('fileTest'),
+      error: document.getElementById('error'),
+      detectorInfo: document.getElementById('detectorInfo'),
+      scanStatus: document.getElementById('scanStatus'),
+      detName: document.getElementById('detName'),
+      tBN: document.getElementById('tBN'),
+      tWC: document.getElementById('tWC'),
+      tWN: document.getElementById('tWN'),
+    };
+    const ctx = DOM.overlay.getContext('2d', { willReadFrequently: true });
+
+    const state = {
+      stream: null,
+      rafId: null,
+      detector: null,
+      useBarcodeDetector: ('BarcodeDetector' in window),
+      currentTarget: { book: '', wc: '', wn: '' },
+      targetKey: '',
+      isLocked: false,
+      holdTimer: null,
+      lastSetKey: '',
+      lastSetAt: 0,
+    };
+
+    const CONFIG = {
+      colors: { ok: '#1c7ed6', ng: '#e03131', info: '#f59f00' },
+      holdMs: 2400,
+      lockCooldown: 600,
+      setCooldown: 1000, // order 直後のブレ抑制
+      maskIterations: 10, // jsQR で複数個読む
+    };
+
+    // ====== TTS: 日本語で簡易通知 ======
+    let __ttsReady = false, __jpVoices = [], __lastSpeak = 0;
+    function initTTS(){
+      if(!('speechSynthesis' in window)) return;
+      const synth = window.speechSynthesis;
+      const load = () => {
+        const vs = synth.getVoices();
+        __jpVoices = vs.filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name));
+        __ttsReady = true;
+      };
+      load(); synth.onvoiceschanged = load;
+    }
+    function speakOnce(text, cooldown=1300){
+      if(!('speechSynthesis' in window)) return;
+      const now = performance.now();
+      if(now - __lastSpeak < cooldown) return;
+      __lastSpeak = now;
+      const u = new SpeechSynthesisUtterance(String(text));
+      u.lang='ja-JP'; u.rate=1.05; u.pitch=1.2; u.volume=1.0;
+      if(__jpVoices.length) u.voice = __jpVoices[0];
+      try{ window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);}catch{}
+    }
+    document.addEventListener('pointerdown', function __once(){ initTTS(); document.removeEventListener('pointerdown', __once, true); }, true);
+
+    const normHyphen = s => (s||'').replace(/[‐-‒–—―ー−]/g, '-').trim();
+    const dieKey = (bn,wc) => `${(bn||'').toLowerCase()}@@${(wc||'').toLowerCase()}`;
+
+    // === 種別判定 ===
+    function classify(raw){
+      const text = normHyphen(raw);
+      if(/^order[_-]?plain/i.test(text) || /^order-/i.test(text)) return 'order';
+      if(/^die-/i.test(text)) return 'die';
+      try{
+        const u = new URL(text);
+        if (/order[_-]?plain/i.test(u.pathname + u.search)) return 'order';
+        if (u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
+      }catch{}
+      return 'other';
+    }
+
+    // === WorkName を URLハッシュの base64(JSON) から抽出（#d=...） ===
+    function tryExtractWN(rawUrl){
+      try{
+        const u = new URL(rawUrl);
+        const m = /[#&]d=([^&]+)/.exec(u.hash||'');
+        if(!m) return '';
+        const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
+        const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : '';
+        const json = atob(b64+pad);
+        const obj = JSON.parse(json);
+        return (obj.wn||'').trim();
+      }catch{ return ''; }
+    }
+
+    // === die / order のパース（URL 形式も許容） ===
+    function parseDie(raw){
+      const t = normHyphen(raw);
+      const m = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(t);
+      if(m) return { bn:m[1].trim(), wc:m[2].trim(), wn:(m[3]||'').trim() };
+      try{
+        const u = new URL(t);
+        const book=(u.searchParams.get('book')||'').trim();
+        const wc=(u.searchParams.get('wc')||'').trim();
+        if(book||wc){
+          const wn = (u.searchParams.get('wn')||'').trim() || tryExtractWN(t);
+          return { bn:book, wc:wc, wn };
+        }
+      }catch{}
+      return null;
+    }
+    function parseOrder(raw){
+      const t = normHyphen(raw);
+      try{
+        const u = new URL(t);
+        if(/order[_-]?plain/i.test(u.pathname + u.search)){
+          const book=(u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
+          const wc=(u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
+          if(book||wc) return { bn:book, wc:wc };
+        }
+      }catch{}
+      const m = /order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
+      if(m) return { bn:m[1].trim(), wc:m[2].trim() };
+      return null;
+    }
+
+    // === 描画ユーティリティ ===
+    function fitOverlay(){
+      if(!DOM.video.videoWidth) return;
+      DOM.overlay.width = DOM.video.videoWidth;
+      DOM.overlay.height = DOM.video.videoHeight;
+      DOM.overlay.style.width = DOM.video.clientWidth + 'px';
+      DOM.overlay.style.height = DOM.video.clientHeight + 'px';
+    }
+    function drawBox(points, color, solid=true){
+      if(!points || points.length<4) return;
+      ctx.save();
+      ctx.lineWidth = solid ? 5 : 3;
+      ctx.setLineDash(solid ? [] : [8,6]);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 4;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+    function showToastNear(text, points){
+      if(!points || points.length<2) return;
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.textContent = text;
+      const x = (points[0].x + points[1].x) / 2;
+      const y = Math.min(points[0].y, points[1].y);
+      const rx = x / DOM.overlay.width * DOM.video.clientWidth;
+      const ry = y / DOM.overlay.height * DOM.video.clientHeight;
+      el.style.left = rx + 'px';
+      el.style.top  = ry + 'px';
+      DOM.stack.appendChild(el);
+      setTimeout(()=>el.remove(), 1200);
+    }
+    function showBig(text, sub=''){
+      document.querySelectorAll('.bigmsg').forEach(e=>e.remove());
+      const el = document.createElement('div');
+      el.className = 'bigmsg';
+      el.textContent = text;
+      if(sub){
+        const s = document.createElement('span');
+        s.className='sub';
+        s.textContent=sub;
+        el.appendChild(s);
+      }
+      document.body.appendChild(el);
+      setTimeout(()=>el.remove(), 1400);
+    }
+    function updateStatus(text, kind='info'){
+      DOM.scanStatus.textContent = text;
+      DOM.scanStatus.className = `chip ${kind}`;
+    }
+    function setError(e){
+      console.error(e);
+      DOM.error.textContent = '❌ ' + (e?.name || '') + ' ' + (e?.message || e);
+    }
+
+    // === カメラ ===
+    function stopCam(){
+      if(state.rafId) cancelAnimationFrame(state.rafId);
+      state.rafId = null;
+      if(state.stream) state.stream.getTracks().forEach(t=>t.stop());
+      state.stream = null;
+      DOM.btnStart.disabled = false;
+      DOM.btnStop.disabled = true;
+      updateStatus('停止中','info');
+    }
+    async function startCam(){
+      stopCam(); DOM.error.textContent='';
+      try{
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          video:{ facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} }, audio:false
+        });
+        DOM.video.srcObject = state.stream;
+        await DOM.video.play();
+        DOM.btnStart.disabled = true; DOM.btnStop.disabled = false;
+        if(state.useBarcodeDetector){
+          try{ state.detector = new BarcodeDetector({ formats:['qr_code'] }); }
+          catch{ state.useBarcodeDetector=false; state.detector=null; }
+        }
+        const detName = state.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
+        DOM.detectorInfo.textContent = detName;
+        DOM.detName.textContent = detName;
+        fitOverlay();
+        tick();
+      }catch(e){ setError(e); updateStatus('カメラエラー','ng'); }
+    }
+
+    // === 複合検出 ===
+    async function detectCombined(){
+      if(!DOM.video.videoWidth) return [];
+      const tmp = document.createElement('canvas');
+      tmp.width = DOM.video.videoWidth;
+      tmp.height = DOM.video.videoHeight;
+      const tctx = tmp.getContext('2d', { willReadFrequently:true });
+      tctx.drawImage(DOM.video, 0, 0, tmp.width, tmp.height);
+
+      const all = new Map();
+
+      if(state.useBarcodeDetector && state.detector){
+        try{
+          const codes = await state.detector.detect(tmp);
+          codes.forEach(c => all.set(c.rawValue, {
+            rawValue: c.rawValue, cornerPoints: c.cornerPoints
+          }));
+        }catch(e){ console.warn('BarcodeDetector failed', e); }
+      }
+
+      // jsQR で複数個拾う（マスキング）
+      const img = tctx.getImageData(0,0,tmp.width,tmp.height);
+      const masked = new Uint8ClampedArray(img.data);
+      for(let k=0;k<CONFIG.maskIterations;k++){
+        const hit = jsQR(masked, img.width, img.height, { inversionAttempts:'dontInvert' });
+        if(!hit) break;
+        const raw = hit.data;
+        if(!all.has(raw)){
+          all.set(raw, {
+            rawValue: raw,
+            cornerPoints: [
+              hit.location.topLeftCorner,
+              hit.location.topRightCorner,
+              hit.location.bottomRightCorner,
+              hit.location.bottomLeftCorner
+            ]
+          });
+        }
+        const { topLeftCorner, bottomRightCorner } = hit.location;
+        for(let y=Math.floor(topLeftCorner.y); y<Math.ceil(bottomRightCorner.y); y++){
+          for(let x=Math.floor(topLeftCorner.x); x<Math.ceil(bottomRightCorner.x); x++){
+            const i = (y*img.width + x)*4;
+            masked[i]=masked[i+1]=masked[i+2]=255;
+          }
+        }
+      }
+      return Array.from(all.values());
+    }
+
+    function holdScan(ms){
+      if(state.holdTimer) clearTimeout(state.holdTimer);
+      if(state.rafId) cancelAnimationFrame(state.rafId);
+      state.rafId = null;
+      updateStatus('ロック中','ok');
+      state.holdTimer = setTimeout(()=>{
+        if(!state.rafId) tick();
+        state.holdTimer = null;
+      }, ms);
+    }
+
+    function applyDetections(ds){
+      let anyMatch=false;
+      ctx.clearRect(0,0,DOM.overlay.width,DOM.overlay.height);
+
+      for(const d of (ds||[])){
+        const raw = (d.rawValue||'').trim();
+        if(!raw) continue;
+
+        const kind = classify(raw);
+        const pts = d.cornerPoints;
+
+        if(kind==='order'){
+          const od = parseOrder(raw);
+          if(od && (od.bn || od.wc)){
+            const newKey = dieKey(od.bn, od.wc);
+            const now = performance.now();
+            const same = (newKey === state.lastSetKey);
+            const cooling = (now - state.lastSetAt) < CONFIG.setCooldown;
+
+            drawBox(pts, CONFIG.colors.info, true);
+            showToastNear(`作業指示 ${od.bn||'-'}/${od.wc||'-'}`, pts);
+
+            if(!same || !cooling || newKey !== state.targetKey){
+              state.currentTarget = { book: od.bn||'', wc: od.wc||'', wn: '' };
+              state.targetKey = newKey;
+              state.lastSetKey = newKey;
+              state.lastSetAt = now;
+
+              DOM.tBN.textContent = state.currentTarget.book || '-';
+              DOM.tWC.textContent = state.currentTarget.wc || '-';
+              DOM.tWN.textContent = '';
+
+              showBig('ターゲットを設定しました','order を読み取り');
+              speakOnce('ターゲットを設定しました。');
+              holdScan(800);
+            }
+          }else{
+            drawBox(pts, CONFIG.colors.ng, false);
+            showToastNear('作業指示（形式不明）', pts);
+          }
+
+        }else if(kind==='die'){
+          const p = parseDie(raw);
+          const key = p ? dieKey(p.bn, p.wc) : '';
+          const isMatch = key && state.targetKey && key === state.targetKey;
+          if(isMatch) anyMatch = true;
+
+          drawBox(pts, isMatch ? CONFIG.colors.ok : CONFIG.colors.ng, isMatch);
+          showToastNear(isMatch ? `一致 [${p.bn}/${p.wc}]` : `不一致 [${p?.bn||'?'} / ${p?.wc||'?'}]`, pts);
+
+          if(isMatch && !state.isLocked){
+            state.isLocked = true;
+            if(navigator.vibrate) navigator.vibrate(160);
+            showBig('ターゲット発見', p.wn ? p.wn : `${p.bn}/${p.wc}`);
+            const wn = p.wn || state.currentTarget.wn || '';
+            speakOnce(wn ? `お探しの型、${wn}、が見つかりました。` : `お探しの型が見つかりました。`, 1500);
+            holdScan(CONFIG.holdMs);
+            setTimeout(()=>{ state.isLocked=false; }, CONFIG.lockCooldown);
+          }
+
+        }else{
+          // other
+          drawBox(pts, CONFIG.colors.ng, false);
+          showToastNear('別QR', pts);
+        }
+      }
+
+      if(!state.holdTimer){
+        if(ds.length===0) updateStatus('探索中...','info');
+        else if(anyMatch) updateStatus('ターゲット発見','ok');
+        else updateStatus(`${ds.length}件検知`,'info');
+      }
+    }
+
+    async function tick(){
+      if(!state.stream) return;
+      if(DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA){
+        fitOverlay();
+        const ds = await detectCombined();
+        applyDetections(ds);
+      }
+      state.rafId = requestAnimationFrame(tick);
+    }
+
+    // === 画像静止画テスト ===
+    DOM.fileTest.addEventListener('change', ev=>{
+      const file = ev.target.files?.[0];
+      if(!file) return;
+      const img = new Image();
+      img.onload = ()=>{
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        const c = canvas.getContext('2d', { willReadFrequently:true });
+        c.drawImage(img, 0, 0);
+        const data = c.getImageData(0,0,canvas.width,canvas.height);
+        const hits = [];
+        const masked = new Uint8ClampedArray(data.data);
+        for(let k=0;k<CONFIG.maskIterations;k++){
+          const hit = jsQR(masked, data.width, data.height, { inversionAttempts:'dontInvert' });
+          if(!hit) break;
+          hits.push({ rawValue: hit.data, cornerPoints:[
+            hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner
+          ]});
+          const { topLeftCorner, bottomRightCorner } = hit.location;
+          for(let y=Math.floor(topLeftCorner.y); y<Math.ceil(bottomRightCorner.y); y++){
+            for(let x=Math.floor(topLeftCorner.x); x<Math.ceil(bottomRightCorner.x); x++){
+              const i = (y*data.width + x)*4;
+              masked[i]=masked[i+1]=masked[i+2]=255;
+            }
+          }
+        }
+        DOM.overlay.width = img.width;
+        DOM.overlay.height = img.height;
+        DOM.overlay.style.width = '100%';
+        DOM.overlay.style.height = 'auto';
+        applyDetections(hits);
+        updateStatus(`静止画テスト: ${hits.length}件検知`,'info');
+        ev.target.value = "";
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    // === URL パラメータでターゲット事前設定 ===
+    (function initFromParams(){
+      const p = new URLSearchParams(location.search);
+      const book = (p.get('book')||'').trim();
+      const wc   = (p.get('wc')||'').trim();
+      const wn   = (p.get('wn')||'').trim();
+      if(book || wc){
+        state.currentTarget = { book, wc, wn };
+        state.targetKey = dieKey(book, wc);
+        DOM.tBN.textContent = book || '-';
+        DOM.tWC.textContent = wc || '-';
+        DOM.tWN.textContent = wn ? wn : '';
+        updateStatus('準備完了','info');
+      }else{
+        updateStatus('ターゲット未指定（order を読ませるか URL で指定）','info');
+      }
+    })();
+
+    // === ボタン ===
+    DOM.btnStart.addEventListener('click', ()=>{ initTTS(); startCam(); });
+    DOM.btnStop.addEventListener('click', stopCam);
+
+    // レイアウト追随
+    window.addEventListener('resize', fitOverlay);
+  })();
+  </script>
+</body>
+</html>
