@@ -165,7 +165,8 @@
     current: { book:'', wc:'' }, lastQueryKey: '',
     csrf: readCookie('xcsrf') || '',
   };
-
+ 
+ 
   // 初期のCSRF警告
   if(!S.csrf){ D.csrfWarn.style.display = 'block'; }
 

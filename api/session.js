@@ -1,36 +1,31 @@
 // pages/api/session.js
 export const config = { runtime: 'edge' };
 
-function b64urlRand(n = 32) {
-  const a = new Uint8Array(n);
-  crypto.getRandomValues(a);
-  return Buffer.from(a).toString('base64url');
+// ランダムな 32 文字のCSRFトークンを発行
+function genToken(len = 32) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  const abc = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  return Array.from(arr, b => abc[b % abc.length]).join('');
 }
 
 export default async function handler(req) {
-  // GETのみ
-  if (req.method !== 'GET') {
-    return new Response('Method Not Allowed', { status: 405 });
-  }
+  const xcsrf = genToken(32);
 
-  const token = b64urlRand(32);
-  const maxAge = 10 * 60; // 10分
-
-  // CookieはJSから読める（HttpOnly なし）／SameSite=Laxで外部遷移の自動送信を抑える
+  // 24h / Secure / SameSite=Lax / Path=/
   const cookie = [
-    `xcsrf=${token}`,
+    `xcsrf=${encodeURIComponent(xcsrf)}`,
     'Path=/',
-    'Max-Age=' + maxAge,
+    'Max-Age=86400',
     'SameSite=Lax',
-    'Secure'
+    'Secure'                  // ← 本番 https 前提
   ].join('; ');
 
-  return new Response(JSON.stringify({ ok: true, token }), {
+  return new Response(JSON.stringify({ ok: true, xcsrf }), {
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      'set-cookie': cookie,
-      // CORS不要（同一オリジン利用前提）
+      'set-cookie': cookie
     }
   });
 }
