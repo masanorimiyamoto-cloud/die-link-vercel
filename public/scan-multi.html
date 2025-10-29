@@ -538,8 +538,7 @@ function processScanResult(hit) {
       playBeep(660, 130); buzz(40);
       toast("棚を固定", candidate.parsed.loc);
 
-      // ★★★ クールダウン（1.2秒スキャン停止）★★★
-      scanCooldownUntil = performance.now() + 1200;
+      
     }
 
     } // ---- 登録モード：DIE を追加した直後 ----
