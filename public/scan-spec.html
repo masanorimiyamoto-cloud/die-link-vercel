@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
     --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
@@ -54,7 +54,7 @@
     <div class="panel">
       <div class="card">
         <div class="stack" id="stack">
-          <video id="video" playsinline muted></video>
+          <video id="video" playsinline webkit-playsinline muted></video>
           <canvas id="overlay"></canvas>
         </div>
         <div class="controls">
@@ -165,15 +165,18 @@
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
 
+  // ===== Config (Android 安定化向け) =====
+  const CFG = {
+    JSQR_MAX_LOOPS: 10,
+    DOWNSCALE: 1, // 1=原寸, 2=1/2スケール（ノイズ多い端末で上げると安定/高速）
+  };
+
   // ===== State =====
   const S = {
     stream: null, rafId: null,
     detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
     current: { book:'', wc:'' }, lastQueryKey: '',
-    csrf: '',
-    // 追加: ロック制御
-    lockedKey: '',       // 同一コードへの連続反応を避ける
-    lockedUntil: 0       // ms
+    csrf: '' // 起動時に ensureCsrf() で設定
   };
 
   // ===== Utils =====
@@ -195,15 +198,8 @@
   }
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
-    ctx.save();
-    ctx.lineWidth= solid?5:3;
-    ctx.setLineDash(solid?[]:[8,6]);
-    ctx.shadowColor=color;
-    ctx.shadowBlur=4;
-    ctx.strokeStyle=color;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y);
-    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
-    ctx.closePath(); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
@@ -221,7 +217,10 @@
   }
   async function ensureCsrf(){
     let t = readCookie('xcsrf');
-    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
+    if(!t){
+      await requestSession();
+      t = readCookie('xcsrf');
+    }
     if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
     S.csrf = t;
     D.csrfStatus.textContent = 'CSRF: 有効';
@@ -229,6 +228,7 @@
     D.csrfStatus.style.color = '#1c7ed6';
     D.csrfWarn.style.display = 'none';
   }
+
   document.addEventListener('DOMContentLoaded', async () => {
     try{ await ensureCsrf(); }
     catch(e){
@@ -282,193 +282,148 @@
   }
 
   // ===== Camera =====
-  // 旧: function stopCam(){ ... } を↓で置き換え
-  function stopCam(keepLock = false){
+  function stopCam(){
     if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
     if(S.stream) S.stream.getTracks().forEach(t=>t.stop()); S.stream=null;
-    D.btnStart.disabled=false; 
-    D.btnStop.disabled=true;
-    setStatus(keepLock ? '停止中（ロック）' : '停止中','info');
-    // ロック状態を維持するかどうか
-    if(!keepLock){
-      S.lockedKey='';
-      S.lockedUntil=0;
-    }
+    D.btnStart.disabled=false; D.btnStop.disabled=true;
+    setStatus('停止中','info');
   }
-
- 
-
   async function startCam(){
     stopCam(); D.errCam.textContent='';
     try{
       S.stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        // 一部 Android で environment を確実に取るため exact→ideal フォールバック
-        facingMode: { ideal: 'environment' },
-        width:  { ideal: 1280, min: 640,  max: 1920 },
-        height: { ideal: 720,  min: 480,  max: 1080 },
-        // AndroidでAFが効く端末向けのヒント（無視されてもOK）
-        advanced: [{ focusMode: 'continuous' }]
-      },
-      audio: false
-    });
-
+        video:{
+          facingMode:{ ideal:'environment' },
+          width:{ ideal:1280, min:640, max:1920 },
+          height:{ ideal:720,  min:480, max:1080 },
+          advanced:[{ focusMode:'continuous' }]
+        },
+        audio:false
+      });
       D.video.srcObject=S.stream; await D.video.play();
       D.btnStart.disabled=true; D.btnStop.disabled=false;
-      // startCam() の直後～S.detector 初期化のあたりにあるこの部分を差し替え
-    if(S.useBarcodeDetector){
-      try{
-        // 一部 Android 端末は formats に qr_code 未対応 or バグあり → フォールバック
-        const supported = (typeof BarcodeDetector.getSupportedFormats === 'function')
-          ? await BarcodeDetector.getSupportedFormats() : [];
-        if(!supported || !supported.includes('qr_code')) throw new Error('qr_code unsupported');
-        S.detector = new BarcodeDetector({ formats:['qr_code'] });
-      }catch{
-    S.useBarcodeDetector=false; S.detector=null;
-  }
-}
 
+      // BarcodeDetector サポート確認（Android 一部未対応）
+      if(S.useBarcodeDetector){
+        try{
+          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+            ? await BarcodeDetector.getSupportedFormats() : [];
+          if(!fmts || !fmts.includes('qr_code')) throw new Error('qr_code unsupported');
+          S.detector = new BarcodeDetector({ formats:['qr_code'] });
+        }catch{
+          S.useBarcodeDetector=false; S.detector=null;
+        }
+      }
       const detName = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
       D.detectorInfo.textContent = detName; setStatus('探索中…','info');
       fitOverlay(); tick();
     }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
   }
 
+  // ===== MULTI-PASS DETECTOR (Android安定化) =====
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
+    // 必要なら縮小キャンバスでノイズを落とす
+    const scale = Math.max(1, Number(CFG.DOWNSCALE)||1);
+    const srcW = D.video.videoWidth, srcH = D.video.videoHeight;
+    const w = Math.floor(srcW/scale), h = Math.floor(srcH/scale);
+
     const tmp = document.createElement('canvas');
-    tmp.width = D.video.videoWidth;
-    tmp.height= D.video.videoHeight;
+    tmp.width = w; tmp.height = h;
     const tctx = tmp.getContext('2d', { willReadFrequently:true });
-
-    // 画質優先設定（Androidで効果あり）
+    // 画質優先（補間オフ）→輪郭が立って検出安定
     tctx.imageSmoothingEnabled = false;
-
-    tctx.drawImage(D.video, 0, 0, tmp.width, tmp.height);
+    tctx.drawImage(D.video, 0, 0, w, h);
 
     const all = new Map();
 
-    // 1) BarcodeDetector（使える場合のみ）
+    // 1) BarcodeDetector（使える場合）
     if(S.useBarcodeDetector && S.detector){
       try{
         const codes = await S.detector.detect(tmp);
         for(const c of codes){
           const raw = (c.rawValue||'').trim();
-          if(raw && !all.has(raw)) all.set(raw, c);
+          if(raw && !all.has(raw)) all.set(raw, {
+            rawValue: raw,
+            cornerPoints: c.cornerPoints?.map(p=>({ x:p.x*scale, y:p.y*scale })) || null
+          });
         }
-      }catch(e){
-        // 失敗が続く端末は以降も使わない
+      }catch{
         S.useBarcodeDetector=false; S.detector=null;
       }
     }
 
-  // 2) jsQR マルチパス（白塗りしながら複数検出）
-  const img = tctx.getImageData(0,0,tmp.width,tmp.height);
-  const masked = new Uint8ClampedArray(img.data);
+    // 2) jsQR マルチパス（白塗りで複数拾う）
+    const img = tctx.getImageData(0,0,w,h);
+    const masked = new Uint8ClampedArray(img.data);
+    const runJsqr = ()=> jsQR(masked, w, h, { inversionAttempts:'attemptBoth' });
 
-  // Android での反転印刷対策: attemptBoth
-  const jsqrOnce = () => jsQR(masked, img.width, img.height, { inversionAttempts:'attemptBoth' });
+    for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
+      const hit = runJsqr();
+      if(!hit) break;
 
-  for(let k=0; k<10; k++){
-    const hit = jsqrOnce();
-    if(!hit) break;
-
-    const raw = (hit.data||'').trim();
-    if(raw && !all.has(raw)){
-      all.set(raw, {
-        rawValue: raw,
-        cornerPoints: [
+      const raw = (hit.data||'').trim();
+      if(raw && !all.has(raw)){
+        // corner を元サイズに戻して返す
+        const pts = [
           hit.location.topLeftCorner,
           hit.location.topRightCorner,
           hit.location.bottomRightCorner,
           hit.location.bottomLeftCorner
-        ]
-      });
-    }
+        ].map(p=>({ x:p.x*scale, y:p.y*scale }));
+        all.set(raw, { rawValue: raw, cornerPoints: pts });
+      }
 
-    // 次のスキャンのために今回ヒット領域を白でマスク
-    const tl = hit.location.topLeftCorner;
-    const br = hit.location.bottomRightCorner;
-    const minX = Math.max(0, Math.floor(Math.min(tl.x, br.x)));
-    const maxX = Math.min(img.width,  Math.ceil (Math.max(tl.x, br.x)));
-    const minY = Math.max(0, Math.floor(Math.min(tl.y, br.y)));
-    const maxY = Math.min(img.height, Math.ceil (Math.max(tl.y, br.y)));
-
-    for(let y=minY; y<maxY; y++){
-      for(let x=minX; x<maxX; x++){
-        const i = (y*img.width + x)*4;
-        masked[i]=masked[i+1]=masked[i+2]=255; // 白塗り
+      // 次の検出へ向けヒット領域を白で潰す
+      const tl = hit.location.topLeftCorner;
+      const br = hit.location.bottomRightCorner;
+      const minX = Math.max(0, Math.floor(Math.min(tl.x, br.x)));
+      const maxX = Math.min(w,  Math.ceil (Math.max(tl.x, br.x)));
+      const minY = Math.max(0, Math.floor(Math.min(tl.y, br.y)));
+      const maxY = Math.min(h, Math.ceil (Math.max(tl.y, br.y)));
+      for(let y=minY; y<maxY; y++){
+        for(let x=minX; x<maxX; x++){
+          const i = (y*w + x)*4;
+          masked[i]=masked[i+1]=masked[i+2]=255; // 白塗り
+        }
       }
     }
-  }
 
-  return Array.from(all.values());
-}
-
-  // ---- 追加：ロックユーティリティ
-  // 旧: function lockCandidate(kind, key, pts){ ... } を↓で置き換え
-  function lockCandidate(kind, key, pts){
-    S.lockedKey   = key;
-    S.lockedUntil = performance.now() + 1200; // 1.2s ロック
-    setStatus('ロック中','ok');
-    // 一発だけ吹き出し
-    showToastNear('🔒 ロック / ターゲットを設定しました', pts);
-    // ここでカメラを停止（ロック状態は維持）
-    stopCam(true);
+    return Array.from(all.values());
   }
 
   async function tick(){
     if(!S.stream) return;
     if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
       fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-        const ds = await detectCombined();     // ← ここを detectCombinedOnce→detectCombined に
+      const ds = await detectCombined();
       applyDetections(ds);
     }
     S.rafId = requestAnimationFrame(tick);
   }
 
   function applyDetections(ds){
-    const now = performance.now();
     for(const d of ds){
       const raw=(d.rawValue||'').trim(); if(!raw) continue;
-      const kind = classify(raw);
-      const pts = d.cornerPoints;
-
-      // 解析
-      let parsed=null, key='';
-      if(kind==='order'){ parsed = parseOrder(raw); if(parsed) key = `order:${dieKey(parsed.bn||'', parsed.wc||'')}`; }
-      else if(kind==='die'){ parsed = parseDie(raw); if(parsed) key = `die:${dieKey(parsed.bn||'', parsed.wc||'')}`; }
-
-      // ロック中の同一キーは点線表示のみ（再処理しない）
-      if(key && S.lockedKey===key && now < S.lockedUntil){
-        const color = (kind==='order') ? '#f59f00' : '#1c7ed6';
-        drawBox(pts, color, false); // dashed
-        continue;
-      }
-
-      if(kind==='order' && parsed && (parsed.bn || parsed.wc)){
-        // 新規ロック＆ターゲット設定
-        const color = '#f59f00';
-        drawBox(pts, color, true);
-        setTarget(parsed.bn||'', parsed.wc||'');
-        lockCandidate('order', key, pts);
-        querySpec();
-      }else if(kind==='die' && parsed && (parsed.bn || parsed.wc)){
-        const color = '#1c7ed6';
-        drawBox(pts, color, true);
-        setTarget(parsed.bn||'', parsed.wc||'');
-        lockCandidate('die', key, pts);
-        querySpec();
+      const kind = classify(raw); const pts = d.cornerPoints;
+      if(kind==='order'){
+        const od = parseOrder(raw);
+        if(od && (od.bn || od.wc)){
+          drawBox(pts, '#f59f00', true); showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
+          setTarget(od.bn||'', od.wc||''); querySpec();
+        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
+      }else if(kind==='die'){
+        const p = parseDie(raw);
+        if(p && (p.bn || p.wc)){
+          drawBox(pts, '#1c7ed6', true); showToastNear('ロック｜ターゲットを設定しました', pts);
+          setTarget(p.bn||'', p.wc||''); 
+          // ロック感を強調：ヒット直後に停止
+          stopCam();
+          querySpec();
+        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
       }else{
-        drawBox(pts, '#e03131', false);
-        showToastNear('別QR', pts);
+        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
       }
-    }
-
-    // ロックが切れたらステータス復帰
-    if(S.lockedUntil && performance.now() >= S.lockedUntil){
-      S.lockedKey=''; S.lockedUntil=0;
-      setStatus('探索中…','info');
     }
   }
 
@@ -491,16 +446,17 @@
     D.loading.style.display='block'; D.result.style.display='none';
 
     try{
-      if(!S.csrf){ await ensureCsrf(); }
+      if(!S.csrf){ await ensureCsrf(); } // 念のため担保
       const r = await fetch('/api/die-check', {
         method:'POST',
-        credentials:'same-origin',
+        credentials:'same-origin',         // Cookie 同送が必須
         headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
         body: JSON.stringify({ book, wc, json:true, limit: 200 })
       });
       const txt = await r.text();
       let j = {};
       try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+
       if(!r.ok || j.ok!==true){
         throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
       }
@@ -532,9 +488,9 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // Airtable側
+    // Airtable側(直近レコードのサマリ＋サムネ)
     if(hits.length>0){
-      const latest = hits[0];
+      const latest = hits[0]; // byDateAscで最も早い納期（die-check側が昇順返却）
       const thumbs = [];
       const atts = (latest.attachments||[]).slice(0,4);
       for(const a of atts){
@@ -564,7 +520,7 @@
       D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
     }
 
-    // 受注一覧
+    // 受注一覧テーブル
     if(hits.length>0){
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
@@ -599,11 +555,12 @@
     }
 
     D.result.style.display='block';
+    // 手入力欄にも反映
     D.inBook.value = book || '';
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブ HTML
+  // 別タブで HTML 版（ヘッダ付きPOST→新規タブへ描画）
   D.btnOpenHtml.addEventListener('click', async () => {
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
@@ -619,7 +576,9 @@
       if(!r.ok) throw new Error(html.slice(0,300));
       const w = window.open('', '_blank');
       if(!w) throw new Error('ポップアップがブロックされました');
-      w.document.open(); w.document.write(html); w.document.close();
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
     }catch(e){
       alert('HTML表示に失敗: ' + (e.message||e));
     }
@@ -641,28 +600,60 @@
   D.btnStop.addEventListener('click', stopCam);
   window.addEventListener('resize', fitOverlay);
 
-  // 画像静止画テスト
+  // 画像静止画テスト（複数ヒットも拾う）
   D.fileTest.addEventListener('change', async ev=>{
     const file = ev.target.files?.[0]; if(!file) return;
     const img = new Image();
     img.onload = ()=>{
       const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
-      const cctx=c.getContext('2d',{willReadFrequently:true}); cctx.drawImage(img,0,0);
+      const cctx=c.getContext('2d',{willReadFrequently:true}); cctx.imageSmoothingEnabled=false; cctx.drawImage(img,0,0);
       const data=cctx.getImageData(0,0,c.width,c.height);
-      const hit=jsQR(data.data, data.width, data.height, { inversionAttempts:'dontInvert' });
-      if(hit){
-        const raw=hit.data;
-        const kind=classify(raw);
+      const hits = jsqrMulti(data);
+      D.overlay.width = c.width; D.overlay.height = c.height; ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      for(const h of hits){
+        drawBox(h.cornerPoints, '#1c7ed6', true);
+      }
+      if(hits[0]){
+        const raw = hits[0].rawValue;
+        const kind = classify(raw);
         if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'', od.wc||''); } }
         else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'', d.wc||''); } }
         S.lastQueryKey=''; querySpec();
-      }else{
-        alert('QR が検出できませんでした');
       }
       ev.target.value="";
     };
     img.src = URL.createObjectURL(file);
   });
+
+  function jsqrMulti(imgData){
+    const hits=[];
+    const w=imgData.width, h=imgData.height;
+    const masked=new Uint8ClampedArray(imgData.data);
+    for(let k=0;k<CFG.JSQR_MAX_LOOPS;k++){
+      const hit=jsQR(masked,w,h,{ inversionAttempts:'attemptBoth' });
+      if(!hit) break;
+      hits.push({
+        rawValue: hit.data,
+        cornerPoints:[
+          hit.location.topLeftCorner,
+          hit.location.topRightCorner,
+          hit.location.bottomRightCorner,
+          hit.location.bottomLeftCorner
+        ]
+      });
+      const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+      const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x)));
+      const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
+      const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
+      const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
+      for(let y=minY;y<maxY;y++){
+        for(let x=minX;x<maxX;x++){
+          const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255;
+        }
+      }
+    }
+    return hits;
+  }
 
   // URL パラメータで事前指定
   (function initFromParams(){
