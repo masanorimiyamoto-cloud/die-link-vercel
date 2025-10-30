@@ -18,6 +18,9 @@
   .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
   video{display:block;width:100%;max-width:580px;background:#000}
   canvas{position:absolute;inset:0;pointer-events:none}
+  /* 追加: フリーズ用キャンバス（ビデオの上、オーバーレイの下） */
+  #freeze{z-index:1; display:none;}
+  #overlay{z-index:2;}
   .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
   button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600}
   button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
@@ -43,6 +46,28 @@
   .tbl{width:100%;border-collapse:collapse;font-size:14px}
   .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
   .tbl thead th{background:#f8f9fb}
+
+  /* 追加: スワイプヒントの吹き出し */
+  .swipe-hint{
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    background: rgba(33,37,41,.92);
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 999px;
+    font-size: 14px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.25);
+    z-index: 9999;
+    animation: hint-pop 1.6s ease-out forwards;
+  }
+  @keyframes hint-pop{
+    0%{opacity:0; transform: translateX(-50%) translateY(6px);}
+    15%{opacity:1; transform: translateX(-50%) translateY(0);}
+    75%{opacity:1;}
+    100%{opacity:0; transform: translateX(-50%) translateY(6px);}
+  }
 </style>
 </head>
 <body>
@@ -55,6 +80,8 @@
       <div class="card">
         <div class="stack" id="stack">
           <video id="video" playsinline webkit-playsinline muted></video>
+          <!-- 追加: ロック後の静止画を保持するキャンバス -->
+          <canvas id="freeze"></canvas>
           <canvas id="overlay"></canvas>
         </div>
         <div class="controls">
@@ -112,12 +139,10 @@
 
         <div id="result" style="margin-top:10px;display:none">
           <div class="grid">
-            <!-- Sheets -->
             <div>
               <h3>Google Sheets（仕様）</h3>
               <div id="gsBox" class="muted">—</div>
             </div>
-            <!-- Airtable -->
             <div>
               <h3>Airtable（受注・図面）</h3>
               <div id="atBox" class="muted">—</div>
@@ -151,7 +176,7 @@
 (() => {
   // ===== DOM =====
   const D = {
-    video: q('#video'), overlay: q('#overlay'), stack: q('#stack'),
+    video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
     btnStart: q('#btnStart'), btnStop: q('#btnStop'), fileTest: q('#fileTest'),
     detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'), scanMsg: q('#scanMsg'),
     errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
@@ -164,19 +189,18 @@
     csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf')
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
+  const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
 
-  // ===== Config (Android 安定化向け) =====
-  const CFG = {
-    JSQR_MAX_LOOPS: 10,
-    DOWNSCALE: 1, // 1=原寸, 2=1/2スケール（ノイズ多い端末で上げると安定/高速）
-  };
+  // ===== Config =====
+  const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
 
   // ===== State =====
   const S = {
     stream: null, rafId: null,
     detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
     current: { book:'', wc:'' }, lastQueryKey: '',
-    csrf: '' // 起動時に ensureCsrf() で設定
+    csrf: '',
+    locked: false
   };
 
   // ===== Utils =====
@@ -203,10 +227,16 @@
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
+    // overlay
     D.overlay.width = D.video.videoWidth;
     D.overlay.height= D.video.videoHeight;
     D.overlay.style.width = D.video.clientWidth + 'px';
     D.overlay.style.height= D.video.clientHeight + 'px';
+    // freeze
+    D.freeze.width = D.video.videoWidth;
+    D.freeze.height= D.video.videoHeight;
+    D.freeze.style.width = D.video.clientWidth + 'px';
+    D.freeze.style.height= D.video.clientHeight + 'px';
   }
 
   // ===== CSRF bootstrap =====
@@ -228,7 +258,6 @@
     D.csrfStatus.style.color = '#1c7ed6';
     D.csrfWarn.style.display = 'none';
   }
-
   document.addEventListener('DOMContentLoaded', async () => {
     try{ await ensureCsrf(); }
     catch(e){
@@ -282,13 +311,30 @@
   }
 
   // ===== Camera =====
-  function stopCam(){
+  function reallyStopStreamTracks(){
+    if(S.stream){
+      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{}
+    }
+    S.stream = null;
+  }
+  function stopCam({keepFrame=false}={}){
     if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
-    if(S.stream) S.stream.getTracks().forEach(t=>t.stop()); S.stream=null;
+    if(!keepFrame){
+      // クリアして通常停止
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      D.freeze.style.display='none';
+      D.video.style.visibility = 'visible';
+    }
+    reallyStopStreamTracks();
     D.btnStart.disabled=false; D.btnStop.disabled=true;
     setStatus('停止中','info');
   }
   async function startCam(){
+    // 起動時はフリーズ画を隠す
+    D.freeze.style.display='none';
+    D.video.style.visibility = 'visible';
+    S.locked = false;
+
     stopCam(); D.errCam.textContent='';
     try{
       S.stream = await navigator.mediaDevices.getUserMedia({
@@ -303,7 +349,6 @@
       D.video.srcObject=S.stream; await D.video.play();
       D.btnStart.disabled=true; D.btnStop.disabled=false;
 
-      // BarcodeDetector サポート確認（Android 一部未対応）
       if(S.useBarcodeDetector){
         try{
           const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
@@ -320,10 +365,25 @@
     }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
   }
 
-  // ===== MULTI-PASS DETECTOR (Android安定化) =====
+  // ロック時：黒くならないよう「最後のフレームをfreezeキャンバスへコピー」→videoを隠す→トラック停止
+  function freezeFrameAndStopCam(){
+    try{
+      // サイズ同期
+      fitOverlay();
+      // 直前フレームをfreezeへ
+      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
+      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
+      D.freeze.style.display = 'block';
+      // ビデオを隠す（黒化回避）
+      D.video.style.visibility = 'hidden';
+    }catch{}
+    // オーバーレイはそのまま（ロック枠を残す）
+    stopCam({keepFrame:true});
+  }
+
+  // ===== MULTI-PASS DETECTOR =====
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
-    // 必要なら縮小キャンバスでノイズを落とす
     const scale = Math.max(1, Number(CFG.DOWNSCALE)||1);
     const srcW = D.video.videoWidth, srcH = D.video.videoHeight;
     const w = Math.floor(srcW/scale), h = Math.floor(srcH/scale);
@@ -331,13 +391,11 @@
     const tmp = document.createElement('canvas');
     tmp.width = w; tmp.height = h;
     const tctx = tmp.getContext('2d', { willReadFrequently:true });
-    // 画質優先（補間オフ）→輪郭が立って検出安定
     tctx.imageSmoothingEnabled = false;
     tctx.drawImage(D.video, 0, 0, w, h);
 
     const all = new Map();
 
-    // 1) BarcodeDetector（使える場合）
     if(S.useBarcodeDetector && S.detector){
       try{
         const codes = await S.detector.detect(tmp);
@@ -353,18 +411,13 @@
       }
     }
 
-    // 2) jsQR マルチパス（白塗りで複数拾う）
     const img = tctx.getImageData(0,0,w,h);
     const masked = new Uint8ClampedArray(img.data);
-    const runJsqr = ()=> jsQR(masked, w, h, { inversionAttempts:'attemptBoth' });
-
     for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
-      const hit = runJsqr();
+      const hit = jsQR(masked, w, h, { inversionAttempts:'attemptBoth' });
       if(!hit) break;
-
       const raw = (hit.data||'').trim();
       if(raw && !all.has(raw)){
-        // corner を元サイズに戻して返す
         const pts = [
           hit.location.topLeftCorner,
           hit.location.topRightCorner,
@@ -373,22 +426,17 @@
         ].map(p=>({ x:p.x*scale, y:p.y*scale }));
         all.set(raw, { rawValue: raw, cornerPoints: pts });
       }
-
-      // 次の検出へ向けヒット領域を白で潰す
-      const tl = hit.location.topLeftCorner;
-      const br = hit.location.bottomRightCorner;
-      const minX = Math.max(0, Math.floor(Math.min(tl.x, br.x)));
-      const maxX = Math.min(w,  Math.ceil (Math.max(tl.x, br.x)));
-      const minY = Math.max(0, Math.floor(Math.min(tl.y, br.y)));
-      const maxY = Math.min(h, Math.ceil (Math.max(tl.y, br.y)));
-      for(let y=minY; y<maxY; y++){
-        for(let x=minX; x<maxX; x++){
-          const i = (y*w + x)*4;
-          masked[i]=masked[i+1]=masked[i+2]=255; // 白塗り
+      const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+      const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x)));
+      const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
+      const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
+      const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
+      for(let y=minY;y<maxY;y++){
+        for(let x=minX;x<maxX;x++){
+          const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255;
         }
       }
     }
-
     return Array.from(all.values());
   }
 
@@ -415,11 +463,20 @@
       }else if(kind==='die'){
         const p = parseDie(raw);
         if(p && (p.bn || p.wc)){
-          drawBox(pts, '#1c7ed6', true); showToastNear('ロック｜ターゲットを設定しました', pts);
-          setTarget(p.bn||'', p.wc||''); 
-          // ロック感を強調：ヒット直後に停止
-          stopCam();
-          querySpec();
+          // ロック枠（青）を描いたまま、黒画面にならない停止方式へ
+          drawBox(pts, '#1c7ed6', true);
+          showToastNear('ロック｜ターゲットを設定しました', pts);
+          setTarget(p.bn||'', p.wc||'');
+
+          if(!S.locked){
+            S.locked = true;
+            // 真っ黒回避：最後のフレームをfreezeに写してから停止
+            freezeFrameAndStopCam();
+            // 下スワイプヒント
+            showSwipeHint();
+            // データ照会
+            querySpec();
+          }
         }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
       }else{
         drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
@@ -439,27 +496,24 @@
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc) return;
     const key = dieKey(book,wc);
-    if(key === S.lastQueryKey) return; // 同一連打防止
+    if(key === S.lastQueryKey) return;
     S.lastQueryKey = key;
 
     D.errApi.style.display='none'; D.errApi.textContent='';
     D.loading.style.display='block'; D.result.style.display='none';
 
     try{
-      if(!S.csrf){ await ensureCsrf(); } // 念のため担保
+      if(!S.csrf){ await ensureCsrf(); }
       const r = await fetch('/api/die-check', {
         method:'POST',
-        credentials:'same-origin',         // Cookie 同送が必須
+        credentials:'same-origin',
         headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
         body: JSON.stringify({ book, wc, json:true, limit: 200 })
       });
       const txt = await r.text();
       let j = {};
       try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
-
-      if(!r.ok || j.ok!==true){
-        throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
-      }
+      if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
       renderResult(j);
     }catch(e){
       D.errApi.style.display='block'; D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
@@ -470,7 +524,6 @@
 
   function renderResult(payload){
     const { gs, hits=[], book, workcord } = payload || {};
-    // Sheets側
     if(gs){
       D.gsBox.innerHTML = `
         <div class="kvs">
@@ -488,19 +541,17 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // Airtable側(直近レコードのサマリ＋サムネ)
     if(hits.length>0){
-      const latest = hits[0]; // byDateAscで最も早い納期（die-check側が昇順返却）
+      const latest = hits[0];
       const thumbs = [];
       const atts = (latest.attachments||[]).slice(0,4);
       for(const a of atts){
         const isImg = String(a.type||'').startsWith('image/');
         const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
-        if(isImg){
-          thumbs.push(`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt=""></a>`);
-        }else{
-          thumbs.push(`<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`);
-        }
+        thumbs.push(isImg
+          ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt=""></a>`
+          : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`
+        );
       }
       D.atBox.innerHTML = `
         <div class="kvs" style="margin-bottom:8px">
@@ -520,7 +571,6 @@
       D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
     }
 
-    // 受注一覧テーブル
     if(hits.length>0){
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
@@ -555,12 +605,11 @@
     }
 
     D.result.style.display='block';
-    // 手入力欄にも反映
     D.inBook.value = book || '';
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブで HTML 版（ヘッダ付きPOST→新規タブへ描画）
+  // 別タブで HTML 版
   D.btnOpenHtml.addEventListener('click', async () => {
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
@@ -576,12 +625,8 @@
       if(!r.ok) throw new Error(html.slice(0,300));
       const w = window.open('', '_blank');
       if(!w) throw new Error('ポップアップがブロックされました');
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-    }catch(e){
-      alert('HTML表示に失敗: ' + (e.message||e));
-    }
+      w.document.open(); w.document.write(html); w.document.close();
+    }catch(e){ alert('HTML表示に失敗: ' + (e.message||e)); }
   });
 
   // 手入力で照会
@@ -597,10 +642,10 @@
 
   // カメラ制御
   D.btnStart.addEventListener('click', startCam);
-  D.btnStop.addEventListener('click', stopCam);
+  D.btnStop.addEventListener('click', () => stopCam());
   window.addEventListener('resize', fitOverlay);
 
-  // 画像静止画テスト（複数ヒットも拾う）
+  // 画像静止画テスト
   D.fileTest.addEventListener('change', async ev=>{
     const file = ev.target.files?.[0]; if(!file) return;
     const img = new Image();
@@ -610,9 +655,7 @@
       const data=cctx.getImageData(0,0,c.width,c.height);
       const hits = jsqrMulti(data);
       D.overlay.width = c.width; D.overlay.height = c.height; ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      for(const h of hits){
-        drawBox(h.cornerPoints, '#1c7ed6', true);
-      }
+      for(const h of hits){ drawBox(h.cornerPoints, '#1c7ed6', true); }
       if(hits[0]){
         const raw = hits[0].rawValue;
         const kind = classify(raw);
@@ -665,6 +708,15 @@
       S.lastQueryKey=''; querySpec();
     }
   })();
+
+  // 下スワイプヒント
+  function showSwipeHint(){
+    const el = document.createElement('div');
+    el.className = 'swipe-hint';
+    el.textContent = '下にスワイプして情報を確認';
+    document.body.appendChild(el);
+    setTimeout(()=>{ try{ el.remove(); }catch{} }, 1800);
+  }
 
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 })();
