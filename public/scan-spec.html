@@ -170,7 +170,10 @@
     stream: null, rafId: null,
     detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
     current: { book:'', wc:'' }, lastQueryKey: '',
-    csrf: '' // 起動時に ensureCsrf() で設定
+    csrf: '',
+    // 追加: ロック制御
+    lockedKey: '',       // 同一コードへの連続反応を避ける
+    lockedUntil: 0       // ms
   };
 
   // ===== Utils =====
@@ -192,8 +195,15 @@
   }
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
-    ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+    ctx.save();
+    ctx.lineWidth= solid?5:3;
+    ctx.setLineDash(solid?[]:[8,6]);
+    ctx.shadowColor=color;
+    ctx.shadowBlur=4;
+    ctx.strokeStyle=color;
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y);
+    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
+    ctx.closePath(); ctx.stroke(); ctx.restore();
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
@@ -207,15 +217,11 @@
   function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
   async function requestSession(){
     const url = isLocal() ? '/api/session?dev=1' : '/api/session';
-    // Cookie を受け取るため credentials 必須
     await fetch(url, { method:'GET', credentials:'same-origin', cache:'no-store' }).catch(()=>{});
   }
   async function ensureCsrf(){
     let t = readCookie('xcsrf');
-    if(!t){
-      await requestSession();
-      t = readCookie('xcsrf');
-    }
+    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
     if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
     S.csrf = t;
     D.csrfStatus.textContent = 'CSRF: 有効';
@@ -223,12 +229,9 @@
     D.csrfStatus.style.color = '#1c7ed6';
     D.csrfWarn.style.display = 'none';
   }
-
-  // 起動時にCSRF確保
   document.addEventListener('DOMContentLoaded', async () => {
-    try{
-      await ensureCsrf();
-    }catch(e){
+    try{ await ensureCsrf(); }
+    catch(e){
       D.csrfStatus.textContent = 'CSRF: 無効（未取得）';
       D.csrfStatus.style.background = '#fff5f5';
       D.csrfStatus.style.color = '#e03131';
@@ -284,6 +287,7 @@
     if(S.stream) S.stream.getTracks().forEach(t=>t.stop()); S.stream=null;
     D.btnStart.disabled=false; D.btnStop.disabled=true;
     setStatus('停止中','info');
+    S.lockedKey=''; S.lockedUntil=0;
   }
   async function startCam(){
     stopCam(); D.errCam.textContent='';
@@ -325,6 +329,15 @@
     return Array.from(all.values());
   }
 
+  // ---- 追加：ロックユーティリティ
+  function lockCandidate(kind, key, pts){
+    S.lockedKey = key;
+    S.lockedUntil = performance.now() + 1200; // 1.2s ロック
+    setStatus('ロック中','ok');
+    // 一発だけ吹き出し
+    showToastNear('🔒 ロック / ターゲットを設定しました', pts);
+  }
+
   async function tick(){
     if(!S.stream) return;
     if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
@@ -336,24 +349,47 @@
   }
 
   function applyDetections(ds){
+    const now = performance.now();
     for(const d of ds){
       const raw=(d.rawValue||'').trim(); if(!raw) continue;
-      const kind = classify(raw); const pts = d.cornerPoints;
-      if(kind==='order'){
-        const od = parseOrder(raw);
-        if(od && (od.bn || od.wc)){
-          drawBox(pts, '#f59f00', true); showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
-          setTarget(od.bn||'', od.wc||''); querySpec();
-        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
-      }else if(kind==='die'){
-        const p = parseDie(raw);
-        if(p && (p.bn || p.wc)){
-          drawBox(pts, '#1c7ed6', true); showToastNear(`die: ${p.bn||'-'}/${p.wc||'-'}`, pts);
-          setTarget(p.bn||'', p.wc||''); querySpec();
-        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
-      }else{
-        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
+      const kind = classify(raw);
+      const pts = d.cornerPoints;
+
+      // 解析
+      let parsed=null, key='';
+      if(kind==='order'){ parsed = parseOrder(raw); if(parsed) key = `order:${dieKey(parsed.bn||'', parsed.wc||'')}`; }
+      else if(kind==='die'){ parsed = parseDie(raw); if(parsed) key = `die:${dieKey(parsed.bn||'', parsed.wc||'')}`; }
+
+      // ロック中の同一キーは点線表示のみ（再処理しない）
+      if(key && S.lockedKey===key && now < S.lockedUntil){
+        const color = (kind==='order') ? '#f59f00' : '#1c7ed6';
+        drawBox(pts, color, false); // dashed
+        continue;
       }
+
+      if(kind==='order' && parsed && (parsed.bn || parsed.wc)){
+        // 新規ロック＆ターゲット設定
+        const color = '#f59f00';
+        drawBox(pts, color, true);
+        setTarget(parsed.bn||'', parsed.wc||'');
+        lockCandidate('order', key, pts);
+        querySpec();
+      }else if(kind==='die' && parsed && (parsed.bn || parsed.wc)){
+        const color = '#1c7ed6';
+        drawBox(pts, color, true);
+        setTarget(parsed.bn||'', parsed.wc||'');
+        lockCandidate('die', key, pts);
+        querySpec();
+      }else{
+        drawBox(pts, '#e03131', false);
+        showToastNear('別QR', pts);
+      }
+    }
+
+    // ロックが切れたらステータス復帰
+    if(S.lockedUntil && performance.now() >= S.lockedUntil){
+      S.lockedKey=''; S.lockedUntil=0;
+      setStatus('探索中…','info');
     }
   }
 
@@ -376,17 +412,16 @@
     D.loading.style.display='block'; D.result.style.display='none';
 
     try{
-      if(!S.csrf){ await ensureCsrf(); } // 念のため毎回担保
+      if(!S.csrf){ await ensureCsrf(); }
       const r = await fetch('/api/die-check', {
         method:'POST',
-        credentials:'same-origin',         // ←← Cookie 同送が必須
+        credentials:'same-origin',
         headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
         body: JSON.stringify({ book, wc, json:true, limit: 200 })
       });
       const txt = await r.text();
       let j = {};
       try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
-
       if(!r.ok || j.ok!==true){
         throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
       }
@@ -418,9 +453,9 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // Airtable側(直近レコードのサマリ＋サムネ)
+    // Airtable側
     if(hits.length>0){
-      const latest = hits[0]; // byDateAscで最も早い納期（die-check側が昇順返却）
+      const latest = hits[0];
       const thumbs = [];
       const atts = (latest.attachments||[]).slice(0,4);
       for(const a of atts){
@@ -450,7 +485,7 @@
       D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
     }
 
-    // 受注一覧テーブル
+    // 受注一覧
     if(hits.length>0){
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
@@ -485,12 +520,11 @@
     }
 
     D.result.style.display='block';
-    // 手入力欄にも反映
     D.inBook.value = book || '';
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブで HTML 版（ヘッダ付きPOST→新規タブへ描画）
+  // 別タブ HTML
   D.btnOpenHtml.addEventListener('click', async () => {
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
@@ -506,9 +540,7 @@
       if(!r.ok) throw new Error(html.slice(0,300));
       const w = window.open('', '_blank');
       if(!w) throw new Error('ポップアップがブロックされました');
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
+      w.document.open(); w.document.write(html); w.document.close();
     }catch(e){
       alert('HTML表示に失敗: ' + (e.message||e));
     }
