@@ -283,6 +283,19 @@
 
   // ===== Camera =====
   // 旧: function stopCam(){ ... } を↓で置き換え
+  function stopCam(keepLock = false){
+    if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
+    if(S.stream) S.stream.getTracks().forEach(t=>t.stop()); S.stream=null;
+    D.btnStart.disabled=false; 
+    D.btnStop.disabled=true;
+    setStatus(keepLock ? '停止中（ロック）' : '停止中','info');
+    // ロック状態を維持するかどうか
+    if(!keepLock){
+      S.lockedKey='';
+      S.lockedUntil=0;
+    }
+  }
+
  
 
   async function startCam(){
@@ -327,8 +340,15 @@
 
   // ---- 追加：ロックユーティリティ
   // 旧: function lockCandidate(kind, key, pts){ ... } を↓で置き換え
- 
-
+  function lockCandidate(kind, key, pts){
+    S.lockedKey   = key;
+    S.lockedUntil = performance.now() + 1200; // 1.2s ロック
+    setStatus('ロック中','ok');
+    // 一発だけ吹き出し
+    showToastNear('🔒 ロック / ターゲットを設定しました', pts);
+    // ここでカメラを停止（ロック状態は維持）
+    stopCam(true);
+  }
 
   async function tick(){
     if(!S.stream) return;
