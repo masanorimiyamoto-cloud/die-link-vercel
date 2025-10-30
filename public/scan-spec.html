@@ -68,6 +68,188 @@
     75%{opacity:1;}
     100%{opacity:0; transform: translateX(-50%) translateY(6px);}
   }
+    /* ===== 🎨 UI/UX 改良スタイル ===== */
+
+  :root {
+    /* 基本色を微調整 */
+    --tx: #212529; /* テキスト */
+    --sub: #5a636c; /* サブテキスト（少し濃く） */
+    --bg: #f4f7f9; /* 背景（少し青み） */
+    --bd: #e9ecef; /* 境界線（少し薄く） */
+    
+    /* アクセントカラー */
+    --ok-soft: #e7f5ff;
+    --ng-soft: #fff5f5;
+    --info-soft: #e3fafc;
+  }
+
+  /* --- 全体・タイポグラフィ --- */
+  html, body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .wrap {
+    padding: 20px; /* 全体の余白を少し増やす */
+  }
+  h1 {
+    margin: 0 0 20px; /* h1下のマージンを調整 */
+    font-weight: 700;
+    color: #111;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--bd);
+    color: var(--tx);
+  }
+
+  /* --- カードデザイン --- */
+  .card {
+    padding: 16px 20px; /* カード内の余白を調整 */
+    border-radius: 12px; /* 角丸を少し控えめに */
+    border: none; /* 枠線を消して影で表現 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
+    transition: box-shadow 0.2s ease;
+  }
+  .card:hover {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .07), 0 2px 6px rgba(0, 0, 0, .04);
+  }
+
+  /* --- ボタン・フォーム --- */
+  button {
+    transition: all 0.2s ease;
+    font-weight: 600;
+  }
+  button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,.05);
+  }
+  button.primary:not(:disabled):hover {
+    filter: brightness(110%);
+    box-shadow: 0 4px 10px rgba(28, 126, 214, 0.25);
+  }
+  input[type=text] {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  input[type=text]:focus {
+    border-color: var(--ok);
+    box-shadow: 0 0 0 3px rgba(28, 126, 214, 0.15);
+    outline: none;
+  }
+  .badge {
+    background: var(--bg);
+  }
+
+  /* --- スキャン状態 --- */
+  .chip {
+    padding: 4px 12px;
+    font-size: 13px;
+  }
+  .chip.info { background: var(--info-soft); color: var(--info); border-color: #bdecf2; }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #a5d8ff; }
+  .chip.ng { background: var(--ng-soft); color: var(--ng); border-color: #ffc9c9; }
+
+  /* --- 照会結果 --- */
+  .kvs {
+    gap: 8px 12px;
+  }
+  .kvs b {
+    color: var(--sub); /* キー（項目名）の色をサブテキストに */
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .kvs div {
+    font-weight: 500; /* 値を少し強調 */
+    word-break: break-all;
+  }
+
+  /* --- サムネイル --- */
+  .thumbs img {
+    border-radius: 8px;
+    border: 1px solid var(--bd);
+    transition: all 0.2s ease;
+  }
+  .thumbs img:hover {
+    border-color: var(--ok);
+    box-shadow: 0 2px 6px rgba(0,0,0,.1);
+    transform: scale(1.05);
+  }
+
+  /* --- 結果テーブル --- */
+  .tbl {
+    width: 100%;
+    border: none;
+    border-top: 1px solid var(--bd);
+    margin-top: 8px;
+  }
+  .tbl th, .tbl td {
+    padding: 10px 8px;
+    border: none;
+    border-bottom: 1px solid var(--bd); /* 横線のみ */
+    text-align: left;
+    vertical-align: middle;
+  }
+  .tbl thead th {
+    background: var(--bg);
+    color: var(--sub);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .tbl tbody tr:hover {
+    background-color: #fcfcff;
+  }
+  .tbl img {
+    vertical-align: middle; /* セル内での画像中央揃え */
+  }
+
+  /* --- 状態フィードバック（エラー、ローディング） --- */
+  .err {
+    /* 既存の .err スタイルをリッチにする */
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--ng-soft);
+    color: #b00020;
+    border: 1px solid #ffc9c9;
+    font-weight: 500;
+  }
+  #errCam, #errApi {
+    margin-top: 10px; /* .err スタイル適用時にマージン確保 */
+  }
+  #loading {
+    /* ローディング表示をスピナーに変更 */
+    display: flex; /* JSでblockにされる前提 */
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: var(--sub);
+    margin-top: 10px;
+    padding: 8px;
+  }
+  #loading::before {
+    content: '';
+    display: block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #ccc;
+    border-top-color: var(--ok);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  /* --- CSRF警告 --- */
+  .hint {
+    border-radius: 10px;
+    border: 1px solid #ffe8cc;
+    background: #fff9f0;
+    color: #8c5b0c;
+  }
 </style>
 </head>
 <body>
