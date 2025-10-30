@@ -301,42 +301,109 @@
   async function startCam(){
     stopCam(); D.errCam.textContent='';
     try{
-      S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio:false });
+      S.stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        // 一部 Android で environment を確実に取るため exact→ideal フォールバック
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280, min: 640,  max: 1920 },
+        height: { ideal: 720,  min: 480,  max: 1080 },
+        // AndroidでAFが効く端末向けのヒント（無視されてもOK）
+        advanced: [{ focusMode: 'continuous' }]
+      },
+      audio: false
+    });
+
       D.video.srcObject=S.stream; await D.video.play();
       D.btnStart.disabled=true; D.btnStop.disabled=false;
-      if(S.useBarcodeDetector){
-        try{ S.detector = new BarcodeDetector({ formats:['qr_code'] }); }
-        catch{ S.useBarcodeDetector=false; S.detector=null; }
-      }
+      // startCam() の直後～S.detector 初期化のあたりにあるこの部分を差し替え
+    if(S.useBarcodeDetector){
+      try{
+        // 一部 Android 端末は formats に qr_code 未対応 or バグあり → フォールバック
+        const supported = (typeof BarcodeDetector.getSupportedFormats === 'function')
+          ? await BarcodeDetector.getSupportedFormats() : [];
+        if(!supported || !supported.includes('qr_code')) throw new Error('qr_code unsupported');
+        S.detector = new BarcodeDetector({ formats:['qr_code'] });
+      }catch{
+    S.useBarcodeDetector=false; S.detector=null;
+  }
+}
+
       const detName = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
       D.detectorInfo.textContent = detName; setStatus('探索中…','info');
       fitOverlay(); tick();
     }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
   }
 
-  async function detectCombinedOnce(){
+  async function detectCombined(){
     if(!D.video.videoWidth) return [];
-    const tmp = document.createElement('canvas'); tmp.width=D.video.videoWidth; tmp.height=D.video.videoHeight;
-    const tctx = tmp.getContext('2d',{willReadFrequently:true}); tctx.drawImage(D.video,0,0,tmp.width,tmp.height);
+    const tmp = document.createElement('canvas');
+    tmp.width = D.video.videoWidth;
+    tmp.height= D.video.videoHeight;
+    const tctx = tmp.getContext('2d', { willReadFrequently:true });
+
+    // 画質優先設定（Androidで効果あり）
+    tctx.imageSmoothingEnabled = false;
+
+    tctx.drawImage(D.video, 0, 0, tmp.width, tmp.height);
+
     const all = new Map();
 
+    // 1) BarcodeDetector（使える場合のみ）
     if(S.useBarcodeDetector && S.detector){
-      try{ (await S.detector.detect(tmp)).forEach(c => all.set(c.rawValue, { rawValue:c.rawValue, cornerPoints:c.cornerPoints })); }catch{}
-    }
-
-    // jsQR: 単発
-    const img = tctx.getImageData(0,0,tmp.width,tmp.height);
-    const hit = jsQR(img.data, img.width, img.height, { inversionAttempts:"dontInvert" });
-    if(hit){
-      const raw = hit.data;
-      if(!all.has(raw)){
-        all.set(raw, { rawValue: raw, cornerPoints:[
-          hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner
-        ]});
+      try{
+        const codes = await S.detector.detect(tmp);
+        for(const c of codes){
+          const raw = (c.rawValue||'').trim();
+          if(raw && !all.has(raw)) all.set(raw, c);
+        }
+      }catch(e){
+        // 失敗が続く端末は以降も使わない
+        S.useBarcodeDetector=false; S.detector=null;
       }
     }
-    return Array.from(all.values());
+
+  // 2) jsQR マルチパス（白塗りしながら複数検出）
+  const img = tctx.getImageData(0,0,tmp.width,tmp.height);
+  const masked = new Uint8ClampedArray(img.data);
+
+  // Android での反転印刷対策: attemptBoth
+  const jsqrOnce = () => jsQR(masked, img.width, img.height, { inversionAttempts:'attemptBoth' });
+
+  for(let k=0; k<10; k++){
+    const hit = jsqrOnce();
+    if(!hit) break;
+
+    const raw = (hit.data||'').trim();
+    if(raw && !all.has(raw)){
+      all.set(raw, {
+        rawValue: raw,
+        cornerPoints: [
+          hit.location.topLeftCorner,
+          hit.location.topRightCorner,
+          hit.location.bottomRightCorner,
+          hit.location.bottomLeftCorner
+        ]
+      });
+    }
+
+    // 次のスキャンのために今回ヒット領域を白でマスク
+    const tl = hit.location.topLeftCorner;
+    const br = hit.location.bottomRightCorner;
+    const minX = Math.max(0, Math.floor(Math.min(tl.x, br.x)));
+    const maxX = Math.min(img.width,  Math.ceil (Math.max(tl.x, br.x)));
+    const minY = Math.max(0, Math.floor(Math.min(tl.y, br.y)));
+    const maxY = Math.min(img.height, Math.ceil (Math.max(tl.y, br.y)));
+
+    for(let y=minY; y<maxY; y++){
+      for(let x=minX; x<maxX; x++){
+        const i = (y*img.width + x)*4;
+        masked[i]=masked[i+1]=masked[i+2]=255; // 白塗り
+      }
+    }
   }
+
+  return Array.from(all.values());
+}
 
   // ---- 追加：ロックユーティリティ
   // 旧: function lockCandidate(kind, key, pts){ ... } を↓で置き換え
@@ -354,7 +421,7 @@
     if(!S.stream) return;
     if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
       fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      const ds = await detectCombinedOnce();
+        const ds = await detectCombined();     // ← ここを detectCombinedOnce→detectCombined に
       applyDetections(ds);
     }
     S.rafId = requestAnimationFrame(tick);
