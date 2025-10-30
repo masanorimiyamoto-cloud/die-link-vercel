@@ -68,6 +68,207 @@
     80%  { opacity: 1; }
     100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   }
+  /* ===== 🎨 UI/UX 改良スタイル (scan-lookup.html) ===== */
+
+  :root {
+    /* 基本色を微調整 */
+    --tx: #212529;
+    --sub: #5a636c; /* サブテキスト（少し濃く） */
+    --bg: #f4f7f9; /* 背景（少し青み） */
+    --bd: #e9ecef; /* 境界線（少し薄く） */
+    
+    /* ソフトな背景色（既存定義を活用） */
+    --ok-soft: var(--bg-ok, #e7f5ff);
+    --ng-soft: var(--bg-ng, #fff5f5);
+    --loc-soft: var(--bg-loc, #e6fcf5);
+    --info-soft: #fff9e6; /* --info 用のソフトBGを追加 */
+  }
+
+  /* --- 全体・タイポグラフィ --- */
+  html, body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--bg); /* body背景色を更新 */
+  }
+  h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--tx);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--bd);
+    margin-top: 2px; /* カードpaddingとのバランス */
+    letter-spacing: .01em;
+  }
+
+  /* --- カードデザイン --- */
+  .card {
+    padding: 14px 18px; /* パディング調整 */
+    border: none; /* 枠線を消して影で表現 */
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
+    transition: box-shadow 0.2s ease;
+    overflow: hidden; /* チップの角丸と合わせるため */
+  }
+  .card:hover {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .07), 0 2px 6px rgba(0, 0, 0, .04);
+  }
+
+  /* --- ターゲット情報の強調 --- */
+  .target-info b {
+    font-size: 1.4em; /* Book/WCを大きく */
+    color: var(--ok);
+    font-weight: 700;
+    margin: 0 2px;
+  }
+  .target-info {
+    font-size: 15px;
+    line-height: 1.4;
+    padding-top: 4px; /* h4とのマージン代わり */
+  }
+  #tgtWN {
+    font-size: 14px;
+    color: var(--sub);
+    font-weight: 500;
+  }
+
+  /* --- 棚情報の強調 --- */
+  #currentShelf {
+    font-size: 1.3em; /* 棚情報も大きく */
+    font-weight: 700;
+    margin-top: 4px; /* h4とのマージン代わり */
+  }
+  /* JSで .chip.loc が付与されるので、それを強化 */
+  #currentShelf.chip.loc {
+    padding: 8px 12px;
+    font-size: 1.3em;
+    border-width: 1px;
+    /* カードの外枠まで広げる（見た目のインパクトUP） */
+    margin: 4px -18px -14px -18px;
+    border-radius: 0 0 12px 12px;
+    text-align: center;
+    border: none;
+    border-top: 1px solid #96f2d7;
+  }
+  /* JSで .muted が付与される場合 */
+  #currentShelf.muted {
+    font-size: 14px; /* 通常のテキストサイズに */
+    font-weight: 500;
+    color: var(--sub);
+    margin: 4px 0 0 0; /* .loc でない場合はマージンリセット */
+  }
+
+  /* --- ボタン --- */
+  button {
+    border-radius: 10px; /* 角丸を調整 */
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,.05);
+  }
+  button.primary:not(:disabled):hover {
+    background: #339af0;
+    box-shadow: 0 4px 10px rgba(28, 126, 214, 0.25);
+  }
+
+  /* --- バッジ・チップ --- */
+  .badge {
+    background: #fff;
+    border-color: #dbe4f0; /* 少し色をつける */
+    font-weight: 500;
+    padding: 6px 10px;
+    border-radius: 8px;
+  }
+  #scanStatus.badge {
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  /* JS側で chip と type(ok/ng/loc) が付与される想定 */
+  #scanStatus.badge.chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #a5d8ff; }
+  #scanStatus.badge.chip.ng { background: var(--ng-soft); color: var(--ng); border-color: #ffc9c9; }
+  #scanStatus.badge.chip.loc { background: var(--loc-soft); color: var(--loc); border-color: #96f2d7; }
+  /* 'info' type がJS側で使われた場合を想定（例: 探索中）*/
+  #scanStatus.badge.chip.info { background: var(--info-soft); color: #c67c00; border-color: #ffe08c; }
+
+
+  /* --- カメラ周り --- */
+  .stack {
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .08);
+  }
+  video {
+    border-radius: 12px;
+  }
+  #error {
+    /* エラー表示をリッチにする */
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--ng-soft);
+    color: #b00020;
+    border: 1px solid #ffc9c9;
+    font-weight: 500;
+    white-space: pre-wrap;
+    display: none; /* デフォルトは非表示 */
+  }
+  /* JSがtextContentをセットしたら表示されるように :empty を活用 */
+  #error:not(:empty) {
+    display: block;
+  }
+
+  /* --- モーダル --- */
+  .modal {
+    background-color: rgba(0,0,0,0.4); /* 背景を少し薄く */
+    animation: modal-fade-in 0.3s ease;
+  }
+  @keyframes modal-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .modal-content {
+    margin: 10% auto; /* 上部マージンを減らす */
+    border: none;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    border-radius: 14px;
+  }
+  .modal-header {
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+  }
+  .modal-header h4 {
+    border-bottom: none; /* モーダル内のh4は線不要 */
+    padding-bottom: 0;
+    font-size: 18px;
+  }
+  .close-button {
+    transition: color 0.2s;
+  }
+  .close-button:hover {
+    color: #555;
+  }
+  #historyList li {
+    padding: 8px 4px;
+    font-size: 14px;
+    color: #333;
+  }
+  #historyList li:last-child {
+    border-bottom: none;
+  }
+  #historyList li strong {
+    margin-right: 6px;
+  }
+
+  /* --- bigmsg (フィードバック) --- */
+  .bigmsg {
+    /* JSで色が固定されているが、デフォルト（OK）を想定 */
+    background: rgba(28, 126, 214, 0.92); /* var(--ok) ベース */
+    color: #fff;
+    border-radius: 14px;
+    padding: 18px 24px;
+    animation: bigmsg-fade 1.3s ease-out forwards; /* 少し長めに */
+  }
 </style>
 </head>
 <body>
