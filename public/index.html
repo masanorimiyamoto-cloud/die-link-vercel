@@ -2,71 +2,87 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
+<title>できること3つ</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>できること三通</title>
 <style>
-  :root{ --bg:#0b0f14; --txt:#e6f0ff; --a:#4f8cff; --b:#22c55e; --c:#f59e0b; }
-  *{ box-sizing:border-box }
-  html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
-  .wrap{ min-height:100dvh; display:flex; flex-direction:column; gap:14px; padding:18px;
-    max-width:640px; margin:0 auto }
-  .btn{ display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
-    border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
-    font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
-    box-shadow:0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.06) }
-  .btn:active{ transform:scale(.985) }
-  .a{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
-                linear-gradient(135deg,#1b3bff 0%,var(--a) 55%,#38bdf8 110%) }
-  .b{ background:radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
-                linear-gradient(135deg,#059669 0%,var(--b) 55%,#86efac 110%) }
-  .c{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
-                linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
-  @media (min-width:520px){ .btn{ min-height:20vh } }
+  :root{
+    --bg:#0b0b0c; --tx:#fff; --bd:#1f1f22;
+    --blue1:#3b82f6; --blue2:#60a5fa;
+    --green1:#22c55e; --green2:#86efac;
+    --orange1:#f59e0b; --orange2:#fbbf24;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  .wrap{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:18px 14px 28px;gap:18px}
+  h1{font-size:clamp(20px,4.6vw,28px);letter-spacing:.02em;margin:6px 0 2px}
+  .col{width:min(560px,92vw);display:flex;flex-direction:column;gap:14px}
+  .btn{
+    width:100%; border:1px solid var(--bd); border-radius:18px;
+    min-height:84px; padding:18px 22px; font-weight:700; font-size:clamp(18px,3.8vw,22px);
+    display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
+    background:linear-gradient(180deg, var(--c1), var(--c2));
+    box-shadow:0 14px 30px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.06);
+    transition:transform .06s ease, filter .12s ease;
+    touch-action:manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .btn:active{ transform:scale(.985); filter:brightness(0.96); }
+  .caps{font-feature-settings:"pkna" 1; letter-spacing:.04em}
+  .qr{margin-top:auto;display:flex;justify-content:center}
+  .qr img{width:min(180px,50vw);height:auto;display:block;background:#fff;border-radius:8px}
+  .note{font-size:12px;color:#c6c6c6;opacity:.8;text-align:center}
 </style>
 
-<!-- フォールバック: 事前プリフェッチ（全ブラウザ） -->
+<!-- 事前読み込み：体感を速く -->
 <link rel="prefetch" href="./scan-spec.html" as="document">
-<link rel="prefetch" href="./scan-lookup.html" as="document">
+<link rel="prefetch" href="./scan-find.html" as="document">
 <link rel="prefetch" href="./scan-register.html" as="document">
-
-<!-- Chrome系で瞬間遷移: Speculation Rules -->
-<script type="speculationrules">
-{
-  "prerender": [
-    { "source": "list", "urls": ["./scan-spec.html", "./scan-lookup.html", "./scan-register.html"] }
-  ],
-  "prefetch": [
-    { "source": "list", "urls": ["./scan-spec.html", "./scan-lookup.html", "./scan-register.html"] }
-  ]
-}
-</script>
+<link rel="prerender" href="./scan-spec.html">
+<link rel="prerender" href="./scan-find.html">
+<link rel="prerender" href="./scan-register.html">
 </head>
 <body>
-  <main class="wrap" role="navigation" aria-label="できること三つ">
-    <a class="btn a" href="./scan-spec.html"     aria-label="調べる">知る</a>
-    <a class="btn b" href="./scan-lookup.html"   aria-label="探す">見つける</a>
-    <a class="btn c" href="./scan-register.html" aria-label="登録する">片づける</a>
-  </main>
+  <div class="wrap">
+    <h1 class="caps">できること 3つ</h1>
+    <div class="col">
+      <!-- 上から：知る → 見つける → 片づける -->
+      <a class="btn" data-href="./scan-spec.html" style="--c1:var(--blue1);--c2:var(--blue2)">知る</a>
+      <a class="btn" data-href="./scan-find.html" style="--c1:var(--green1);--c2:var(--green2)">見つける</a>
+      <a class="btn" data-href="./scan-register.html" style="--c1:var(--orange1);--c2:var(--orange2)">片づける</a>
+    </div>
+
+    <div class="qr">
+      <!-- 既存の案内QR（任意） -->
+      <img src="./qr-start.png" alt="スタートQR">
+    </div>
+    <div class="note">カメラ許可が必要です</div>
+  </div>
 
 <script>
-/* SW 登録（初回だけ）。公開ルートに /sw.js を置いてください。 */
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+(() => {
+  // pointerdownで即遷移（体感高速化）
+  const go = (url) => { try{ navigator.vibrate && navigator.vibrate(8); }catch{}; location.href = url; };
+  document.querySelectorAll('.btn').forEach(b=>{
+    const url = b.getAttribute('data-href');
+    b.addEventListener('pointerdown', e => { e.preventDefault(); go(url); }, {passive:false});
+    b.addEventListener('click', e => { e.preventDefault(); go(url); });
   });
-}
 
-/* iOS/Safari 等: 触れた瞬間に事前fetch（フォールバック強化） */
-const prefetch = url => fetch(url, { mode:'no-cors', cache:'force-cache' }).catch(()=>{});
-['./scan-spec.html','./scan-lookup.html','./scan-register.html'].forEach(url=>{
-  const link = document.querySelector(`a[href="${url}"]`);
-  if(!link) return;
-  ['mouseenter','touchstart','pointerdown'].forEach(ev=>{
-    link.addEventListener(ev, ()=>prefetch(url), { passive:true, once:true });
+  // カメラ拒否やオフラインの軽い通知（テキストは増やさない）
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') return;
+    if (!navigator.onLine) toast('オフラインです');
   });
-});
+  function toast(msg){
+    const t=document.createElement('div');
+    t.textContent=msg;
+    Object.assign(t.style,{
+      position:'fixed',left:'50%',bottom:'18px',transform:'translateX(-50%)',
+      background:'rgba(0,0,0,.85)',color:'#fff',padding:'8px 12px',borderRadius:'10px',
+      fontSize:'13px',zIndex:9999,opacity:0,transition:'opacity .15s ease'
+    });
+    document.body.appendChild(t); requestAnimationFrame(()=>t.style.opacity=1);
+    setTimeout(()=>{t.style.opacity=0; setTimeout(()=>t.remove(),180)},1100);
+  }
+})();
 </script>
 </body>
 </html>
