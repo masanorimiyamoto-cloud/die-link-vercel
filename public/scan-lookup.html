@@ -129,11 +129,70 @@
       targetKey: '',
       currentShelf: null,
       scanHistory: new Map(),
-      __lastOrderKey: '',     // ← 追加：直近の order_Plain で設定した key
-      __orderSetAt: 0,        // ← 追加：いつセットしたか（ms）
+      __lastOrderKey: '',
+      __orderSetAt: 0,
+      csrf: ''   // ← 追加: CSRFトークン
     };
 
-    /* ====== 音声読み上げ ====== */
+    /* ====== CSRF（/api/die-check 用） ====== */
+    const isLocal = () => location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host);
+    const readCookie = (name) => {
+      const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&')+'=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : '';
+    };
+    async function requestSession(){
+      const url = isLocal() ? '/api/session?dev=1' : '/api/session';
+      await fetch(url, { method:'GET', credentials:'same-origin', cache:'no-store' }).catch(()=>{});
+    }
+    async function ensureCsrf(){
+      let t = readCookie('xcsrf');
+      if(!t){ await requestSession(); t = readCookie('xcsrf'); }
+      if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
+      state.csrf = t;
+    }
+
+    // Google Sheets の Location を /api/die-check（JSON）から取得して反映
+    let __lastShelfFetchKey = '';
+    async function maybeUpdateShelfFromSheets(book, wc){
+      if(!book || !wc) return;
+      const key = (book+'@@'+wc).toLowerCase();
+      if(__lastShelfFetchKey === key) return; // 同一ターゲットで多重取得を防止
+      if(state.currentShelf) return; // 既にURLやAirtableから入っているなら不要
+
+      __lastShelfFetchKey = key;
+      DOM.currentShelf.textContent = '（Sheetsから取得中…）';
+      DOM.currentShelf.className = 'muted';
+
+      try{
+        if(!state.csrf) { await ensureCsrf(); }
+        const r = await fetch('/api/die-check', {
+          method:'POST',
+          credentials:'same-origin',
+          headers:{ 'Content-Type':'application/json', 'X-CSRF': state.csrf },
+          body: JSON.stringify({ book, wc, json:true, limit: 1 })
+        });
+        const txt = await r.text();
+        let j = {};
+        try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+        if(!r.ok || j.ok!==true) throw new Error(j?.error || `HTTP ${r.status}`);
+
+        const loc = (j.gs && j.gs.Location) ? String(j.gs.Location).trim() : '';
+        if(loc){
+          state.currentShelf = loc;
+          DOM.currentShelf.textContent = state.currentShelf;
+          DOM.currentShelf.className = 'chip loc';
+        }else{
+          DOM.currentShelf.textContent = '（Google Sheets に棚情報なし）';
+          DOM.currentShelf.className = 'muted';
+        }
+      }catch(e){
+        console.warn('Location取得失敗:', e);
+        DOM.currentShelf.textContent = '（棚情報の取得に失敗）';
+        DOM.currentShelf.className = 'muted';
+      }
+    }
+
+    /* ====== 音声読み上げ（既存） ====== */
     let __ttsReady = false;
     let __jpVoices = [];
     let __lastSpeak = 0;
@@ -226,7 +285,6 @@
       speakAfterReady(u);
     }
 
-    // 任意一言
     let __lastGenericSpeak = 0;
     function speakLineOnce(text, {rate=1.08, pitch=1.4, cooldown=1200} = {}) {
       if (!('speechSynthesis' in window)) return;
@@ -243,7 +301,6 @@
       initTTS();
       document.removeEventListener('pointerdown', __once, true);
     }, true);
-    /* ====== /音声読み上げ ====== */
 
     function cssVarOr(name, fallback) {
       const v = getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -260,7 +317,7 @@
       },
       holdDuration: 3000,
       lockCooldown: 700,
-      orderResetCooldownMs: 2000, // order 読み取り後すぐは連続更新を抑える
+      orderResetCooldownMs: 2000,
     };
 
     const confirmationBeep = (() => {
@@ -288,31 +345,24 @@
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
     /* === 種別判定 === */
-    // === 種別判定 ===
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      // 棚
       if (/^loc-/i.test(text)) return "loc";
       try {
         const url = new URL(text);
         if (url.searchParams.has("loc")) return "loc";
       } catch {}
-
-      // 型
       if (/^die-/i.test(text)) return "die";
       try {
         const url = new URL(text);
         if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
       } catch {}
-
-      // 作業指示（order, order-plain/order_plain の両方を許可）
-      if (/^order-/i.test(text)) return "order";                     // ← 追加：order-Book-WC
+      if (/^order-/i.test(text)) return "order";
       if (/order[_-]?plain/i.test(text)) return "order";
       try {
         const url = new URL(text);
         if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order";
       } catch {}
-
       return "other";
     };
 
@@ -359,32 +409,22 @@
       return null;
     };
 
-    
-    // ★ 作業指示 QR（order 系）→ {bn, wc} を取り出す
-const parseOrderPlain = (raw) => {
-  const text = normalizeHyphen((raw || "").trim());
-
-  // 0) 「order-Book-WC」
-  let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
-  if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-
-  // 1) URL 形式（/order_plain など）
-  try {
-    const url = new URL(text);
-    if (/order[_-]?plain/i.test(url.pathname + url.search)) {
-      const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
-      const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
-      if (book || wc) return { bn: book, wc };
-    }
-  } catch {}
-
-  // 2) 非URL・ゆるパターン（例：order_plain:Ta-8742 / order Ta 8742 など）
-  m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
-  if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-
-  return null;
-};
-
+    const parseOrderPlain = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+      try {
+        const url = new URL(text);
+        if (/order[_-]?plain/i.test(url.pathname + url.search)) {
+          const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
+          const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
+          if (book || wc) return { bn: book, wc };
+        }
+      } catch {}
+      m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+      return null;
+    };
 
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
@@ -608,7 +648,6 @@ const parseOrderPlain = (raw) => {
           }
 
         } else if (kind === 'order') {
-          // ★ 作業指示QR（order_Plain）を読むとターゲットを設定
           const od = parseOrderPlain(raw);
           if (od && (od.bn || od.wc)) {
             const newKey = dieKey(od.bn, od.wc);
@@ -620,13 +659,11 @@ const parseOrderPlain = (raw) => {
             updateHistory(raw, 'order', true);
 
             if (!sameAsBefore || !stillCooling || newKey !== state.targetKey) {
-              // ターゲット更新
               state.currentTarget = { book: od.bn || "", wc: od.wc || "", wn: "" };
               state.targetKey = newKey;
               state.__lastOrderKey = newKey;
               state.__orderSetAt = now;
 
-              // UI反映
               DOM.tgtBN.textContent = state.currentTarget.book || "-";
               DOM.tgtWC.textContent = state.currentTarget.wc || "-";
               DOM.tgtWN.textContent = "";
@@ -635,7 +672,11 @@ const parseOrderPlain = (raw) => {
               showToastNearBox("ターゲット更新", pts);
               speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
 
-              // 直後の連続検出で UI がブレないよう、短いホールド
+              // ★ ここで Sheets から Location を自動取得（URLに loc が無い場合のみ）
+              if(!state.currentShelf){
+                maybeUpdateShelfFromSheets(state.currentTarget.book, state.currentTarget.wc);
+              }
+
               holdScan(800);
             }
           } else {
@@ -776,7 +817,6 @@ const parseOrderPlain = (raw) => {
       if (!state.currentTarget.book || !state.currentTarget.wc) {
         updateStatus("ターゲット未指定（作業指示QRを読み取るか、URLで指定）", "ng");
         DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざしてください。";
-        // start ボタンは押せる：order_Plain を読ませるため
         DOM.btnStart.disabled = false;
       } else {
         DOM.tgtBN.textContent = state.currentTarget.book;
@@ -791,6 +831,11 @@ const parseOrderPlain = (raw) => {
         state.currentShelf = locParam;
         DOM.currentShelf.textContent = state.currentShelf;
         DOM.currentShelf.className = "chip loc";
+      }else{
+        // ★ URLに loc が無い & book/wc がある → 起動直後に Sheets から取得
+        if(state.currentTarget.book && state.currentTarget.wc){
+          maybeUpdateShelfFromSheets(state.currentTarget.book, state.currentTarget.wc);
+        }
       }
     }
 
