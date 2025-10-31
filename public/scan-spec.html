@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>仕様照会モード｜die / order → Airtable(onoff) & Google Sheets</title>
+<title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
@@ -87,7 +87,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会モード｜die / order → Airtable(図面)on/off + Google Sheets(仕様)</h1>
+  <h1>仕様照会モード｜die / order → Airtable(on/off) + Google Sheets(仕様)</h1>
 
   <div class="row">
     <!-- 左：カメラ -->
@@ -191,7 +191,7 @@
 (() => {
   // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
   const FEATURE = {
-    AIRTABLE_FETCH: fa,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
+    AIRTABLE_FETCH: false,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
   };
   // ==============================================
 
