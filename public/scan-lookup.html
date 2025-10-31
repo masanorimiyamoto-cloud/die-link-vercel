@@ -68,207 +68,43 @@
     80%  { opacity: 1; }
     100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   }
+
   /* ===== 🎨 UI/UX 改良スタイル (scan-lookup.html) ===== */
+  :root { --tx:#212529; --sub:#5a636c; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:var(--bg-ok,#e7f5ff); --ng-soft:var(--bg-ng,#fff5f5); --loc-soft:var(--bg-loc,#e6fcf5); --info-soft:#fff9e6; }
+  html, body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background: var(--bg); }
+  h4 { font-size: 15px; font-weight: 600; color: var(--tx); padding-bottom: 8px; border-bottom: 1px solid var(--bd); margin-top: 2px; letter-spacing: .01em; }
 
-  :root {
-    /* 基本色を微調整 */
-    --tx: #212529;
-    --sub: #5a636c; /* サブテキスト（少し濃く） */
-    --bg: #f4f7f9; /* 背景（少し青み） */
-    --bd: #e9ecef; /* 境界線（少し薄く） */
-    
-    /* ソフトな背景色（既存定義を活用） */
-    --ok-soft: var(--bg-ok, #e7f5ff);
-    --ng-soft: var(--bg-ng, #fff5f5);
-    --loc-soft: var(--bg-loc, #e6fcf5);
-    --info-soft: #fff9e6; /* --info 用のソフトBGを追加 */
-  }
+  .card { padding: 14px 18px; border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04); transition: box-shadow .2s ease; overflow: hidden; }
+  .card:hover { box-shadow: 0 6px 16px rgba(0,0,0,.07), 0 2px 6px rgba(0,0,0,.04); }
 
-  /* --- 全体・タイポグラフィ --- */
-  html, body {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background: var(--bg); /* body背景色を更新 */
-  }
-  h4 {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--tx);
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--bd);
-    margin-top: 2px; /* カードpaddingとのバランス */
-    letter-spacing: .01em;
-  }
+  .target-info b { font-size: 1.4em; color: var(--ok); font-weight: 700; margin: 0 2px; }
+  .target-info { font-size: 15px; line-height: 1.4; padding-top: 4px; }
+  #tgtWN { font-size: 14px; color: var(--sub); font-weight: 500; }
 
-  /* --- カードデザイン --- */
-  .card {
-    padding: 14px 18px; /* パディング調整 */
-    border: none; /* 枠線を消して影で表現 */
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
-    transition: box-shadow 0.2s ease;
-    overflow: hidden; /* チップの角丸と合わせるため */
-  }
-  .card:hover {
-    box-shadow: 0 6px 16px rgba(0, 0, 0, .07), 0 2px 6px rgba(0, 0, 0, .04);
-  }
+  #currentShelf { font-size: 1.3em; font-weight: 700; margin-top: 4px; }
+  #currentShelf.chip.loc { padding: 8px 12px; font-size: 1.3em; margin: 4px -18px -14px -18px; border-radius: 0 0 12px 12px; text-align: center; border: none; border-top: 1px solid #96f2d7; }
+  #currentShelf.muted { font-size: 14px; font-weight: 500; color: var(--sub); margin: 4px 0 0 0; }
 
-  /* --- ターゲット情報の強調 --- */
-  .target-info b {
-    font-size: 1.4em; /* Book/WCを大きく */
-    color: var(--ok);
-    font-weight: 700;
-    margin: 0 2px;
-  }
-  .target-info {
-    font-size: 15px;
-    line-height: 1.4;
-    padding-top: 4px; /* h4とのマージン代わり */
-  }
-  #tgtWN {
-    font-size: 14px;
-    color: var(--sub);
-    font-weight: 500;
-  }
-
-  /* --- 棚情報の強調 --- */
-  #currentShelf {
-    font-size: 1.3em; /* 棚情報も大きく */
-    font-weight: 700;
-    margin-top: 4px; /* h4とのマージン代わり */
-  }
-  /* JSで .chip.loc が付与されるので、それを強化 */
-  #currentShelf.chip.loc {
-    padding: 8px 12px;
-    font-size: 1.3em;
-    border-width: 1px;
-    /* カードの外枠まで広げる（見た目のインパクトUP） */
-    margin: 4px -18px -14px -18px;
-    border-radius: 0 0 12px 12px;
-    text-align: center;
-    border: none;
-    border-top: 1px solid #96f2d7;
-  }
-  /* JSで .muted が付与される場合 */
-  #currentShelf.muted {
-    font-size: 14px; /* 通常のテキストサイズに */
-    font-weight: 500;
-    color: var(--sub);
-    margin: 4px 0 0 0; /* .loc でない場合はマージンリセット */
-  }
-
-  /* --- ボタン --- */
-  button {
-    border-radius: 10px; /* 角丸を調整 */
-    font-weight: 600;
-    transition: all 0.2s ease;
-  }
-  button:not(:disabled):hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,.05);
-  }
-  button.primary:not(:disabled):hover {
-    background: #339af0;
-    box-shadow: 0 4px 10px rgba(28, 126, 214, 0.25);
-  }
-
-  /* --- バッジ・チップ --- */
-  .badge {
-    background: #fff;
-    border-color: #dbe4f0; /* 少し色をつける */
-    font-weight: 500;
-    padding: 6px 10px;
-    border-radius: 8px;
-  }
-  #scanStatus.badge {
-    padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 600;
-  }
-  /* JS側で chip と type(ok/ng/loc) が付与される想定 */
+  button { border-radius: 10px; font-weight: 600; transition: all .2s ease; }
+  button:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,.05); }
+  button.primary:not(:disabled):hover { background: #339af0; box-shadow: 0 4px 10px rgba(28,126,214,.25); }
+  .badge { background: #fff; border-color: #dbe4f0; font-weight: 500; padding: 6px 10px; border-radius: 8px; }
+  #scanStatus.badge { padding: 6px 12px; font-size: 13px; font-weight: 600; }
   #scanStatus.badge.chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #a5d8ff; }
   #scanStatus.badge.chip.ng { background: var(--ng-soft); color: var(--ng); border-color: #ffc9c9; }
   #scanStatus.badge.chip.loc { background: var(--loc-soft); color: var(--loc); border-color: #96f2d7; }
-  /* 'info' type がJS側で使われた場合を想定（例: 探索中）*/
   #scanStatus.badge.chip.info { background: var(--info-soft); color: #c67c00; border-color: #ffe08c; }
 
+  .stack { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+  video { border-radius: 12px; }
 
-  /* --- カメラ周り --- */
-  .stack {
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, .08);
-  }
-  video {
-    border-radius: 12px;
-  }
-  #error {
-    /* エラー表示をリッチにする */
-    margin-top: 10px;
-    padding: 10px 14px;
-    border-radius: 10px;
-    background: var(--ng-soft);
-    color: #b00020;
-    border: 1px solid #ffc9c9;
-    font-weight: 500;
-    white-space: pre-wrap;
-    display: none; /* デフォルトは非表示 */
-  }
-  /* JSがtextContentをセットしたら表示されるように :empty を活用 */
-  #error:not(:empty) {
-    display: block;
-  }
+  #error { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: var(--ng-soft); color: #b00020; border: 1px solid #ffc9c9; font-weight: 500; white-space: pre-wrap; display: none; }
+  #error:not(:empty) { display: block; }
 
-  /* --- モーダル --- */
-  .modal {
-    background-color: rgba(0,0,0,0.4); /* 背景を少し薄く */
-    animation: modal-fade-in 0.3s ease;
-  }
-  @keyframes modal-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  .modal-content {
-    margin: 10% auto; /* 上部マージンを減らす */
-    border: none;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-    border-radius: 14px;
-  }
-  .modal-header {
-    padding-bottom: 12px;
-    margin-bottom: 12px;
-  }
-  .modal-header h4 {
-    border-bottom: none; /* モーダル内のh4は線不要 */
-    padding-bottom: 0;
-    font-size: 18px;
-  }
-  .close-button {
-    transition: color 0.2s;
-  }
-  .close-button:hover {
-    color: #555;
-  }
-  #historyList li {
-    padding: 8px 4px;
-    font-size: 14px;
-    color: #333;
-  }
-  #historyList li:last-child {
-    border-bottom: none;
-  }
-  #historyList li strong {
-    margin-right: 6px;
-  }
-
-  /* --- bigmsg (フィードバック) --- */
-  .bigmsg {
-    /* JSで色が固定されているが、デフォルト（OK）を想定 */
-    background: rgba(28, 126, 214, 0.92); /* var(--ok) ベース */
-    color: #fff;
-    border-radius: 14px;
-    padding: 18px 24px;
-    animation: bigmsg-fade 1.3s ease-out forwards; /* 少し長めに */
-  }
+  /* 入力行 */
+  .rowbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .rowbar input[type=text] { padding: 8px 10px; border:1px solid var(--bd); border-radius:10px; font-size:14px; min-width:10ch; }
+  .mutetiny { color:#868e96; font-size:12px; }
 </style>
 </head>
 <body>
@@ -285,14 +121,67 @@
       </div>
       <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
     </div>
+
     <div class="panel">
-      <div class="card"><h4>🎯 ターゲット</h4><div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div></div>
-      <div class="card"><h4> 棚 探すべき棚</h4><div id="currentShelf" class="muted">（URL未指定）</div></div>
-      <div class="card"><h4>⚙️ 操作</h4><div class="controls"><button id="btnStart" class="primary">カメラ開始</button><button id="btnStop" disabled>停止</button><button id="btnHistory">スキャン履歴</button></div><div class="legend"><span class="chip ok">一致(型)</span><span class="chip loc">一致(棚)</span><span class="chip ng">不一致</span></div></div>
-      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。</div></div>
+      <div class="card">
+        <h4>🎯 ターゲット</h4>
+        <div class="target-info">
+          Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br>
+          <span id="tgtWN" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>⌨️ 直接入力（Book / WC）</h4>
+        <div class="rowbar" style="margin:6px 0 8px">
+          <label>Book: <input type="text" id="inBook" placeholder="例: Ta" inputmode="latin" autocomplete="off" /></label>
+          <label>WC: <input type="text" id="inWc" placeholder="例: 2356" inputmode="numeric" autocomplete="off" /></label>
+          <button id="btnApply" class="primary">設定</button>
+          <button id="btnFill">現在の値を入れる</button>
+          <button id="btnClear">クリア</button>
+        </div>
+        <div class="mutetiny">※ 設定すると「ターゲット」が更新され、スキャン一致判定（青枠）がこの組み合わせに切り替わります。URLに <code>?book=...&wc=...</code> が無い場合は、Sheets から棚情報(Location)を自動取得します。</div>
+      </div>
+
+      <div class="card">
+        <h4> 棚 探すべき棚</h4>
+        <div id="currentShelf" class="muted">（URL未指定）</div>
+      </div>
+
+      <div class="card">
+        <h4>⚙️ 操作</h4>
+        <div class="controls">
+          <button id="btnStart" class="primary">カメラ開始</button>
+          <button id="btnStop" disabled>停止</button>
+          <button id="btnHistory">スキャン履歴</button>
+        </div>
+        <div class="legend">
+          <span class="chip ok">一致(型)</span>
+          <span class="chip loc">一致(棚)</span>
+          <span class="chip ng">不一致</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>💡 ヒント</h4>
+        <div class="muted" style="font-size:13px;">
+          ・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>
+          ・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>
+          ・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。
+        </div>
+      </div>
     </div>
   </div>
-  <div id="historyModal" class="modal"><div class="modal-content"><div class="modal-header"><h4>スキャン履歴</h4><span id="closeModal" class="close-button">&times;</span></div><ul id="historyList"></ul></div></div>
+
+  <div id="historyModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4>スキャン履歴</h4>
+        <span id="closeModal" class="close-button">&times;</span>
+      </div>
+      <ul id="historyList"></ul>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
   <script>
@@ -315,6 +204,12 @@
       historyModal: document.getElementById('historyModal'),
       historyList: document.getElementById('historyList'),
       closeModal: document.getElementById('closeModal'),
+      // 追加: 直接入力UI
+      inBook: document.getElementById('inBook'),
+      inWc: document.getElementById('inWc'),
+      btnApply: document.getElementById('btnApply'),
+      btnFill: document.getElementById('btnFill'),
+      btnClear: document.getElementById('btnClear'),
     };
 
     const overlayCtx = DOM.overlay.getContext('2d', { willReadFrequently: true });
@@ -332,7 +227,7 @@
       scanHistory: new Map(),
       __lastOrderKey: '',
       __orderSetAt: 0,
-      csrf: ''   // ← 追加: CSRFトークン
+      csrf: ''   // ← CSRFトークン
     };
 
     /* ====== CSRF（/api/die-check 用） ====== */
@@ -393,8 +288,7 @@
       }
     }
 
-    /* ====== 音声読み上げ（既存） ====== */
-    let __ttsReady = false;
+    /* ====== 音声読み上げ ====== */
     let __jpVoices = [];
     let __lastSpeak = 0;
     let __lastLocSpeak = 0;
@@ -414,33 +308,22 @@
             const ib = pref.findIndex(p => (b.name||'').includes(p));
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
           });
-        __ttsReady = true;
       }
       loadVoices();
       synth.onvoiceschanged = loadVoices;
     }
-
     const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
-
     function unlockTTS() {
       if (!('speechSynthesis' in window)) return;
       const u = new SpeechSynthesisUtterance(' ');
       u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
       try { window.speechSynthesis.speak(u); } catch {}
     }
-
     function speakAfterReady(utterance) {
       if (!('speechSynthesis' in window)) return;
       const synth = window.speechSynthesis;
       const trySpeak = (retries = 2) => {
         try { synth.cancel(); } catch {}
-        const voices = synth.getVoices();
-        if (voices && voices.length && __jpVoices.length === 0) {
-          __jpVoices = voices.filter(v =>
-            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
-          );
-          if (__jpVoices.length) utterance.voice = __jpVoices[0];
-        }
         try { synth.speak(utterance); }
         catch (e) {
           if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
@@ -448,44 +331,28 @@
       };
       trySpeak();
     }
-
     function speakFoundOnce(workName) {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastSpeak < __speakCooldownMs) return;
       __lastSpeak = now;
-
       const hasWN = !!workName && String(workName).trim().length > 0;
-      const text = hasWN
-        ? `お探しの型、${workName}、が見つかりました。`
-        : `お探しの型が見つかりました。`;
-
+      const text = hasWN ? `お探しの型、${workName}、が見つかりました。` : `お探しの型が見つかりました。`;
       const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang   = 'ja-JP';
-      u.rate   = 1.0;
-      u.pitch  = 1.1;
-      u.volume = 1.0;
-
-      if (__jpVoices.length > 0) u.voice = __jpVoices[0];
+      u.lang='ja-JP';u.rate=1.0;u.pitch=1.1;u.volume=1.0;
+      if (__jpVoices.length>0) u.voice=__jpVoices[0];
       speakAfterReady(u);
     }
-
     function speakTargetLocFound() {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
       __lastLocSpeak = now;
-
       const u = new SpeechSynthesisUtterance("目的の棚です");
-      u.lang   = 'ja-JP';
-      u.rate   = 1.0;
-      u.pitch  = 1.1;
-      u.volume = 0.8;
-
-      if (__jpVoices.length > 0) u.voice = __jpVoices[0];
+      u.lang='ja-JP';u.rate=1.0;u.pitch=1.1;u.volume=0.8;
+      if (__jpVoices.length>0) u.voice=__jpVoices[0];
       speakAfterReady(u);
     }
-
     let __lastGenericSpeak = 0;
     function speakLineOnce(text, {rate=1.08, pitch=1.4, cooldown=1200} = {}) {
       if (!('speechSynthesis' in window)) return;
@@ -498,17 +365,11 @@
       speakAfterReady(u);
     }
 
-    document.addEventListener('pointerdown', function __once() {
-      initTTS();
-      document.removeEventListener('pointerdown', __once, true);
-    }, true);
-
     function cssVarOr(name, fallback) {
       const v = getComputedStyle(document.documentElement).getPropertyValue(name);
       const s = (v || '').trim();
       return s || fallback;
     }
-
     const CONFIG = {
       colors: {
         ok: cssVarOr('--ok', '#1c7ed6'),
@@ -549,21 +410,12 @@
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       if (/^loc-/i.test(text)) return "loc";
-      try {
-        const url = new URL(text);
-        if (url.searchParams.has("loc")) return "loc";
-      } catch {}
+      try { const url = new URL(text); if (url.searchParams.has("loc")) return "loc"; } catch {}
       if (/^die-/i.test(text)) return "die";
-      try {
-        const url = new URL(text);
-        if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
-      } catch {}
+      try { const url = new URL(text); if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die"; } catch {}
       if (/^order-/i.test(text)) return "order";
       if (/order[_-]?plain/i.test(text)) return "order";
-      try {
-        const url = new URL(text);
-        if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order";
-      } catch {}
+      try { const url = new URL(text); if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order"; } catch {}
       return "other";
     };
 
@@ -602,11 +454,7 @@
       const text = normalizeHyphen((raw || "").trim());
       let match = /^loc-(.+)$/i.exec(text);
       if (match) return { loc: match[1].trim() };
-      try {
-        const url = new URL(text);
-        const loc = url.searchParams.get("loc") || "";
-        if (loc) return { loc: loc.trim() };
-      } catch {}
+      try { const url = new URL(text); const loc = url.searchParams.get("loc") || ""; if (loc) return { loc: loc.trim() }; } catch {}
       return null;
     };
 
@@ -695,9 +543,9 @@
       updateStatus("停止中");
     }
 
-    function showError(e) { 
-      console.error(e); 
-      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; 
+    function showError(e) {
+      console.error(e);
+      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
     }
 
     async function startCam() {
@@ -789,15 +637,14 @@
     /* === 検出結果適用 === */
     function applyDetections(detections) {
       let anyMatch = false;
-      let locFound = false;
       let anyLocMatch = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
       for (const d of (detections || [])) {
-        const raw = (d.rawValue || "").trim(); 
+        const raw = (d.rawValue || "").trim();
         if (!raw) continue;
-        
-        const kind = classify(raw); 
+
+        const kind = classify(raw);
         const pts = d.cornerPoints;
 
         if (kind === 'die') {
@@ -820,17 +667,13 @@
             if (navigator.vibrate) { navigator.vibrate(150); }
             showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
             showToastNearBox("ロック", pts);
-
             speakFoundOnce(state.currentTarget.wn || (p && p.wn) || "");
-
             holdScan(CONFIG.holdDuration);
             setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
           }
 
         } else if (kind === 'loc') {
           const locData = parseLoc(raw);
-          locFound = true;
-
           const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
           anyLocMatch = anyLocMatch || isLocMatch;
 
@@ -860,24 +703,12 @@
             updateHistory(raw, 'order', true);
 
             if (!sameAsBefore || !stillCooling || newKey !== state.targetKey) {
-              state.currentTarget = { book: od.bn || "", wc: od.wc || "", wn: "" };
-              state.targetKey = newKey;
+              setTarget(od.bn || "", od.wc || "", "");
               state.__lastOrderKey = newKey;
               state.__orderSetAt = now;
-
-              DOM.tgtBN.textContent = state.currentTarget.book || "-";
-              DOM.tgtWC.textContent = state.currentTarget.wc || "-";
-              DOM.tgtWN.textContent = "";
-
               showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
               showToastNearBox("ターゲット更新", pts);
               speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
-
-              // ★ ここで Sheets から Location を自動取得（URLに loc が無い場合のみ）
-              if(!state.currentShelf){
-                maybeUpdateShelfFromSheets(state.currentTarget.book, state.currentTarget.wc);
-              }
-
               holdScan(800);
             }
           } else {
@@ -894,18 +725,10 @@
       if (!state.holdTimer) {
         let msg = "探索中...";
         let statusType = "info";
-        
         if (detections.length > 0) {
-          if (anyMatch) {
-            msg = "ターゲット発見";
-            statusType = "ok";
-          } else if (anyLocMatch) {
-            msg = "目的の棚を検知";
-            statusType = "loc";
-          } else {
-            msg = `${detections.length}件検知`;
-            statusType = "ng";
-          }
+          if (anyMatch) { msg = "ターゲット発見"; statusType = "ok"; }
+          else if (anyLocMatch) { msg = "目的の棚を検知"; statusType = "loc"; }
+          else { msg = `${detections.length}件検知`; statusType = "ng"; }
         }
         updateStatus(msg, statusType);
       }
@@ -935,15 +758,10 @@
         for (const [raw, data] of sortedHistory) {
           const li = document.createElement('li');
           let status = '';
-          if (data.kind === 'die') {
-            status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
-          } else if (data.kind === 'loc') {
-            status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
-          } else if (data.kind === 'order') {
-            status = data.isMatch ? '🧾 作業指示 読み取り' : '🧾 作業指示 形式不明';
-          } else {
-            status = '❓ その他';
-          }
+          if (data.kind === 'die') status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
+          else if (data.kind === 'loc') status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
+          else if (data.kind === 'order') status = data.isMatch ? '🧾 作業指示 読み取り' : '🧾 作業指示 形式不明';
+          else status = '❓ その他';
           li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`;
           DOM.historyList.appendChild(li);
         }
@@ -951,12 +769,48 @@
       DOM.historyModal.style.display = 'block';
     }
 
-    DOM.btnStart.addEventListener("click", () => {
-      initTTS();
-      unlockTTS();
-      startCam();
-    });
+    /* ====== 直接入力：ターゲット設定関数 ====== */
+    function setTarget(book, wc, wn="") {
+      state.currentTarget = { book: String(book||"").trim(), wc: String(wc||"").trim(), wn: String(wn||"").trim() };
+      state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+      DOM.tgtBN.textContent = state.currentTarget.book || '-';
+      DOM.tgtWC.textContent = state.currentTarget.wc || '-';
+      DOM.tgtWN.textContent = state.currentTarget.wn || '';
+      updateStatus(state.targetKey ? "準備完了" : "ターゲット未指定", state.targetKey ? "ok" : "ng");
 
+      // URLでloc未指定 & まだcurrentShelfが空 → Sheetsから取得
+      const params = new URLSearchParams(location.search);
+      const hasLocInUrl = (params.get("loc") || "").trim().length > 0;
+      if (!hasLocInUrl) {
+        state.currentShelf = null; // 上書きに備え、一旦リセット
+        DOM.currentShelf.textContent = '（Sheetsから取得中…）';
+        DOM.currentShelf.className = 'muted';
+        maybeUpdateShelfFromSheets(state.currentTarget.book, state.currentTarget.wc);
+      }
+    }
+
+    /* ====== 入力UIのイベント ====== */
+    DOM.btnApply.addEventListener('click', () => {
+      const b = (DOM.inBook.value||'').trim();
+      const w = (DOM.inWc.value||'').trim();
+      if (!b || !w) { alert('Book と WC を入力してください'); return; }
+      setTarget(b, w, "");
+      speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
+    });
+    DOM.btnFill.addEventListener('click', () => {
+      DOM.inBook.value = state.currentTarget.book || '';
+      DOM.inWc.value   = state.currentTarget.wc || '';
+    });
+    DOM.btnClear.addEventListener('click', () => {
+      DOM.inBook.value = '';
+      DOM.inWc.value = '';
+    });
+    // Enter確定（どちらかでEnter→設定）
+    DOM.inBook.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ DOM.btnApply.click(); }});
+    DOM.inWc.addEventListener('keydown',   (e)=>{ if(e.key==='Enter'){ DOM.btnApply.click(); }});
+
+    /* ====== モーダル/その他 ====== */
+    DOM.btnStart.addEventListener("click", () => { initTTS(); unlockTTS(); startCam(); });
     DOM.btnStop.addEventListener("click", stopCam);
     DOM.btnHistory.addEventListener("click", showHistoryModal);
     DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
@@ -1007,34 +861,29 @@
       return hits;
     }
 
+    /* ====== 初期化 ====== */
     function initialize() {
       const params = new URLSearchParams(location.search);
-      state.currentTarget = {
-        book: (params.get("book") || "").trim(),
-        wc: (params.get("wc") || "").trim(),
-        wn: (params.get("wn") || "").trim()
-      };
-      
-      if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QRを読み取るか、URLで指定）", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざしてください。";
+      const book = (params.get("book") || "").trim();
+      const wc   = (params.get("wc")   || "").trim();
+      const wn   = (params.get("wn")   || "").trim();
+
+      if (!book || !wc) {
+        updateStatus("ターゲット未指定（作業指示QRを読み取るか、直接入力/URLで指定）", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）/直接入力でターゲットを設定してください。";
         DOM.btnStart.disabled = false;
       } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
+        setTarget(book, wc, wn);
       }
 
       const locParam = (params.get("loc") || "").trim();
-      if(locParam){
+      if (locParam) {
         state.currentShelf = locParam;
         DOM.currentShelf.textContent = state.currentShelf;
         DOM.currentShelf.className = "chip loc";
-      }else{
-        // ★ URLに loc が無い & book/wc がある → 起動直後に Sheets から取得
-        if(state.currentTarget.book && state.currentTarget.wc){
+      } else {
+        if (state.currentTarget.book && state.currentTarget.wc) {
+          // URLにlocがなく、かつターゲットがあればSheetsから取得
           maybeUpdateShelfFromSheets(state.currentTarget.book, state.currentTarget.wc);
         }
       }
