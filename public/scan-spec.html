@@ -18,7 +18,6 @@
   .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
   video{display:block;width:100%;max-width:580px;background:#000}
   canvas{position:absolute;inset:0;pointer-events:none}
-  /* 追加: フリーズ用キャンバス（ビデオの上、オーバーレイの下） */
   #freeze{z-index:1; display:none;}
   #overlay{z-index:2;}
   .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
@@ -47,209 +46,43 @@
   .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
   .tbl thead th{background:#f8f9fb}
 
-  /* 追加: スワイプヒントの吹き出し */
   .swipe-hint{
-    position: fixed;
-    left: 50%;
-    bottom: 18px;
-    transform: translateX(-50%);
-    background: rgba(33,37,41,.92);
-    color: #fff;
-    padding: 10px 14px;
-    border-radius: 999px;
-    font-size: 14px;
-    box-shadow: 0 6px 16px rgba(0,0,0,.25);
-    z-index: 9999;
-    animation: hint-pop 1.6s ease-out forwards;
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: rgba(33,37,41,.92); color: #fff; padding: 10px 14px; border-radius: 999px;
+    font-size: 14px; box-shadow: 0 6px 16px rgba(0,0,0,.25); z-index: 9999; animation: hint-pop 1.6s ease-out forwards;
   }
-  @keyframes hint-pop{
-    0%{opacity:0; transform: translateX(-50%) translateY(6px);}
-    15%{opacity:1; transform: translateX(-50%) translateY(0);}
-    75%{opacity:1;}
-    100%{opacity:0; transform: translateX(-50%) translateY(6px);}
-  }
-    /* ===== 🎨 UI/UX 改良スタイル ===== */
+  @keyframes hint-pop{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(6px)}}
 
-  :root {
-    /* 基本色を微調整 */
-    --tx: #212529; /* テキスト */
-    --sub: #5a636c; /* サブテキスト（少し濃く） */
-    --bg: #f4f7f9; /* 背景（少し青み） */
-    --bd: #e9ecef; /* 境界線（少し薄く） */
-    
-    /* アクセントカラー */
-    --ok-soft: #e7f5ff;
-    --ng-soft: #fff5f5;
-    --info-soft: #e3fafc;
-  }
-
-  /* --- 全体・タイポグラフィ --- */
-  html, body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  .wrap {
-    padding: 20px; /* 全体の余白を少し増やす */
-  }
-  h1 {
-    margin: 0 0 20px; /* h1下のマージンを調整 */
-    font-weight: 700;
-    color: #111;
-  }
-  h3 {
-    font-size: 16px;
-    font-weight: 600;
-    margin-top: 0;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--bd);
-    color: var(--tx);
-  }
-
-  /* --- カードデザイン --- */
-  .card {
-    padding: 16px 20px; /* カード内の余白を調整 */
-    border-radius: 12px; /* 角丸を少し控えめに */
-    border: none; /* 枠線を消して影で表現 */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
-    transition: box-shadow 0.2s ease;
-  }
-  .card:hover {
-    box-shadow: 0 6px 16px rgba(0, 0, 0, .07), 0 2px 6px rgba(0, 0, 0, .04);
-  }
-
-  /* --- ボタン・フォーム --- */
-  button {
-    transition: all 0.2s ease;
-    font-weight: 600;
-  }
-  button:not(:disabled):hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,.05);
-  }
-  button.primary:not(:disabled):hover {
-    filter: brightness(110%);
-    box-shadow: 0 4px 10px rgba(28, 126, 214, 0.25);
-  }
-  input[type=text] {
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  }
-  input[type=text]:focus {
-    border-color: var(--ok);
-    box-shadow: 0 0 0 3px rgba(28, 126, 214, 0.15);
-    outline: none;
-  }
-  .badge {
-    background: var(--bg);
-  }
-
-  /* --- スキャン状態 --- */
-  .chip {
-    padding: 4px 12px;
-    font-size: 13px;
-  }
-  .chip.info { background: var(--info-soft); color: var(--info); border-color: #bdecf2; }
-  .chip.ok { background: var(--ok-soft); color: var(--ok); border-color: #a5d8ff; }
-  .chip.ng { background: var(--ng-soft); color: var(--ng); border-color: #ffc9c9; }
-
-  /* --- 照会結果 --- */
-  .kvs {
-    gap: 8px 12px;
-  }
-  .kvs b {
-    color: var(--sub); /* キー（項目名）の色をサブテキストに */
-    font-weight: 500;
-    white-space: nowrap;
-  }
-  .kvs div {
-    font-weight: 500; /* 値を少し強調 */
-    word-break: break-all;
-  }
-
-  /* --- サムネイル --- */
-  .thumbs img {
-    border-radius: 8px;
-    border: 1px solid var(--bd);
-    transition: all 0.2s ease;
-  }
-  .thumbs img:hover {
-    border-color: var(--ok);
-    box-shadow: 0 2px 6px rgba(0,0,0,.1);
-    transform: scale(1.05);
-  }
-
-  /* --- 結果テーブル --- */
-  .tbl {
-    width: 100%;
-    border: none;
-    border-top: 1px solid var(--bd);
-    margin-top: 8px;
-  }
-  .tbl th, .tbl td {
-    padding: 10px 8px;
-    border: none;
-    border-bottom: 1px solid var(--bd); /* 横線のみ */
-    text-align: left;
-    vertical-align: middle;
-  }
-  .tbl thead th {
-    background: var(--bg);
-    color: var(--sub);
-    font-weight: 600;
-    font-size: 13px;
-  }
-  .tbl tbody tr:hover {
-    background-color: #fcfcff;
-  }
-  .tbl img {
-    vertical-align: middle; /* セル内での画像中央揃え */
-  }
-
-  /* --- 状態フィードバック（エラー、ローディング） --- */
-  .err {
-    /* 既存の .err スタイルをリッチにする */
-    padding: 10px 14px;
-    border-radius: 10px;
-    background: var(--ng-soft);
-    color: #b00020;
-    border: 1px solid #ffc9c9;
-    font-weight: 500;
-  }
-  #errCam, #errApi {
-    margin-top: 10px; /* .err スタイル適用時にマージン確保 */
-  }
-  #loading {
-    /* ローディング表示をスピナーに変更 */
-    display: flex; /* JSでblockにされる前提 */
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    color: var(--sub);
-    margin-top: 10px;
-    padding: 8px;
-  }
-  #loading::before {
-    content: '';
-    display: block;
-    width: 20px;
-    height: 20px;
-    border: 3px solid #ccc;
-    border-top-color: var(--ok);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  /* --- CSRF警告 --- */
-  .hint {
-    border-radius: 10px;
-    border: 1px solid #ffe8cc;
-    background: #fff9f0;
-    color: #8c5b0c;
-  }
+  /* 見た目微調整（前回どおり） */
+  :root { --tx:#212529; --sub:#5a636c; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
+  .wrap{padding:20px}
+  h1{margin:0 0 20px;font-weight:700;color:#111}
+  h3{font-size:16px;font-weight:600;margin-top:0;padding-bottom:6px;border-bottom:1px solid var(--bd);color:var(--tx)}
+  .card{padding:16px 20px;border-radius:12px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
+  .card:hover{box-shadow:0 6px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04)}
+  button{transition:.2s;font-weight:600}
+  button:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.05)}
+  button.primary:not(:disabled):hover{filter:brightness(110%);box-shadow:0 4px 10px rgba(28,126,214,.25)}
+  input[type=text]:focus{border-color:var(--ok);box-shadow:0 0 0 3px rgba(28,126,214,.15);outline:none}
+  .badge{background:var(--bg)}
+  .chip{padding:4px 12px;font-size:13px}
+  .chip.info{background:var(--info-soft);color:var(--info);border-color:#bdecf2}
+  .chip.ok{background:var(--ok-soft);color:var(--ok);border-color:#a5d8ff}
+  .chip.ng{background:var(--ng-soft);color:var(--ng);border-color:#ffc9c9}
+  .kvs{gap:8px 12px}
+  .kvs b{color:var(--sub);font-weight:500;white-space:nowrap}
+  .kvs div{font-weight:500;word-break:break-all}
+  .thumbs img{border-radius:8px;border:1px solid var(--bd);transition:.2s}
+  .thumbs img:hover{border-color:var(--ok);box-shadow:0 2px 6px rgba(0,0,0,.1);transform:scale(1.05)}
+  .tbl{border:none;border-top:1px solid var(--bd);margin-top:8px}
+  .tbl th,.tbl td{padding:10px 8px;border:none;border-bottom:1px solid var(--bd);text-align:left;vertical-align:middle}
+  .tbl thead th{background:var(--bg);color:var(--sub);font-weight:600;font-size:13px}
+  .tbl tbody tr:hover{background:#fcfcff}
+  .err{padding:10px 14px;border-radius:10px;background:var(--ng-soft);color:#b00020;border:1px solid #ffc9c9;font-weight:500}
+  #loading{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--sub);margin-top:10px;padding:8px}
+  #loading::before{content:'';width:20px;height:20px;border:3px solid #ccc;border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  .hint{border-radius:10px;border:1px solid #ffe8cc;background:#fff9f0;color:#8c5b0c}
 </style>
 </head>
 <body>
@@ -262,7 +95,6 @@
       <div class="card">
         <div class="stack" id="stack">
           <video id="video" playsinline webkit-playsinline muted></video>
-          <!-- 追加: ロック後の静止画を保持するキャンバス -->
           <canvas id="freeze"></canvas>
           <canvas id="overlay"></canvas>
         </div>
@@ -272,6 +104,8 @@
           <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
           <span id="detectorInfo" class="badge"></span>
           <span id="scanStatus" class="chip info">待機中</span>
+          <!-- Airtable fetch 状態の小バッジ（ON/OFF確認用・表示だけ） -->
+          <span id="atState" class="badge"></span>
         </div>
         <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
         <div id="errCam" class="err" style="margin-top:6px;"></div>
@@ -352,10 +186,15 @@
   </div>
 </div>
 
-<!-- jsQR フォールバック -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
+  // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
+  const FEATURE = {
+    AIRTABLE_FETCH: true,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
+  };
+  // ==============================================
+
   // ===== DOM =====
   const D = {
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
@@ -368,10 +207,19 @@
     ordersTableWrap: q('#ordersTableWrap'), ordersTbody: q('#ordersTbody'),
     inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
     btnOpenHtml: q('#btnOpenHtml'),
-    csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf')
+    csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
+    atState: q('#atState'),
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
+
+  // Airtableオフ時はボタンを無効化（HTML版はAT依存するケースが多いため）
+  if(!FEATURE.AIRTABLE_FETCH){
+    D.btnOpenHtml.disabled = true;
+    D.btnOpenHtml.title = 'Airtable取得OFF中';
+  }
+  // 状態バッジ
+  if(D.atState){ D.atState.textContent = FEATURE.AIRTABLE_FETCH ? 'AT:ON' : 'AT:OFF'; }
 
   // ===== Config =====
   const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
@@ -405,16 +253,14 @@
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
     ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].y?points[i].x:points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
-    // overlay
     D.overlay.width = D.video.videoWidth;
     D.overlay.height= D.video.videoHeight;
     D.overlay.style.width = D.video.clientWidth + 'px';
     D.overlay.style.height= D.video.clientHeight + 'px';
-    // freeze
     D.freeze.width = D.video.videoWidth;
     D.freeze.height= D.video.videoHeight;
     D.freeze.style.width = D.video.clientWidth + 'px';
@@ -429,10 +275,7 @@
   }
   async function ensureCsrf(){
     let t = readCookie('xcsrf');
-    if(!t){
-      await requestSession();
-      t = readCookie('xcsrf');
-    }
+    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
     if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
     S.csrf = t;
     D.csrfStatus.textContent = 'CSRF: 有効';
@@ -494,15 +337,12 @@
 
   // ===== Camera =====
   function reallyStopStreamTracks(){
-    if(S.stream){
-      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{}
-    }
+    if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} }
     S.stream = null;
   }
   function stopCam({keepFrame=false}={}){
     if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
     if(!keepFrame){
-      // クリアして通常停止
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       D.freeze.style.display='none';
       D.video.style.visibility = 'visible';
@@ -512,7 +352,6 @@
     setStatus('停止中','info');
   }
   async function startCam(){
-    // 起動時はフリーズ画を隠す
     D.freeze.style.display='none';
     D.video.style.visibility = 'visible';
     S.locked = false;
@@ -520,12 +359,7 @@
     stopCam(); D.errCam.textContent='';
     try{
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video:{
-          facingMode:{ ideal:'environment' },
-          width:{ ideal:1280, min:640, max:1920 },
-          height:{ ideal:720,  min:480, max:1080 },
-          advanced:[{ focusMode:'continuous' }]
-        },
+        video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280, min:640, max:1920 }, height:{ ideal:720, min:480, max:1080 }, advanced:[{ focusMode:'continuous' }] },
         audio:false
       });
       D.video.srcObject=S.stream; await D.video.play();
@@ -533,33 +367,24 @@
 
       if(S.useBarcodeDetector){
         try{
-          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
-            ? await BarcodeDetector.getSupportedFormats() : [];
+          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function') ? await BarcodeDetector.getSupportedFormats() : [];
           if(!fmts || !fmts.includes('qr_code')) throw new Error('qr_code unsupported');
           S.detector = new BarcodeDetector({ formats:['qr_code'] });
-        }catch{
-          S.useBarcodeDetector=false; S.detector=null;
-        }
+        }catch{ S.useBarcodeDetector=false; S.detector=null; }
       }
-      const detName = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
-      D.detectorInfo.textContent = detName; setStatus('探索中…','info');
-      fitOverlay(); tick();
+      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
+      setStatus('探索中…','info'); fitOverlay(); tick();
     }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
   }
 
-  // ロック時：黒くならないよう「最後のフレームをfreezeキャンバスへコピー」→videoを隠す→トラック停止
   function freezeFrameAndStopCam(){
     try{
-      // サイズ同期
       fitOverlay();
-      // 直前フレームをfreezeへ
       freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
       freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
       D.freeze.style.display = 'block';
-      // ビデオを隠す（黒化回避）
       D.video.style.visibility = 'hidden';
     }catch{}
-    // オーバーレイはそのまま（ロック枠を残す）
     stopCam({keepFrame:true});
   }
 
@@ -570,8 +395,7 @@
     const srcW = D.video.videoWidth, srcH = D.video.videoHeight;
     const w = Math.floor(srcW/scale), h = Math.floor(srcH/scale);
 
-    const tmp = document.createElement('canvas');
-    tmp.width = w; tmp.height = h;
+    const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
     const tctx = tmp.getContext('2d', { willReadFrequently:true });
     tctx.imageSmoothingEnabled = false;
     tctx.drawImage(D.video, 0, 0, w, h);
@@ -583,14 +407,9 @@
         const codes = await S.detector.detect(tmp);
         for(const c of codes){
           const raw = (c.rawValue||'').trim();
-          if(raw && !all.has(raw)) all.set(raw, {
-            rawValue: raw,
-            cornerPoints: c.cornerPoints?.map(p=>({ x:p.x*scale, y:p.y*scale })) || null
-          });
+          if(raw && !all.has(raw)) all.set(raw, { rawValue: raw, cornerPoints: c.cornerPoints?.map(p=>({ x:p.x*scale, y:p.y*scale })) || null });
         }
-      }catch{
-        S.useBarcodeDetector=false; S.detector=null;
-      }
+      }catch{ S.useBarcodeDetector=false; S.detector=null; }
     }
 
     const img = tctx.getImageData(0,0,w,h);
@@ -601,10 +420,8 @@
       const raw = (hit.data||'').trim();
       if(raw && !all.has(raw)){
         const pts = [
-          hit.location.topLeftCorner,
-          hit.location.topRightCorner,
-          hit.location.bottomRightCorner,
-          hit.location.bottomLeftCorner
+          hit.location.topLeftCorner, hit.location.topRightCorner,
+          hit.location.bottomRightCorner, hit.location.bottomLeftCorner
         ].map(p=>({ x:p.x*scale, y:p.y*scale }));
         all.set(raw, { rawValue: raw, cornerPoints: pts });
       }
@@ -613,11 +430,7 @@
       const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
       const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
       const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
-      for(let y=minY;y<maxY;y++){
-        for(let x=minX;x<maxX;x++){
-          const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255;
-        }
-      }
+      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
     }
     return Array.from(all.values());
   }
@@ -645,18 +458,14 @@
       }else if(kind==='die'){
         const p = parseDie(raw);
         if(p && (p.bn || p.wc)){
-          // ロック枠（青）を描いたまま、黒画面にならない停止方式へ
           drawBox(pts, '#1c7ed6', true);
           showToastNear('ロック｜ターゲットを設定しました', pts);
           setTarget(p.bn||'', p.wc||'');
 
           if(!S.locked){
             S.locked = true;
-            // 真っ黒回避：最後のフレームをfreezeに写してから停止
             freezeFrameAndStopCam();
-            // 下スワイプヒント
             showSwipeHint();
-            // データ照会
             querySpec();
           }
         }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
@@ -686,16 +495,31 @@
 
     try{
       if(!S.csrf){ await ensureCsrf(); }
+
+      // Airtable OFF の場合は、APIに「Airtable不要」を明示（未対応のサーバでも害はありません）
+      const body = {
+        book, wc, json:true,
+        limit: FEATURE.AIRTABLE_FETCH ? 200 : 0,
+        noAirtable: !FEATURE.AIRTABLE_FETCH,
+        gsOnly: !FEATURE.AIRTABLE_FETCH
+      };
+
       const r = await fetch('/api/die-check', {
         method:'POST',
         credentials:'same-origin',
         headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
-        body: JSON.stringify({ book, wc, json:true, limit: 200 })
+        body: JSON.stringify(body)
       });
       const txt = await r.text();
       let j = {};
       try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
       if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
+
+      // サーバが無視した場合に備え、クライアント側でも Airtable 表示を抑止
+      if(!FEATURE.AIRTABLE_FETCH){
+        j.hits = [];
+        j.note = 'Airtable fetch disabled on client';
+      }
       renderResult(j);
     }catch(e){
       D.errApi.style.display='block'; D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
@@ -706,6 +530,8 @@
 
   function renderResult(payload){
     const { gs, hits=[], book, workcord } = payload || {};
+
+    // Sheets
     if(gs){
       D.gsBox.innerHTML = `
         <div class="kvs">
@@ -723,18 +549,23 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    if(hits.length>0){
+    // Airtable
+    if(!FEATURE.AIRTABLE_FETCH){
+      D.atBox.innerHTML = `<div class="muted">（Airtable照会は現在OFF）</div>`;
+      D.ordersTableWrap.style.display='none';
+      D.ordersEmpty.style.display='block';
+      D.ordersEmpty.textContent = '—';
+    }else if(hits.length>0){
       const latest = hits[0];
-      const thumbs = [];
       const atts = (latest.attachments||[]).slice(0,4);
-      for(const a of atts){
+      const thumbs = atts.map(a=>{
         const isImg = String(a.type||'').startsWith('image/');
         const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
-        thumbs.push(isImg
+        return isImg
           ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt=""></a>`
-          : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`
-        );
-      }
+          : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`;
+      });
+
       D.atBox.innerHTML = `
         <div class="kvs" style="margin-bottom:8px">
           <b>最も早い納期</b><div>${esc(latest.ndate||'')}</div>
@@ -749,11 +580,8 @@
         <div class="thumbs" style="margin-top:6px">${thumbs.join('') || '<span class="muted">（添付なし）</span>'}</div>
         ${ (latest.attachments||[]).length>4 ? `<div class="muted" style="margin-top:4px">…他 ${(latest.attachments.length-4)} 件</div>`:'' }
       `;
-    }else{
-      D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
-    }
 
-    if(hits.length>0){
+      // 受注一覧
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
       D.ordersTbody.innerHTML = hits.map(r => {
@@ -780,7 +608,9 @@
           </tr>
         `;
       }).join('');
+
     }else{
+      D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
       D.ordersTableWrap.style.display='none';
       D.ordersEmpty.style.display='block';
       D.ordersEmpty.textContent = '—';
@@ -791,8 +621,9 @@
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブで HTML 版
+  // 別タブ HTML（ATオフ時は無効化済み）
   D.btnOpenHtml.addEventListener('click', async () => {
+    if(!FEATURE.AIRTABLE_FETCH){ return; }
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
     try{
@@ -805,22 +636,18 @@
       });
       const html = await r.text();
       if(!r.ok) throw new Error(html.slice(0,300));
-      const w = window.open('', '_blank');
-      if(!w) throw new Error('ポップアップがブロックされました');
+      const w = window.open('', '_blank'); if(!w) throw new Error('ポップアップがブロックされました');
       w.document.open(); w.document.write(html); w.document.close();
     }catch(e){ alert('HTML表示に失敗: ' + (e.message||e)); }
   });
 
-  // 手入力で照会
+  // 手入力
   D.btnQuery.addEventListener('click', () => {
     setTarget(D.inBook.value, D.inWc.value);
     if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
     S.lastQueryKey=''; querySpec();
   });
-  D.btnFillTarget.addEventListener('click', () => {
-    D.inBook.value = S.current.book || '';
-    D.inWc.value   = S.current.wc   || '';
-  });
+  D.btnFillTarget.addEventListener('click', () => { D.inBook.value = S.current.book || ''; D.inWc.value = S.current.wc || ''; });
 
   // カメラ制御
   D.btnStart.addEventListener('click', startCam);
@@ -851,47 +678,30 @@
   });
 
   function jsqrMulti(imgData){
-    const hits=[];
-    const w=imgData.width, h=imgData.height;
+    const hits=[]; const w=imgData.width, h=imgData.height;
     const masked=new Uint8ClampedArray(imgData.data);
     for(let k=0;k<CFG.JSQR_MAX_LOOPS;k++){
       const hit=jsQR(masked,w,h,{ inversionAttempts:'attemptBoth' });
       if(!hit) break;
-      hits.push({
-        rawValue: hit.data,
-        cornerPoints:[
-          hit.location.topLeftCorner,
-          hit.location.topRightCorner,
-          hit.location.bottomRightCorner,
-          hit.location.bottomLeftCorner
-        ]
-      });
+      hits.push({ rawValue: hit.data, cornerPoints:[ hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner ] });
       const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
       const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x)));
       const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
       const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
       const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
-      for(let y=minY;y<maxY;y++){
-        for(let x=minX;x<maxX;x++){
-          const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255;
-        }
-      }
+      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
     }
     return hits;
   }
 
-  // URL パラメータで事前指定
+  // URL で事前指定
   (function initFromParams(){
     const p = new URLSearchParams(location.search);
     const book=(p.get('book')||'').trim();
     const wc  =(p.get('wc')||'').trim();
-    if(book || wc){
-      setTarget(book, wc);
-      S.lastQueryKey=''; querySpec();
-    }
+    if(book || wc){ setTarget(book, wc); S.lastQueryKey=''; querySpec(); }
   })();
 
-  // 下スワイプヒント
   function showSwipeHint(){
     const el = document.createElement('div');
     el.className = 'swipe-hint';
