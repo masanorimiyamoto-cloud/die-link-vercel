@@ -761,9 +761,15 @@
               setTarget(od.bn || "", od.wc || "", "");
               state.__lastOrderKey = newKey;
               state.__orderSetAt = now;
-              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
-              showToastNearBox("ターゲット更新", pts);
-              speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
+              const b = state.currentTarget.book || "-";
+const w = state.currentTarget.wc || "-";
+
+showBigMessage("作業指示QRを読み取りました", `ターゲット: Book=${b} / WC=${w}`);
+showToastNearBox(`ターゲット更新 (${b}/${w})`, pts);
+
+// 読み上げ（book / wc を含める）
+speakLineOnce(`ターゲットを book ${b} 、wc ${w} に設定しました。お探しの型を棚からスキャンしてください。`, { cooldown: 2500 });
+
               holdScan(800);
             }
           } else {
