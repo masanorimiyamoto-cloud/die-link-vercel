@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
+<title>仕様照会モード｜die / order → Airtable(onoff) & Google Sheets</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
@@ -191,7 +191,7 @@
 (() => {
   // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
   const FEATURE = {
-    AIRTABLE_FETCH: true,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
+    AIRTABLE_FETCH: false,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
   };
   // ==============================================
 
@@ -298,17 +298,26 @@
   });
 
   // ===== Parse & classify =====
+  // ===== Parse & classify =====
   function classify(raw){
     const t = normHyphen(raw);
-    if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
-    if(/^die-/i.test(t)) return 'die';
-    try{
+    // order
+    if (/^order(?:[_:\-\s]|$)/i.test(t)) return 'order';
+    try {
       const u = new URL(t);
-      if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
-      if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
-    }catch{}
+      if (/order[_-]?plain/i.test(u.pathname + u.search)) return 'order';
+    } catch {}
+
+    // die（die- / die_ / die: / "die " など全部OK）
+    if (/^die(?:[_:\-\s]|$)/i.test(t)) return 'die';
+    try {
+      const u = new URL(t);
+      if (u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
+    } catch {}
+
     return 'other';
   }
+
   function parseOrder(raw){
     const t = normHyphen(raw);
     try{
@@ -323,17 +332,30 @@
     return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
   }
   function parseDie(raw){
-    const t = normHyphen(raw);
-    const m = /^die-([^-\n]+)-([^-]+)/i.exec(t);
-    if(m) return { bn:m[1].trim(), wc:m[2].trim() };
-    try{
-      const u = new URL(t);
-      const book=(u.searchParams.get('book')||'').trim();
-      const wc  =(u.searchParams.get('wc')||'').trim();
-      if(book||wc) return { bn:book, wc:wc };
-    }catch{}
-    return null;
-  }
+    const t = normHyphen(raw).trim();
+
+    // 1) 先頭が die のテキストを分割して拾う（区切りは - _ : 空白 すべてOK）
+    if (/^die(?:[_:\-\s]|$)/i.test(t)) {
+      // "die" を捨てて残りを区切りで分割
+      const rest = t.replace(/^die(?:[_:\-\s]|$)/i, '');
+      const parts = rest.split(/[_:\-\s]+/).filter(Boolean);
+      // 期待: [book, wc, ...]（3つ目以降は無視）
+      if (parts.length >= 2) {
+        return { bn: parts[0].trim(), wc: parts[1].trim() };
+      }
+    }
+
+  // 2) URL 形式 ?book=Ta&wc=2356
+  try{
+    const u = new URL(t);
+    const book = (u.searchParams.get('book') || '').trim();
+    const wc   = (u.searchParams.get('wc')   || '').trim();
+    if (book || wc) return { bn: book, wc: wc };
+  }catch{}
+
+  return null;
+}
+
 
   // ===== Camera =====
   function reallyStopStreamTracks(){
@@ -455,23 +477,25 @@
           drawBox(pts, '#f59f00', true); showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
           setTarget(od.bn||'', od.wc||''); querySpec();
         }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
-      }else if(kind==='die'){
+      } else if (kind === 'die') {
         const p = parseDie(raw);
-        if(p && (p.bn || p.wc)){
+        if (p && (p.bn || p.wc)) {
           drawBox(pts, '#1c7ed6', true);
           showToastNear('ロック｜ターゲットを設定しました', pts);
-          setTarget(p.bn||'', p.wc||'');
+          setTarget(p.bn || '', p.wc || '');
 
-          if(!S.locked){
+          if (!S.locked) {
             S.locked = true;
             freezeFrameAndStopCam();
             showSwipeHint();
-            querySpec();
+            querySpec();   // ← querySpec側で book & wc の両方が揃っているか最終チェック
           }
-        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
-      }else{
-        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
+        } else {
+          drawBox(pts, '#e03131', false);
+          showToastNear('die(不明形式)', pts);
+        }
       }
+
     }
   }
 
