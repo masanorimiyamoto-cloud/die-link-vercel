@@ -742,7 +742,7 @@
               showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
               showToastNearBox("ターゲット更新", pts);
               // 読み上げを book/wc で
-              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、wc ${state.currentTarget.wc} に設定しました。`);
+              speakLineOnce(`ターゲットを  ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。お探しの型をスキャンしてください。`, { cooldown: 2500 });
 
               // URLで loc 未指定なら棚を自動取得
               if(!state.currentShelf){
