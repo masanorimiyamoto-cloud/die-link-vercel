@@ -9,21 +9,120 @@
   *{ box-sizing:border-box }
   html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
-  .wrap{ min-height:100dvh; display:flex; flex-direction:column; gap:14px; padding:18px;
-    max-width:640px; margin:0 auto }
-  .btn{ display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
-    border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
-    font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
-    box-shadow:0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.06) }
-  .btn:active{ transform:scale(.985) }
-  .a{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
-                linear-gradient(135deg,#1b3bff 0%,var(--a) 55%,#38bdf8 110%) }
-  .b{ background:radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
-                linear-gradient(135deg,#059669 0%,var(--b) 55%,#86efac 110%) }
-  .c{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
-                linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
-  @media (min-width:520px){ .btn{ min-height:20vh } }
+  .wrap{ min-height:100dvh; display:flex; flex-direction:column; gap:18px; padding:22px;
+    max-width:640px; margin:0 auto; justify-content: center; }
+  
+  /* ヘッダー部分 */
+  .header { text-align: center; margin-bottom: 10px; }
+  .app-title { 
+    font-size: clamp(24px, 6vw, 32px); 
+    font-weight: 800; 
+    margin: 0 0 8px 0;
+    background: linear-gradient(135deg, #4f8cff, #22c55e, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .app-subtitle {
+    font-size: clamp(14px, 3vw, 16px);
+    color: #94a3b8;
+    margin: 0;
+  }
+
+  /* ボタン改良 */
+  .btn{ 
+    display: flex; 
+    align-items: center; 
+    justify-content: flex-start; 
+    text-decoration: none; 
+    color:#fff;
+    border-radius: 20px; 
+    padding: 24px 20px; 
+    font-weight: 700; 
+    letter-spacing:.05em;
+    font-size:clamp(24px,7vw,36px); 
+    line-height:1.2; 
+    min-height:18vh; 
+    -webkit-tap-highlight-color:transparent;
+    box-shadow:0 8px 25px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.1);
+    border:1px solid rgba(255,255,255,.1);
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:active{ transform:scale(0.98); box-shadow:0 4px 15px rgba(0,0,0,.3); }
+  .btn:hover { transform: translateY(-2px); }
+  
+  /* ボタンコンテンツ */
+  .btn-content { 
+    display: flex; 
+    flex-direction: column; 
+    align-items: flex-start;
+    z-index: 2;
+  }
+  .btn-title { 
+    font-size: clamp(20px, 5vw, 28px); 
+    margin-bottom: 4px;
+  }
+  .btn-desc {
+    font-size: clamp(12px, 2.5vw, 14px);
+    opacity: 0.9;
+    font-weight: 500;
+  }
+  
+  /* ボタン背景グラデーション */
+  .a{ 
+    background: linear-gradient(135deg, #1b3bff 0%, var(--a) 50%, #38bdf8 100%);
+    position: relative;
+  }
+  .b{ 
+    background: linear-gradient(135deg, #059669 0%, var(--b) 50%, #86efac 100%);
+    position: relative;
+  }
+  .c{ 
+    background: linear-gradient(135deg, #b45309 0%, var(--c) 50%, #fca311 100%);
+    position: relative;
+  }
+  
+  /* ボタン hover エフェクト */
+  .btn::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    transition: left 0.6s ease;
+  }
+  .btn:hover::after {
+    left: 100%;
+  }
+
+  /* アイコン */
+  .btn-icon {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: clamp(20px, 5vw, 28px);
+    opacity: 0.8;
+  }
+
+  @media (min-width:520px){ 
+    .btn{ min-height:16vh; padding: 28px 24px; }
+    .wrap { gap: 22px; }
+  }
+
+  /* フッター */
+  .footer {
+    text-align: center;
+    margin-top: 20px;
+    padding: 15px;
+    color: #64748b;
+    font-size: 12px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
 </style>
 
 <!-- フォールバック: 事前プリフェッチ（全ブラウザ） -->
@@ -45,9 +144,41 @@
 </head>
 <body>
   <main class="wrap" role="navigation" aria-label="できること三つ">
-    <a class="btn a" href="./scan-spec.html"     aria-label="調べる">しらべる</a>
-    <a class="btn b" href="./scan-lookup.html"   aria-label="探す">さがす</a>
-    <a class="btn c" href="./scan-register.html" aria-label="登録する">しまう</a>
+    <!-- ヘッダー -->
+    <div class="header">
+      <h1 class="app-title">生産管理アプリ</h1>
+      <p class="app-subtitle">QRコードで簡単照会・管理</p>
+    </div>
+
+    <!-- メインボタン群 -->
+    <a class="btn a" href="./scan-spec.html" aria-label="調べる - QRコードをスキャンして情報を照会">
+      <div class="btn-content">
+        <div class="btn-title">しらべる</div>
+        <div class="btn-desc">QRコードをスキャン</div>
+      </div>
+      <div class="btn-icon">🔍</div>
+    </a>
+    
+    <a class="btn b" href="./scan-lookup.html" aria-label="探す - 条件を指定して情報を検索">
+      <div class="btn-content">
+        <div class="btn-title">さがす</div>
+        <div class="btn-desc">条件を指定して検索</div>
+      </div>
+      <div class="btn-icon">📂</div>
+    </a>
+    
+    <a class="btn c" href="./scan-register.html" aria-label="登録する - 新しい情報を登録">
+      <div class="btn-content">
+        <div class="btn-title">しまう</div>
+        <div class="btn-desc">新しい情報を登録</div>
+      </div>
+      <div class="btn-icon">💾</div>
+    </a>
+
+    <!-- フッター -->
+    <div class="footer">
+      © 2024 生産管理システム - 簡単QRコード管理
+    </div>
   </main>
 
 <script>
@@ -67,6 +198,28 @@ const prefetch = url => fetch(url, { mode:'no-cors', cache:'force-cache' }).catc
     link.addEventListener(ev, ()=>prefetch(url), { passive:true, once:true });
   });
 });
+
+/* ローディング状態の視覚的フィードバック */
+document.querySelectorAll('.btn').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    const originalContent = this.innerHTML;
+    this.innerHTML = '<div style="display:flex;align-items:center;gap:10px;"><div style="width:20px;height:20px;border:2px solid rgba(255,255,255,0.3);border-top:2px solid white;border-radius:50%;animation:spin 1s linear infinite"></div>読み込み中...</div>';
+    
+    setTimeout(() => {
+      this.innerHTML = originalContent;
+    }, 2000);
+  });
+});
+
+// スピンアニメーション
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
 </script>
 </body>
 </html>
