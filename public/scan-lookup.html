@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>抜型ファインダー from AirQRMa</title>
+  <title>抜型ファインダー QR_Manual</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root {
@@ -792,7 +792,7 @@
 
               showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
               showToastNearBox("ターゲット更新", pts);
-              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、wc ${state.currentTarget.wc} に設定しました。`, { cooldown: 2500 });
+              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。`, { cooldown: 2500 });
 
               // ←ここでgSheetからlocationを取る
               if (!state.currentShelf) {
@@ -891,7 +891,14 @@
       updateStatus('ターゲット設定', 'ok');
       showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
       speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`);
-
+      // ←ここを追加
+      if (state.currentShelf) {
+        // すでに URL や gsheet で棚が分かっているとき
+        speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`, { cooldown: 2500 });
+      } else {
+        // まだ棚が分かっていないとき
+        speakLineOnce(`棚のQRコードをスキャンしてください。`, { cooldown: 2500 });
+      }
       // URLでlocがなかったときだけ自動取得
       if (!state.currentShelf) {
         fetchShelfFromGSheet(book, wc);
