@@ -890,7 +890,7 @@
 
       updateStatus('ターゲット設定', 'ok');
       showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
-      speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`);
+      speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。`);
       // ←ここを追加
       // URLでlocがなかったときだけ自動取得
       if (!state.currentShelf) {
