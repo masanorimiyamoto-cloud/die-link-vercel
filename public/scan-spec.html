@@ -2,745 +2,185 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>QRコード照会｜生産管理システム</title>
+<title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
     --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
     --tx:#212529; --sub:#6c757d; --bg:#f8f9fa; --bd:#dee2e6;
-    --primary:#1c7ed6; --secondary:#6c757d; --success:#22c55e; --warning:#f59e0b;
   }
   html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
-  
-  /* レイアウト */
-  .wrap{max-width:1100px;margin:0 auto;padding:16px}
-  
-  /* ヘッダー */
-  .page-header {
-    background: #fff;
-    border-radius: 16px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    border: 1px solid var(--bd);
-  }
-  .header-content {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 20px;
-  }
-  .back-btn {
-    background: none;
-    border: none;
-    font-size: 24px;
-    cursor: pointer;
-    padding: 8px 12px;
-    border-radius: 10px;
-    transition: background 0.2s;
-    color: var(--sub);
-  }
-  .back-btn:hover {
-    background: #f1f3f5;
-  }
-  .header-text {
-    flex: 1;
-  }
-  .header-text h1 {
-    margin: 0 0 6px 0;
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--tx);
-  }
-  .subtitle {
-    margin: 0;
-    font-size: 14px;
-    color: var(--sub);
-  }
-  .header-badges {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .status-badge {
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    background: #e9ecef;
-    color: #495057;
-    border: 1px solid #dee2e6;
-  }
-  .status-badge.on {
-    background: #e7f5ff;
-    color: var(--ok);
-    border-color: #a5d8ff;
-  }
-  .status-badge.off {
-    background: #fff5f5;
-    color: var(--ng);
-    border-color: #ffc9c9;
-  }
+  .wrap{max-width:1100px;margin:0 auto;padding:14px}
+  h1{margin:8px 0 12px;font-size:clamp(18px,2.8vw,24px)}
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .panel{flex:1 1 420px;min-width:340px}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.05);padding:12px;margin-bottom:12px}
+  .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
+  video{display:block;width:100%;max-width:580px;background:#000}
+  canvas{position:absolute;inset:0;pointer-events:none}
+  #freeze{z-index:1; display:none;}
+  #overlay{z-index:2;}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600}
+  button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--bd);background:#fff}
+  .chip.info{background:#e3fafc;color:#0b7285;border-color:#99e9f2}
+  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
+  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
+  .muted{color:var(--sub);font-size:13px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
+  .kvs b{color:#333}
+  .thumbs{display:flex;flex-wrap:wrap;gap:6px}
+  .thumbs img{height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:#fff}
+  .err{color:#b00020;white-space:pre-wrap}
+  .hint{padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fcfcff}
+  .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:#f1f3f5;font-size:12px}
+  .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:13px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
+  @keyframes fade-out{from{opacity:1}to{opacity:0}}
+  .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .rowbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  input[type=text]{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch}
+  .tbl{width:100%;border-collapse:collapse;font-size:14px}
+  .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
+  .tbl thead th{background:#f8f9fb}
 
-  /* タブナビゲーション */
-  .tab-nav {
-    display: flex;
-    background: #f8f9fa;
-    border-radius: 12px;
-    padding: 6px;
-    gap: 4px;
+  .swipe-hint{
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: rgba(33,37,41,.92); color: #fff; padding: 10px 14px; border-radius: 999px;
+    font-size: 14px; box-shadow: 0 6px 16px rgba(0,0,0,.25); z-index: 9999; animation: hint-pop 1.6s ease-out forwards;
   }
-  .tab-btn {
-    flex: 1;
-    padding: 12px 16px;
-    border: none;
-    background: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 14px;
-    transition: all 0.2s;
-    color: var(--sub);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  .tab-btn.active {
-    background: #fff;
-    color: var(--primary);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-  }
-  .tab-btn .icon {
-    font-size: 16px;
-  }
+  @keyframes hint-pop{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(6px)}}
 
-  /* タブコンテンツ */
-  .tab-content {
-    display: none;
-    animation: fadeIn 0.3s ease;
-  }
-  .tab-content.active {
-    display: block;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  /* カード */
-  .card {
-    background: #fff;
-    border: 1px solid var(--bd);
-    border-radius: 16px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-    padding: 20px;
-    margin-bottom: 20px;
-    transition: box-shadow 0.2s;
-  }
-  .card:hover {
-    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
-  }
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    gap: 12px;
-  }
-  .card-header h3 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--tx);
-    flex: 1;
-  }
-
-  /* スキャナー */
-  .scanner-container {
-    position: relative;
-  }
-  .stack {
-    position: relative;
-    border: 1px solid var(--bd);
-    border-radius: 12px;
-    overflow: hidden;
-    background: #000;
-    margin-bottom: 16px;
-  }
-  video {
-    display: block;
-    width: 100%;
-    max-width: 580px;
-    background: #000;
-    border-radius: 8px;
-  }
-  canvas {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: 8px;
-  }
-  #freeze {
-    z-index: 1;
-    display: none;
-  }
-  #overlay {
-    z-index: 2;
-  }
-
-  /* スキャンガイド */
-  .scan-guide {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 1;
-    pointer-events: none;
-  }
-  .guide-frame {
-    width: 200px;
-    height: 200px;
-    border: 3px solid #fff;
-    border-radius: 12px;
-    box-shadow: 0 0 0 1000px rgba(0,0,0,0.4);
-    position: relative;
-  }
-  .guide-frame::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 180px;
-    height: 180px;
-    border: 2px dashed rgba(255,255,255,0.6);
-    border-radius: 8px;
-  }
-  .guide-text {
-    color: #fff;
-    text-align: center;
-    margin-top: 220px;
-    font-weight: 600;
-    font-size: 14px;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
-    background: rgba(0,0,0,0.7);
-    padding: 8px 16px;
-    border-radius: 20px;
-    backdrop-filter: blur(10px);
-  }
-
-  /* コントロール */
-  .scanner-controls {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 20px;
-    border: none;
-    border-radius: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-decoration: none;
-    font-size: 14px;
-    border: 1px solid transparent;
-  }
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none !important;
-  }
-  .btn:not(:disabled):hover {
-    transform: translateY(-2px);
-  }
-  .btn.primary {
-    background: var(--primary);
-    color: #fff;
-    box-shadow: 0 2px 8px rgba(28,126,214,0.3);
-  }
-  .btn.primary:not(:disabled):hover {
-    background: #1971c2;
-    box-shadow: 0 4px 12px rgba(28,126,214,0.4);
-  }
-  .btn.secondary {
-    background: var(--secondary);
-    color: #fff;
-  }
-  .btn.outline {
-    background: transparent;
-    border: 1px solid var(--bd);
-    color: var(--sub);
-  }
-  .btn.outline:hover {
-    background: #f8f9fa;
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-  .btn.icon {
-    padding: 12px;
-    aspect-ratio: 1;
-  }
-  .btn.large {
-    padding: 14px 24px;
-    font-size: 16px;
-  }
-  .btn-icon {
-    font-size: 16px;
-  }
-
-  /* ステータス表示 */
-  .scan-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .scan-status {
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1px solid;
-  }
-  .scan-status.ready {
-    background: #e7f5ff;
-    color: var(--ok);
-    border-color: #a5d8ff;
-  }
-  .scan-status.scanning {
-    background: #fff9db;
-    color: #e67700;
-    border-color: #ffd8a8;
-  }
-  .scan-status.error {
-    background: #fff5f5;
-    color: var(--ng);
-    border-color: #ffc9c9;
-  }
-  .scan-status.locked {
-    background: #f3f0ff;
-    color: #7048e8;
-    border-color: #d0bfff;
-  }
-
-  /* メッセージ */
-  .scanner-message {
-    text-align: center;
-  }
-  .scanner-message p {
-    margin: 0 0 8px 0;
-    color: var(--sub);
-    font-size: 14px;
-  }
-  .error-message {
-    background: #fff5f5;
-    color: var(--ng);
-    padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid #ffc9c9;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  /* 入力フォーム */
-  .input-group {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 20px;
-  }
-  .input-field {
-    flex: 1;
-  }
-  .input-field label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 600;
-    color: var(--tx);
-    font-size: 14px;
-  }
-  .text-input {
-    width: 100%;
-    padding: 12px 16px;
-    border: 1px solid var(--bd);
-    border-radius: 10px;
-    font-size: 14px;
-    transition: all 0.2s;
-    background: #fff;
-  }
-  .text-input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(28,126,214,0.1);
-  }
-  .text-input::placeholder {
-    color: #adb5bd;
-  }
-
-  .action-buttons {
-    display: flex;
-    gap: 12px;
-  }
-  .action-buttons .btn {
-    flex: 1;
-  }
-
-  /* 結果表示 */
-  .result-section {
-    margin-bottom: 24px;
-  }
-  .result-content {
-    background: #f8f9fa;
-    padding: 16px;
-    border-radius: 8px;
-  }
-  .kvs {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 8px 12px;
-    font-size: 14px;
-  }
-  .kvs b {
-    color: var(--sub);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-  .kvs div {
-    font-weight: 500;
-    word-break: break-all;
-  }
-  .thumbs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .thumbs img {
-    height: 60px;
-    max-width: 100px;
-    object-fit: contain;
-    border: 1px solid #eee;
-    border-radius: 6px;
-    background: #fff;
-    transition: transform 0.2s;
-  }
-  .thumbs img:hover {
-    transform: scale(1.05);
-  }
-  .tbl {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .tbl th, .tbl td {
-    padding: 8px 10px;
-    border: 1px solid #eee;
-    vertical-align: top;
-  }
-  .tbl thead th {
-    background: #f8f9fb;
-    color: var(--sub);
-    font-weight: 600;
-  }
-  .tbl tbody tr:hover {
-    background: #fcfcff;
-  }
-
-  /* レスポンシブ */
-  @media (max-width: 768px) {
-    .wrap {
-      padding: 12px;
-    }
-    .header-content {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
-    }
-    .header-badges {
-      align-self: stretch;
-      justify-content: flex-start;
-    }
-    .input-group {
-      flex-direction: column;
-      gap: 12px;
-    }
-    .scanner-controls {
-      justify-content: center;
-    }
-    .guide-frame {
-      width: 150px;
-      height: 150px;
-    }
-    .guide-text {
-      margin-top: 170px;
-      font-size: 12px;
-    }
-    .tab-btn {
-      padding: 10px 12px;
-      font-size: 13px;
-    }
-    .grid {
-      grid-template-columns: 1fr;
-      gap: 16px;
-    }
-  }
-
-  /* グリッドレイアウト */
-  .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-
-  /* ユーティリティ */
-  .muted {
-    color: var(--sub);
-    font-size: 13px;
-  }
-  .hint {
-    padding: 12px;
-    border: 1px dashed #ccc;
-    border-radius: 10px;
-    background: #fff9f0;
-    color: #8c5b0c;
-  }
-
-  /* トースト通知 */
-  .toast {
-    position: absolute;
-    padding: 8px 12px;
-    background: #000c;
-    color: #fff;
-    border-radius: 8px;
-    font-size: 13px;
-    transform: translate(-50%, -150%);
-    pointer-events: none;
-    animation: fade-out 1.2s forwards;
-    z-index: 1000;
-  }
-  @keyframes fade-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
-
-  /* スワイプヒント */
-  .swipe-hint {
-    position: fixed;
-    left: 50%;
-    bottom: 18px;
-    transform: translateX(-50%);
-    background: rgba(33,37,41,.92);
-    color: #fff;
-    padding: 10px 14px;
-    border-radius: 999px;
-    font-size: 14px;
-    box-shadow: 0 6px 16px rgba(0,0,0,.25);
-    z-index: 9999;
-    animation: hint-pop 1.6s ease-out forwards;
-  }
-  @keyframes hint-pop {
-    0% { opacity: 0; transform: translateX(-50%) translateY(6px); }
-    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
-    75% { opacity: 1; }
-    100% { opacity: 0; transform: translateX(-50%) translateY(6px); }
-  }
-
-  /* ローディング */
-  #loading {
-    display: none;
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    color: var(--sub);
-    margin: 20px 0;
-    justify-content: center;
-    padding: 20px;
-  }
-  @keyframes spin {
-    from { transform: rotate(0); }
-    to { transform: rotate(360deg); }
-  }
+  /* 見た目微調整（前回どおり） */
+  :root { --tx:#212529; --sub:#5a636c; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
+  .wrap{padding:20px}
+  h1{margin:0 0 20px;font-weight:700;color:#111}
+  h3{font-size:16px;font-weight:600;margin-top:0;padding-bottom:6px;border-bottom:1px solid var(--bd);color:var(--tx)}
+  .card{padding:16px 20px;border-radius:12px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
+  .card:hover{box-shadow:0 6px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04)}
+  button{transition:.2s;font-weight:600}
+  button:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.05)}
+  button.primary:not(:disabled):hover{filter:brightness(110%);box-shadow:0 4px 10px rgba(28,126,214,.25)}
+  input[type=text]:focus{border-color:var(--ok);box-shadow:0 0 0 3px rgba(28,126,214,.15);outline:none}
+  .badge{background:var(--bg)}
+  .chip{padding:4px 12px;font-size:13px}
+  .chip.info{background:var(--info-soft);color:var(--info);border-color:#bdecf2}
+  .chip.ok{background:var(--ok-soft);color:var(--ok);border-color:#a5d8ff}
+  .chip.ng{background:var(--ng-soft);color:var(--ng);border-color:#ffc9c9}
+  .kvs{gap:8px 12px}
+  .kvs b{color:var(--sub);font-weight:500;white-space:nowrap}
+  .kvs div{font-weight:500;word-break:break-all}
+  .thumbs img{border-radius:8px;border:1px solid var(--bd);transition:.2s}
+  .thumbs img:hover{border-color:var(--ok);box-shadow:0 2px 6px rgba(0,0,0,.1);transform:scale(1.05)}
+  .tbl{border:none;border-top:1px solid var(--bd);margin-top:8px}
+  .tbl th,.tbl td{padding:10px 8px;border:none;border-bottom:1px solid var(--bd);text-align:left;vertical-align:middle}
+  .tbl thead th{background:var(--bg);color:var(--sub);font-weight:600;font-size:13px}
+  .tbl tbody tr:hover{background:#fcfcff}
+  .err{padding:10px 14px;border-radius:10px;background:var(--ng-soft);color:#b00020;border:1px solid #ffc9c9;font-weight:500}
+  #loading{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--sub);margin-top:10px;padding:8px}
+  #loading::before{content:'';width:20px;height:20px;border:3px solid #ccc;border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  .hint{border-radius:10px;border:1px solid #ffe8cc;background:#fff9f0;color:#8c5b0c}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <!-- 改良されたヘッダー -->
-  <div class="page-header">
-    <div class="header-content">
-      <button class="back-btn" onclick="history.back()" aria-label="戻る">←</button>
-      <div class="header-text">
-        <h1>QRコード照会</h1>
-        <p class="subtitle">order/die QRコードをスキャンして仕様情報を確認</p>
-      </div>
-      <div class="header-badges">
-        <span id="atState" class="status-badge off">AT:OFF</span>
-        <span id="detectorInfo" class="status-badge">準備中</span>
-        <span id="csrfStatus" class="status-badge">CSRF:検査中</span>
-      </div>
-    </div>
-    
-    <!-- タブナビゲーション -->
-    <div class="tab-nav">
-      <button class="tab-btn active" data-tab="camera">
-        <span class="icon">📷</span>
-        カメラスキャン
-      </button>
-      <button class="tab-btn" data-tab="manual">
-        <span class="icon">⌨️</span>
-        手入力
-      </button>
-      <button class="tab-btn" data-tab="results">
-        <span class="icon">📊</span>
-        照会結果
-      </button>
-    </div>
-  </div>
+  <h1>仕様照会モード｜die / order → Airtable(on/off) + Google Sheets(仕様)</h1>
 
-  <!-- カメラスキャンタブ -->
-  <div class="tab-content active" id="camera-tab">
-    <div class="card">
-      <div class="card-header">
-        <h3>QRコードスキャン</h3>
-        <div class="scan-indicator">
-          <span id="scanStatus" class="scan-status ready">準備完了</span>
-        </div>
-      </div>
-      
-      <div class="scanner-container">
+  <div class="row">
+    <!-- 左：カメラ -->
+    <div class="panel">
+      <div class="card">
         <div class="stack" id="stack">
           <video id="video" playsinline webkit-playsinline muted></video>
           <canvas id="freeze"></canvas>
           <canvas id="overlay"></canvas>
-          
-          <!-- スキャンガイド -->
-          <div class="scan-guide">
-            <div class="guide-frame"></div>
-            <div class="guide-text">QRコードを枠内にかざしてください</div>
+        </div>
+        <div class="controls">
+          <button id="btnStart" class="primary">カメラ開始</button>
+          <button id="btnStop" disabled>停止</button>
+          <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
+          <span id="detectorInfo" class="badge"></span>
+          <span id="scanStatus" class="chip info">待機中</span>
+          <!-- Airtable fetch 状態の小バッジ（ON/OFF確認用・表示だけ） -->
+          <span id="atState" class="badge"></span>
+        </div>
+        <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
+        <div id="errCam" class="err" style="margin-top:6px;"></div>
+      </div>
+
+      <!-- 手入力クイック照会 -->
+      <div class="card">
+        <div class="hdr">
+          <div class="rowbar">
+            <b>手入力で照会</b>
+            <span class="muted">（Book と WC を指定）</span>
+          </div>
+          <button id="btnQuery" class="primary">照会</button>
+        </div>
+        <div class="rowbar" style="margin-top:8px">
+          <label>Book: <input type="text" id="inBook" placeholder="例: Ta"></label>
+          <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
+          <button id="btnFillTarget">スキャン中の値で埋める</button>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="csrfStatus" class="badge">CSRF: 検査中…</span>
+          <button id="btnEnableCsrf">CSRFを有効化</button>
+        </div>
+
+        <div id="csrfWarn" class="hint" style="display:none;margin-top:10px;color:#b07000;">
+          ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。<br>
+          下の「CSRFを有効化」を押すか、社内ページからセッション開始してください。
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：結果 -->
+    <div class="panel">
+      <div class="card">
+        <div class="hdr">
+          <div class="rowbar">
+            <span class="chip">ターゲット</span>
+            <span>Book: <b id="tBN">-</b> / WC: <b id="tWC">-</b></span>
+          </div>
+          <div class="rowbar">
+            <button id="btnOpenHtml">詳細を別タブ(HTML)</button>
           </div>
         </div>
-        
-        <div class="scanner-controls">
-          <button id="btnStart" class="btn primary large">
-            <span class="btn-icon">📷</span>
-            カメラ開始
-          </button>
-          <button id="btnStop" class="btn secondary" disabled>
-            <span class="btn-icon">⏹️</span>
-            停止
-          </button>
-          <button class="btn icon outline" id="btnFlipCamera" title="カメラ切替" disabled>
-            🔄
-          </button>
-          <label class="btn icon outline" style="cursor:pointer" title="画像テスト">
-            📎
-            <input id="fileTest" type="file" accept="image/*" style="display:none">
-          </label>
-        </div>
-        
-        <div class="scanner-message">
-          <p id="scanMsg">order / die どちらでもかざすと自動照会します</p>
-          <div id="errCam" class="error-message" style="display:none"></div>
-        </div>
-      </div>
-    </div>
+        <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
+        <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
 
-    <!-- CSRF設定カード -->
-    <div class="card">
-      <div class="card-header">
-        <h3>接続設定</h3>
-      </div>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <span id="csrfStatusText" class="muted">CSRFトークンの状態を確認中...</span>
-        <button id="btnEnableCsrf" class="btn outline">CSRFを有効化</button>
-      </div>
-      <div id="csrfWarn" class="hint" style="display:none;margin-top:12px;">
-        ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。<br>
-        下の「CSRFを有効化」を押すか、社内ページからセッション開始してください。
-      </div>
-    </div>
-  </div>
+        <div id="result" style="margin-top:10px;display:none">
+          <div class="grid">
+            <div>
+              <h3>Google Sheets（仕様）</h3>
+              <div id="gsBox" class="muted">—</div>
+            </div>
+            <div>
+              <h3>Airtable（受注・図面）</h3>
+              <div id="atBox" class="muted">—</div>
+            </div>
+          </div>
 
-  <!-- 手入力タブ -->
-  <div class="tab-content" id="manual-tab">
-    <div class="card">
-      <div class="card-header">
-        <h3>手入力照会</h3>
-        <span class="muted">BookとWCを直接指定して照会</span>
-      </div>
-      
-      <div class="input-group">
-        <div class="input-field">
-          <label for="inBook">Bookコード</label>
-          <input type="text" id="inBook" placeholder="例: Ta" class="text-input">
+          <div id="ordersBox" style="margin-top:12px">
+            <h3>関連受注（納期の早い順）</h3>
+            <div id="ordersEmpty" class="muted">—</div>
+            <div id="ordersTableWrap" style="display:none">
+              <table class="tbl" id="ordersTbl">
+                <thead>
+                  <tr>
+                    <th>納期</th><th>品名</th><th>数量</th><th>Material</th><th>Paper</th><th>Cut</th><th>画像</th><th>Kname</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersTbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div class="input-field">
-          <label for="inWc">WCコード</label>
-          <input type="text" id="inWc" placeholder="例: 2356" class="text-input">
-        </div>
-      </div>
-      
-      <div class="action-buttons">
-        <button id="btnFillTarget" class="btn outline">
-          <span class="btn-icon">📋</span>
-          スキャン中の値で埋める
-        </button>
-        <button id="btnQuery" class="btn primary">
-          <span class="btn-icon">🔍</span>
-          照会実行
-        </button>
-      </div>
-    </div>
 
-    <!-- 現在のターゲット表示 -->
-    <div class="card">
-      <div class="card-header">
-        <h3>現在の照会対象</h3>
-      </div>
-      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span class="muted">Book:</span>
-          <span id="tBN" style="font-weight:600;font-size:16px;">-</span>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span class="muted">WC:</span>
-          <span id="tWC" style="font-weight:600;font-size:16px;">-</span>
-        </div>
-        <button id="btnOpenHtml" class="btn outline" disabled>
-          <span class="btn-icon">📄</span>
-          詳細を別タブで表示
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 結果表示タブ -->
-  <div class="tab-content" id="results-tab">
-    <div class="card">
-      <div class="card-header">
-        <h3>照会結果</h3>
-        <div class="scan-indicator">
-          <span class="muted" id="resultStatus">データを照会してください</span>
-        </div>
-      </div>
-      
-      <div id="loading" style="display:none;margin:20px 0;">
-        <div style="display:flex;align-items:center;gap:12px;justify-content:center;padding:20px;">
-          <div style="width:24px;height:24px;border:3px solid #f1f3f5;border-top:3px solid var(--primary);border-radius:50%;animation:spin .8s linear infinite"></div>
-          <span style="color:var(--sub);font-weight:600;">照会中...</span>
-        </div>
-      </div>
-      
-      <div id="errApi" class="error-message" style="display:none;margin:10px 0;"></div>
-
-      <div id="result" style="display:none">
-        <!-- 結果表示内容は動的に生成 -->
       </div>
     </div>
   </div>
@@ -751,215 +191,110 @@
 (() => {
   // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
   const FEATURE = {
-    AIRTABLE_FETCH: false,   // ← ← ← ここを false にすると Airtable 取得を完全オフ
+    AIRTABLE_FETCH: false,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
   };
   // ==============================================
 
   // ===== DOM =====
   const D = {
-    video: document.getElementById('video'),
-    overlay: document.getElementById('overlay'),
-    freeze: document.getElementById('freeze'),
-    stack: document.getElementById('stack'),
-    btnStart: document.getElementById('btnStart'),
-    btnStop: document.getElementById('btnStop'),
-    fileTest: document.getElementById('fileTest'),
-    detectorInfo: document.getElementById('detectorInfo'),
-    scanStatus: document.getElementById('scanStatus'),
-    scanMsg: document.getElementById('scanMsg'),
-    errCam: document.getElementById('errCam'),
-    errApi: document.getElementById('errApi'),
-    loading: document.getElementById('loading'),
-    tBN: document.getElementById('tBN'),
-    tWC: document.getElementById('tWC'),
-    result: document.getElementById('result'),
-    inBook: document.getElementById('inBook'),
-    inWc: document.getElementById('inWc'),
-    btnQuery: document.getElementById('btnQuery'),
-    btnFillTarget: document.getElementById('btnFillTarget'),
-    btnOpenHtml: document.getElementById('btnOpenHtml'),
-    csrfWarn: document.getElementById('csrfWarn'),
-    csrfStatus: document.getElementById('csrfStatus'),
-    btnEnableCsrf: document.getElementById('btnEnableCsrf'),
-    atState: document.getElementById('atState'),
-    csrfStatusText: document.getElementById('csrfStatusText'),
-    resultStatus: document.getElementById('resultStatus'),
-    btnFlipCamera: document.getElementById('btnFlipCamera')
+    video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
+    btnStart: q('#btnStart'), btnStop: q('#btnStop'), fileTest: q('#fileTest'),
+    detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'), scanMsg: q('#scanMsg'),
+    errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
+    tBN: q('#tBN'), tWC: q('#tWC'),
+    gsBox: q('#gsBox'), atBox: q('#atBox'),
+    result: q('#result'), ordersBox: q('#ordersBox'), ordersEmpty: q('#ordersEmpty'),
+    ordersTableWrap: q('#ordersTableWrap'), ordersTbody: q('#ordersTbody'),
+    inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
+    btnOpenHtml: q('#btnOpenHtml'),
+    csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
+    atState: q('#atState'),
   };
-
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
 
-  // Airtableオフ時の設定
+  // Airtableオフ時はボタンを無効化（HTML版はAT依存するケースが多いため）
   if(!FEATURE.AIRTABLE_FETCH){
     D.btnOpenHtml.disabled = true;
     D.btnOpenHtml.title = 'Airtable取得OFF中';
-    D.atState.textContent = 'AT:OFF';
-    D.atState.className = 'status-badge off';
-  } else {
-    D.atState.textContent = 'AT:ON';
-    D.atState.className = 'status-badge on';
   }
+  // 状態バッジ
+  if(D.atState){ D.atState.textContent = FEATURE.AIRTABLE_FETCH ? 'AT:ON' : 'AT:OFF'; }
 
   // ===== Config =====
   const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
 
   // ===== State =====
   const S = {
-    stream: null,
-    rafId: null,
-    detector: null,
-    useBarcodeDetector: ('BarcodeDetector' in window),
-    current: { book:'', wc:'' },
-    lastQueryKey: '',
+    stream: null, rafId: null,
+    detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
+    current: { book:'', wc:'' }, lastQueryKey: '',
     csrf: '',
-    locked: false,
-    facingMode: 'environment'
+    locked: false
   };
 
-  // ===== タブ切り替え機能 =====
-  document.addEventListener('DOMContentLoaded', function() {
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    const tabContents = document.querySelectorAll('.tab-content');
-    
-    tabBtns.forEach(btn => {
-      btn.addEventListener('click', function() {
-        const tabId = this.getAttribute('data-tab');
-        
-        // すべてのタブを非アクティブに
-        tabBtns.forEach(b => b.classList.remove('active'));
-        tabContents.forEach(c => c.classList.remove('active'));
-        
-        // クリックされたタブをアクティブに
-        this.classList.add('active');
-        document.getElementById(`${tabId}-tab`).classList.add('active');
-        
-        // カメラタブに戻ったときにカメラを再開
-        if (tabId === 'camera' && S.stream) {
-          setTimeout(() => {
-            fitOverlay();
-          }, 100);
-        }
-      });
-    });
-    
-    // 戻るボタンの改善
-    document.querySelector('.back-btn').addEventListener('click', function() {
-      if (S.stream) {
-        stopCam();
-      }
-      history.back();
-    });
-  });
-
   // ===== Utils =====
+  function q(s){ return document.querySelector(s); }
   function readCookie(name){
     const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
     return m ? decodeURIComponent(m[1]) : '';
   }
-  
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
-  
   const dieKey = (bn,wc)=> `${(bn||'').toLowerCase()}@@${(wc||'').toLowerCase()}`;
-  
-  function setStatus(text, kind='ready'){
-    D.scanStatus.textContent = text;
-    D.scanStatus.className = `scan-status ${kind}`;
-  }
-  
+  function setStatus(text, kind='info'){ D.scanStatus.textContent=text; D.scanStatus.className=`chip ${kind}`; }
   function showToastNear(text, pts){
     if(!pts || pts.length<2) return;
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = text;
-    const x = (pts[0].x + pts[1].x) / 2;
-    const y = Math.min(pts[0].y, pts[1].y);
+    const el=document.createElement('div'); el.className='toast'; el.textContent=text;
+    const x=(pts[0].x+pts[1].x)/2, y=Math.min(pts[0].y,pts[1].y);
     const rx = x / D.overlay.width * D.video.clientWidth;
     const ry = y / D.overlay.height * D.video.clientHeight;
-    el.style.left = rx + 'px';
-    el.style.top = ry + 'px';
-    D.stack.appendChild(el);
-    setTimeout(() => {
-      if (el.parentNode) {
-        el.parentNode.removeChild(el);
-      }
-    }, 1200);
+    el.style.left=rx+'px'; el.style.top=ry+'px'; D.stack.appendChild(el); setTimeout(()=>el.remove(),1200);
   }
-  
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
-    ctx.save();
-    ctx.lineWidth = solid ? 5 : 3;
-    ctx.setLineDash(solid ? [] : [8,6]);
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for(let i=1; i<points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
-    }
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
+    ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].y?points[i].x:points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
   }
-  
   function fitOverlay(){
     if(!D.video.videoWidth) return;
     D.overlay.width = D.video.videoWidth;
-    D.overlay.height = D.video.videoHeight;
+    D.overlay.height= D.video.videoHeight;
     D.overlay.style.width = D.video.clientWidth + 'px';
-    D.overlay.style.height = D.video.clientHeight + 'px';
+    D.overlay.style.height= D.video.clientHeight + 'px';
     D.freeze.width = D.video.videoWidth;
-    D.freeze.height = D.video.videoHeight;
+    D.freeze.height= D.video.videoHeight;
     D.freeze.style.width = D.video.clientWidth + 'px';
-    D.freeze.style.height = D.video.clientHeight + 'px';
+    D.freeze.style.height= D.video.clientHeight + 'px';
   }
 
   // ===== CSRF bootstrap =====
-  function isLocal(){
-    return location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
-  }
-  
+  function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
   async function requestSession(){
     const url = isLocal() ? '/api/session?dev=1' : '/api/session';
     await fetch(url, { method:'GET', credentials:'same-origin', cache:'no-store' }).catch(()=>{});
   }
-  
   async function ensureCsrf(){
     let t = readCookie('xcsrf');
-    if(!t){
-      await requestSession();
-      t = readCookie('xcsrf');
-    }
+    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
     if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
     S.csrf = t;
-    D.csrfStatusText.textContent = 'CSRF: 有効';
-    D.csrfStatus.className = 'status-badge on';
-    D.csrfStatus.textContent = 'CSRF:有効';
+    D.csrfStatus.textContent = 'CSRF: 有効';
+    D.csrfStatus.style.background = '#e7f5ff';
+    D.csrfStatus.style.color = '#1c7ed6';
     D.csrfWarn.style.display = 'none';
   }
-  
-  // CSRF初期化
-  (async function initCsrf() {
-    try {
-      await ensureCsrf();
-    } catch(e) {
-      D.csrfStatusText.textContent = 'CSRF: 無効（未取得）';
-      D.csrfStatus.className = 'status-badge off';
-      D.csrfStatus.textContent = 'CSRF:無効';
+  document.addEventListener('DOMContentLoaded', async () => {
+    try{ await ensureCsrf(); }
+    catch(e){
+      D.csrfStatus.textContent = 'CSRF: 無効（未取得）';
+      D.csrfStatus.style.background = '#fff5f5';
+      D.csrfStatus.style.color = '#e03131';
       D.csrfWarn.style.display = 'block';
     }
-  })();
-  
+  });
   D.btnEnableCsrf.addEventListener('click', async () => {
-    try {
-      await requestSession();
-      await ensureCsrf();
-      showToastNear('CSRFを有効化しました', [{x:100, y:100}, {x:200, y:200}]);
-    } catch(e) {
-      alert('CSRFの取得に失敗: ' + (e.message||e));
-    }
+    try{ await requestSession(); await ensureCsrf(); alert('CSRFを有効化しました'); }
+    catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
   });
 
   // ===== Parse & classify =====
@@ -967,133 +302,90 @@
     const t = normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
     if(/^die-/i.test(t)) return 'die';
-    try {
+    try{
       const u = new URL(t);
       if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
       if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
-    } catch {}
+    }catch{}
     return 'other';
   }
-  
   function parseOrder(raw){
     const t = normHyphen(raw);
-    try {
-      const u = new URL(t);
+    try{
+      const u=new URL(t);
       if(/order[_-]?plain/i.test(u.pathname+u.search)){
         const book = (u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
-        const wc = (u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
+        const wc   = (u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
         if(book||wc) return { bn:book, wc:wc };
       }
-    } catch {}
+    }catch{}
     const m = /order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
     return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
   }
-  
   function parseDie(raw){
     const t = normHyphen(raw);
     const m = /^die-([^-\n]+)-([^-]+)/i.exec(t);
     if(m) return { bn:m[1].trim(), wc:m[2].trim() };
-    try {
+    try{
       const u = new URL(t);
-      const book = (u.searchParams.get('book')||'').trim();
-      const wc = (u.searchParams.get('wc')||'').trim();
+      const book=(u.searchParams.get('book')||'').trim();
+      const wc  =(u.searchParams.get('wc')||'').trim();
       if(book||wc) return { bn:book, wc:wc };
-    } catch {}
+    }catch{}
     return null;
   }
 
   // ===== Camera =====
   function reallyStopStreamTracks(){
-    if(S.stream){
-      try {
-        S.stream.getTracks().forEach(t => t.stop());
-      } catch {}
-    }
+    if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} }
     S.stream = null;
   }
-  
   function stopCam({keepFrame=false}={}){
-    if(S.rafId) {
-      cancelAnimationFrame(S.rafId);
-      S.rafId = null;
-    }
+    if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
     if(!keepFrame){
-      ctx.clearRect(0, 0, D.overlay.width, D.overlay.height);
-      D.freeze.style.display = 'none';
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      D.freeze.style.display='none';
       D.video.style.visibility = 'visible';
     }
     reallyStopStreamTracks();
-    D.btnStart.disabled = false;
-    D.btnStop.disabled = true;
-    D.btnFlipCamera.disabled = true;
-    setStatus('停止中', 'ready');
+    D.btnStart.disabled=false; D.btnStop.disabled=true;
+    setStatus('停止中','info');
   }
-  
   async function startCam(){
-    D.freeze.style.display = 'none';
+    D.freeze.style.display='none';
     D.video.style.visibility = 'visible';
     S.locked = false;
 
-    stopCam();
-    D.errCam.style.display = 'none';
-    D.errCam.textContent = '';
-    
-    try {
+    stopCam(); D.errCam.textContent='';
+    try{
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: S.facingMode },
-          width: { ideal: 1280, min: 640, max: 1920 },
-          height: { ideal: 720, min: 480, max: 1080 },
-          advanced: [{ focusMode: 'continuous' }]
-        },
-        audio: false
+        video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280, min:640, max:1920 }, height:{ ideal:720, min:480, max:1080 }, advanced:[{ focusMode:'continuous' }] },
+        audio:false
       });
-      
-      D.video.srcObject = S.stream;
-      await D.video.play();
-      D.btnStart.disabled = true;
-      D.btnStop.disabled = false;
-      D.btnFlipCamera.disabled = false;
+      D.video.srcObject=S.stream; await D.video.play();
+      D.btnStart.disabled=true; D.btnStop.disabled=false;
 
       if(S.useBarcodeDetector){
-        try {
-          const fmts = (typeof BarcodeDetector.getSupportedFormats === 'function') ?
-            await BarcodeDetector.getSupportedFormats() : [];
+        try{
+          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function') ? await BarcodeDetector.getSupportedFormats() : [];
           if(!fmts || !fmts.includes('qr_code')) throw new Error('qr_code unsupported');
-          S.detector = new BarcodeDetector({ formats: ['qr_code'] });
-        } catch {
-          S.useBarcodeDetector = false;
-          S.detector = null;
-        }
+          S.detector = new BarcodeDetector({ formats:['qr_code'] });
+        }catch{ S.useBarcodeDetector=false; S.detector=null; }
       }
-      
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
-      setStatus('探索中…', 'scanning');
-      fitOverlay();
-      tick();
-    } catch(e) {
-      D.errCam.style.display = 'block';
-      D.errCam.textContent = `❌ カメラエラー: ${e.name||''} ${e.message||e}`;
-      setStatus('カメラエラー', 'error');
-    }
+      setStatus('探索中…','info'); fitOverlay(); tick();
+    }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
   }
 
-  // カメラ切替機能
-  D.btnFlipCamera.addEventListener('click', async () => {
-    S.facingMode = S.facingMode === 'environment' ? 'user' : 'environment';
-    await startCam();
-  });
-
   function freezeFrameAndStopCam(){
-    try {
+    try{
       fitOverlay();
-      freezeCtx.clearRect(0, 0, D.freeze.width, D.freeze.height);
+      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
       freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
       D.freeze.style.display = 'block';
       D.video.style.visibility = 'hidden';
-    } catch {}
+    }catch{}
     stopCam({keepFrame:true});
-    setStatus('ロック中', 'locked');
   }
 
   // ===== MULTI-PASS DETECTOR =====
@@ -1103,9 +395,7 @@
     const srcW = D.video.videoWidth, srcH = D.video.videoHeight;
     const w = Math.floor(srcW/scale), h = Math.floor(srcH/scale);
 
-    const tmp = document.createElement('canvas');
-    tmp.width = w;
-    tmp.height = h;
+    const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
     const tctx = tmp.getContext('2d', { willReadFrequently:true });
     tctx.imageSmoothingEnabled = false;
     tctx.drawImage(D.video, 0, 0, w, h);
@@ -1113,59 +403,42 @@
     const all = new Map();
 
     if(S.useBarcodeDetector && S.detector){
-      try {
+      try{
         const codes = await S.detector.detect(tmp);
         for(const c of codes){
           const raw = (c.rawValue||'').trim();
-          if(raw && !all.has(raw)) {
-            all.set(raw, {
-              rawValue: raw,
-              cornerPoints: c.cornerPoints?.map(p => ({ x:p.x*scale, y:p.y*scale })) || null
-            });
-          }
+          if(raw && !all.has(raw)) all.set(raw, { rawValue: raw, cornerPoints: c.cornerPoints?.map(p=>({ x:p.x*scale, y:p.y*scale })) || null });
         }
-      } catch {
-        S.useBarcodeDetector = false;
-        S.detector = null;
-      }
+      }catch{ S.useBarcodeDetector=false; S.detector=null; }
     }
 
-    const img = tctx.getImageData(0, 0, w, h);
+    const img = tctx.getImageData(0,0,w,h);
     const masked = new Uint8ClampedArray(img.data);
     for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
-      const hit = jsQR(masked, w, h, { inversionAttempts: 'attemptBoth' });
+      const hit = jsQR(masked, w, h, { inversionAttempts:'attemptBoth' });
       if(!hit) break;
       const raw = (hit.data||'').trim();
       if(raw && !all.has(raw)){
         const pts = [
-          hit.location.topLeftCorner,
-          hit.location.topRightCorner,
-          hit.location.bottomRightCorner,
-          hit.location.bottomLeftCorner
-        ].map(p => ({ x:p.x*scale, y:p.y*scale }));
+          hit.location.topLeftCorner, hit.location.topRightCorner,
+          hit.location.bottomRightCorner, hit.location.bottomLeftCorner
+        ].map(p=>({ x:p.x*scale, y:p.y*scale }));
         all.set(raw, { rawValue: raw, cornerPoints: pts });
       }
-      const tl = hit.location.topLeftCorner;
-      const br = hit.location.bottomRightCorner;
-      const minX = Math.max(0, Math.floor(Math.min(tl.x, br.x)));
-      const maxX = Math.min(w, Math.ceil(Math.max(tl.x, br.x)));
-      const minY = Math.max(0, Math.floor(Math.min(tl.y, br.y)));
-      const maxY = Math.min(h, Math.ceil(Math.max(tl.y, br.y)));
-      for(let y=minY; y<maxY; y++){
-        for(let x=minX; x<maxX; x++){
-          const i = (y * w + x) * 4;
-          masked[i] = masked[i+1] = masked[i+2] = 255;
-        }
-      }
+      const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+      const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x)));
+      const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
+      const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
+      const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
+      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
     }
     return Array.from(all.values());
   }
 
   async function tick(){
     if(!S.stream) return;
-    if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
-      fitOverlay();
-      ctx.clearRect(0, 0, D.overlay.width, D.overlay.height);
+    if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
+      fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       const ds = await detectCombined();
       applyDetections(ds);
     }
@@ -1174,23 +447,15 @@
 
   function applyDetections(ds){
     for(const d of ds){
-      const raw = (d.rawValue||'').trim();
-      if(!raw) continue;
-      const kind = classify(raw);
-      const pts = d.cornerPoints;
-      
-      if(kind === 'order'){
+      const raw=(d.rawValue||'').trim(); if(!raw) continue;
+      const kind = classify(raw); const pts = d.cornerPoints;
+      if(kind==='order'){
         const od = parseOrder(raw);
         if(od && (od.bn || od.wc)){
-          drawBox(pts, '#f59f00', true);
-          showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
-          setTarget(od.bn||'', od.wc||'');
-          querySpec();
-        } else {
-          drawBox(pts, '#e03131', false);
-          showToastNear('order(不明形式)', pts);
-        }
-      } else if(kind === 'die'){
+          drawBox(pts, '#f59f00', true); showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
+          setTarget(od.bn||'', od.wc||''); querySpec();
+        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
+      }else if(kind==='die'){
         const p = parseDie(raw);
         if(p && (p.bn || p.wc)){
           drawBox(pts, '#1c7ed6', true);
@@ -1203,114 +468,72 @@
             showSwipeHint();
             querySpec();
           }
-        } else {
-          drawBox(pts, '#e03131', false);
-          showToastNear('die(不明形式)', pts);
-        }
-      } else {
-        drawBox(pts, '#e03131', false);
-        showToastNear('別QR', pts);
+        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
+      }else{
+        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
       }
     }
   }
 
   function setTarget(book, wc){
     S.current.book = String(book||'').trim();
-    S.current.wc = String(wc||'').trim();
+    S.current.wc   = String(wc||'').trim();
     D.tBN.textContent = S.current.book || '-';
-    D.tWC.textContent = S.current.wc || '-';
-    
-    // 結果タブのステータス更新
-    if(S.current.book && S.current.wc){
-      D.resultStatus.textContent = `照会対象: ${S.current.book} / ${S.current.wc}`;
-      D.btnOpenHtml.disabled = !FEATURE.AIRTABLE_FETCH;
-    }
+    D.tWC.textContent = S.current.wc   || '-';
   }
 
   // ===== Query to /api/die-check (JSON) =====
   async function querySpec(){
-    const book = S.current.book, wc = S.current.wc;
+    const book=S.current.book, wc=S.current.wc;
     if(!book || !wc) return;
-    const key = dieKey(book, wc);
+    const key = dieKey(book,wc);
     if(key === S.lastQueryKey) return;
     S.lastQueryKey = key;
 
-    D.errApi.style.display = 'none';
-    D.errApi.textContent = '';
-    D.loading.style.display = 'block';
-    D.result.style.display = 'none';
-    D.resultStatus.textContent = '照会中...';
+    D.errApi.style.display='none'; D.errApi.textContent='';
+    D.loading.style.display='block'; D.result.style.display='none';
 
-    try {
-      if(!S.csrf) {
-        await ensureCsrf();
-      }
+    try{
+      if(!S.csrf){ await ensureCsrf(); }
 
+      // Airtable OFF の場合は、APIに「Airtable不要」を明示（未対応のサーバでも害はありません）
       const body = {
-        book,
-        wc,
-        json: true,
+        book, wc, json:true,
         limit: FEATURE.AIRTABLE_FETCH ? 200 : 0,
         noAirtable: !FEATURE.AIRTABLE_FETCH,
         gsOnly: !FEATURE.AIRTABLE_FETCH
       };
 
       const r = await fetch('/api/die-check', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF': S.csrf
-        },
+        method:'POST',
+        credentials:'same-origin',
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
         body: JSON.stringify(body)
       });
-      
       const txt = await r.text();
       let j = {};
-      try {
-        j = JSON.parse(txt);
-      } catch {
-        throw new Error(`JSON Parse error: ${txt.slice(0,200)}`);
-      }
-      if(!r.ok || j.ok !== true){
-        throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
-      }
+      try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+      if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
 
+      // サーバが無視した場合に備え、クライアント側でも Airtable 表示を抑止
       if(!FEATURE.AIRTABLE_FETCH){
         j.hits = [];
         j.note = 'Airtable fetch disabled on client';
       }
-      
       renderResult(j);
-      D.resultStatus.textContent = `照会完了: ${book} / ${wc}`;
-      
-      // 結果タブに自動切り替え
-      const resultsTab = document.querySelector('[data-tab="results"]');
-      if(resultsTab) resultsTab.click();
-      
-    } catch(e) {
-      D.errApi.style.display = 'block';
-      D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
-      D.resultStatus.textContent = '照会エラー';
-    } finally {
-      D.loading.style.display = 'none';
+    }catch(e){
+      D.errApi.style.display='block'; D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
+    }finally{
+      D.loading.style.display='none';
     }
   }
 
   function renderResult(payload){
-    const { gs, hits = [], book, workcord } = payload || {};
+    const { gs, hits=[], book, workcord } = payload || {};
 
-    // 結果表示用HTMLを動的に構築
-    let resultHTML = `
-      <div class="grid">
-        <div class="result-section">
-          <h3 style="margin:0 0 12px 0;font-size:16px;color:var(--tx);">📊 Google Sheets（仕様）</h3>
-          <div class="result-content">
-    `;
-
-    // Sheets 情報
+    // Sheets
     if(gs){
-      resultHTML += `
+      D.gsBox.innerHTML = `
         <div class="kvs">
           <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
           <b>Kname</b><div>${esc(gs.Kname||'')}</div>
@@ -1322,97 +545,61 @@
           <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
         </div>
       `;
-    } else {
-      resultHTML += `<div class="muted" style="padding:20px;text-align:center;">（Google Sheets に一致行なし）</div>`;
+    }else{
+      D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    resultHTML += `
-          </div>
-        </div>
-        <div class="result-section">
-          <h3 style="margin:0 0 12px 0;font-size:16px;color:var(--tx);">📁 Airtable（受注・図面）</h3>
-          <div class="result-content">
-    `;
-
-    // Airtable 情報
+    // Airtable
     if(!FEATURE.AIRTABLE_FETCH){
-      resultHTML += `<div class="muted" style="padding:20px;text-align:center;">（Airtable照会は現在OFF）</div>`;
-    } else if(hits.length > 0){
+      D.atBox.innerHTML = `<div class="muted">（Airtable照会は現在OFF）</div>`;
+      D.ordersTableWrap.style.display='none';
+      D.ordersEmpty.style.display='block';
+      D.ordersEmpty.textContent = '—';
+    }else if(hits.length>0){
       const latest = hits[0];
       const atts = (latest.attachments||[]).slice(0,4);
-      const thumbs = atts.map(a => {
+      const thumbs = atts.map(a=>{
         const isImg = String(a.type||'').startsWith('image/');
         const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
         return isImg
-          ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="display:block;">
-               <img src="${esc(thumb)}" alt="${esc(a.filename||'')}" style="height:60px;max-width:100px;object-fit:contain;border:1px solid #eee;border-radius:6px;">
-             </a>`
-          : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="display:inline-block;padding:4px 8px;background:#e9ecef;border-radius:4px;font-size:12px;text-decoration:none;color:var(--tx);">
-               ${esc(a.filename||'添付')}
-             </a>`;
+          ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt=""></a>`
+          : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`;
       });
 
-      resultHTML += `
-        <div>
-          <div class="kvs" style="margin-bottom:12px;">
-            <b>最も早い納期</b><div style="font-weight:600;color:var(--ok);">${esc(latest.ndate||'')}</div>
-            <b>品名</b><div>${esc(latest.itemName||'')}</div>
-            <b>数量</b><div>${latest.amount ?? ''}</div>
-            <b>Kname</b><div>${esc(latest.kname||'')}</div>
-            <b>Material</b><div>${esc(latest.material||'')}</div>
-            <b>Paper_Size</b><div>${esc(latest.paperSize||'')}</div>
-            <b>Cut_Size</b><div>${esc(latest.cutSize||'')}</div>
-          </div>
-          <div><b>図面・添付</b></div>
-          <div class="thumbs" style="margin-top:8px;gap:8px;">${thumbs.join('') || '<span class="muted">（添付なし）</span>'}</div>
-          ${ (latest.attachments||[]).length > 4 ? `<div class="muted" style="margin-top:8px;">…他 ${(latest.attachments.length-4)} 件</div>` : '' }
+      D.atBox.innerHTML = `
+        <div class="kvs" style="margin-bottom:8px">
+          <b>最も早い納期</b><div>${esc(latest.ndate||'')}</div>
+          <b>品名</b><div>${esc(latest.itemName||'')}</div>
+          <b>数量</b><div>${latest.amount ?? ''}</div>
+          <b>Kname</b><div>${esc(latest.kname||'')}</div>
+          <b>Material</b><div>${esc(latest.material||'')}</div>
+          <b>Paper_Size</b><div>${esc(latest.paperSize||'')}</div>
+          <b>Cut_Size</b><div>${esc(latest.cutSize||'')}</div>
         </div>
-      `;
-    } else {
-      resultHTML += `<div class="muted" style="padding:20px;text-align:center;">（この抜型に紐づく受注は見つかりませんでした）</div>`;
-    }
-
-    resultHTML += `
-          </div>
-        </div>
-      </div>
-    `;
-
-    // 受注一覧
-    if(FEATURE.AIRTABLE_FETCH && hits.length > 0){
-      resultHTML += `
-        <div class="result-section">
-          <h3 style="margin:0 0 12px 0;font-size:16px;color:var(--tx);">📋 関連受注（納期の早い順）</h3>
-          <div style="overflow-x:auto;">
-            <table class="tbl">
-              <thead>
-                <tr>
-                  <th>納期</th><th>品名</th><th>数量</th><th>Material</th><th>Paper</th><th>Cut</th><th>画像</th><th>Kname</th>
-                </tr>
-              </thead>
-              <tbody>
+        <div><b>図面・添付</b></div>
+        <div class="thumbs" style="margin-top:6px">${thumbs.join('') || '<span class="muted">（添付なし）</span>'}</div>
+        ${ (latest.attachments||[]).length>4 ? `<div class="muted" style="margin-top:4px">…他 ${(latest.attachments.length-4)} 件</div>`:'' }
       `;
 
-      resultHTML += hits.map(r => {
+      // 受注一覧
+      D.ordersEmpty.style.display='none';
+      D.ordersTableWrap.style.display='block';
+      D.ordersTbody.innerHTML = hits.map(r => {
         const a = (r.attachments||[])[0];
         let cell = '—';
         if(a){
           const isImg = String(a.type||'').startsWith('image/');
           const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
           cell = isImg
-            ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
-                 <img src="${esc(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:4px">
-               </a>`
-            : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="font-size:12px;">${esc(a.filename||'添付')}</a>`;
-          if((r.attachments||[]).length > 1) {
-            cell += ` <span class="muted" style="font-size:11px;">(+${r.attachments.length-1})</span>`;
-          }
+            ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:4px"></a>`
+            : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`;
+          if((r.attachments||[]).length>1) cell += ` <span class="muted">(+${r.attachments.length-1})</span>`;
         }
         return `
           <tr>
-            <td style="font-weight:600;">${esc(r.ndate||'')}</td>
+            <td>${esc(r.ndate||'')}</td>
             <td>${esc(r.itemName||'')}</td>
-            <td style="text-align:right;">${r.amount ?? ''}</td>
+            <td style="text-align:right">${r.amount ?? ''}</td>
             <td>${esc(r.material||'')}</td>
             <td>${esc(r.paperSize||'')}</td>
             <td>${esc(r.cutSize||'')}</td>
@@ -1422,71 +609,45 @@
         `;
       }).join('');
 
-      resultHTML += `
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
+    }else{
+      D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
+      D.ordersTableWrap.style.display='none';
+      D.ordersEmpty.style.display='block';
+      D.ordersEmpty.textContent = '—';
     }
 
-    D.result.innerHTML = resultHTML;
-    D.result.style.display = 'block';
+    D.result.style.display='block';
     D.inBook.value = book || '';
-    D.inWc.value = workcord || '';
+    D.inWc.value   = workcord || '';
   }
 
-  // 別タブ HTML表示
+  // 別タブ HTML（ATオフ時は無効化済み）
   D.btnOpenHtml.addEventListener('click', async () => {
-    if(!FEATURE.AIRTABLE_FETCH){
-      alert('Airtable照会がOFFのため、詳細表示は利用できません');
-      return;
-    }
-    const book = S.current.book, wc = S.current.wc;
-    if(!book || !wc){
-      alert('先に QR を読ませるか、手入力で Book / WC を指定してください。');
-      return;
-    }
-    try {
-      if(!S.csrf) {
-        await ensureCsrf();
-      }
+    if(!FEATURE.AIRTABLE_FETCH){ return; }
+    const book=S.current.book, wc=S.current.wc;
+    if(!book || !wc){ alert('先に QR を読ませるか、手入力で Book / WC を指定してください。'); return; }
+    try{
+      if(!S.csrf){ await ensureCsrf(); }
       const r = await fetch('/api/die-check', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF': S.csrf
-        },
-        body: JSON.stringify({ book, wc, json: false, limit: 200 })
+        method:'POST',
+        credentials:'same-origin',
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
+        body: JSON.stringify({ book, wc, json:false, limit: 200 })
       });
       const html = await r.text();
       if(!r.ok) throw new Error(html.slice(0,300));
-      const w = window.open('', '_blank');
-      if(!w) throw new Error('ポップアップがブロックされました');
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-    } catch(e) {
-      alert('HTML表示に失敗: ' + (e.message||e));
-    }
+      const w = window.open('', '_blank'); if(!w) throw new Error('ポップアップがブロックされました');
+      w.document.open(); w.document.write(html); w.document.close();
+    }catch(e){ alert('HTML表示に失敗: ' + (e.message||e)); }
   });
 
-  // 手入力照会
+  // 手入力
   D.btnQuery.addEventListener('click', () => {
     setTarget(D.inBook.value, D.inWc.value);
-    if(!S.current.book || !S.current.wc){
-      alert('Book / WC を入力してください');
-      return;
-    }
-    S.lastQueryKey = '';
-    querySpec();
+    if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
+    S.lastQueryKey=''; querySpec();
   });
-  
-  D.btnFillTarget.addEventListener('click', () => {
-    D.inBook.value = S.current.book || '';
-    D.inWc.value = S.current.wc || '';
-  });
+  D.btnFillTarget.addEventListener('click', () => { D.inBook.value = S.current.book || ''; D.inWc.value = S.current.wc || ''; });
 
   // カメラ制御
   D.btnStart.addEventListener('click', startCam);
@@ -1494,75 +655,41 @@
   window.addEventListener('resize', fitOverlay);
 
   // 画像静止画テスト
-  D.fileTest.addEventListener('change', async ev => {
-    const file = ev.target.files?.[0];
-    if(!file) return;
+  D.fileTest.addEventListener('change', async ev=>{
+    const file = ev.target.files?.[0]; if(!file) return;
     const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      c.width = img.width;
-      c.height = img.height;
-      const cctx = c.getContext('2d', { willReadFrequently: true });
-      cctx.imageSmoothingEnabled = false;
-      cctx.drawImage(img, 0, 0);
-      const data = cctx.getImageData(0, 0, c.width, c.height);
+    img.onload = ()=>{
+      const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+      const cctx=c.getContext('2d',{willReadFrequently:true}); cctx.imageSmoothingEnabled=false; cctx.drawImage(img,0,0);
+      const data=cctx.getImageData(0,0,c.width,c.height);
       const hits = jsqrMulti(data);
-      D.overlay.width = c.width;
-      D.overlay.height = c.height;
-      ctx.clearRect(0, 0, D.overlay.width, D.overlay.height);
-      for(const h of hits){
-        drawBox(h.cornerPoints, '#1c7ed6', true);
-      }
+      D.overlay.width = c.width; D.overlay.height = c.height; ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      for(const h of hits){ drawBox(h.cornerPoints, '#1c7ed6', true); }
       if(hits[0]){
         const raw = hits[0].rawValue;
         const kind = classify(raw);
-        if(kind === 'order'){
-          const od = parseOrder(raw);
-          if(od){
-            setTarget(od.bn||'', od.wc||'');
-          }
-        } else if(kind === 'die'){
-          const d = parseDie(raw);
-          if(d){
-            setTarget(d.bn||'', d.wc||'');
-          }
-        }
-        S.lastQueryKey = '';
-        querySpec();
+        if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'', od.wc||''); } }
+        else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'', d.wc||''); } }
+        S.lastQueryKey=''; querySpec();
       }
-      ev.target.value = "";
+      ev.target.value="";
     };
     img.src = URL.createObjectURL(file);
   });
 
   function jsqrMulti(imgData){
-    const hits = [];
-    const w = imgData.width, h = imgData.height;
-    const masked = new Uint8ClampedArray(imgData.data);
-    for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
-      const hit = jsQR(masked, w, h, { inversionAttempts: 'attemptBoth' });
+    const hits=[]; const w=imgData.width, h=imgData.height;
+    const masked=new Uint8ClampedArray(imgData.data);
+    for(let k=0;k<CFG.JSQR_MAX_LOOPS;k++){
+      const hit=jsQR(masked,w,h,{ inversionAttempts:'attemptBoth' });
       if(!hit) break;
-      hits.push({
-        rawValue: hit.data,
-        cornerPoints: [
-          hit.location.topLeftCorner,
-          hit.location.topRightCorner,
-          hit.location.bottomRightCorner,
-          hit.location.bottomLeftCorner
-        ]
-      });
-      const tl = hit.location.topLeftCorner;
-      const br = hit.location.bottomRightCorner;
-      const minX = Math.max(0, Math.floor(Math.min(tl.x, br.x)));
-      const maxX = Math.min(w, Math.ceil(Math.max(tl.x, br.x)));
-      const minY = Math.max(0, Math.floor(Math.min(tl.y, br.y)));
-      const maxY = Math.min(h, Math.ceil(Math.max(tl.y, br.y)));
-      for(let y=minY; y<maxY; y++){
-        for(let x=minX; x<maxX; x++){
-          const i = (y * w + x) * 4;
-          masked[i] = masked[i+1] = masked[i+2] = 255;
-        }
-      }
+      hits.push({ rawValue: hit.data, cornerPoints:[ hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner ] });
+      const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+      const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x)));
+      const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
+      const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
+      const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
+      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
     }
     return hits;
   }
@@ -1570,13 +697,9 @@
   // URL で事前指定
   (function initFromParams(){
     const p = new URLSearchParams(location.search);
-    const book = (p.get('book')||'').trim();
-    const wc = (p.get('wc')||'').trim();
-    if(book || wc){
-      setTarget(book, wc);
-      S.lastQueryKey = '';
-      querySpec();
-    }
+    const book=(p.get('book')||'').trim();
+    const wc  =(p.get('wc')||'').trim();
+    if(book || wc){ setTarget(book, wc); S.lastQueryKey=''; querySpec(); }
   })();
 
   function showSwipeHint(){
@@ -1584,21 +707,10 @@
     el.className = 'swipe-hint';
     el.textContent = '下にスワイプして情報を確認';
     document.body.appendChild(el);
-    setTimeout(() => {
-      if (el.parentNode) {
-        el.parentNode.removeChild(el);
-      }
-    }, 1800);
+    setTimeout(()=>{ try{ el.remove(); }catch{} }, 1800);
   }
 
-  function esc(s){
-    return String(s??'').replace(/[&<>"]/g, c => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;'
-    }[c]));
-  }
+  function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 })();
 </script>
 </body>
