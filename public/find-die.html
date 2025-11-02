@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>抜型ファインダー deep</title>
+<title>抜型ファインダー from Air</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
@@ -861,7 +861,25 @@ const parseOrderPlain = (raw) => {
       if (!state.currentTarget.book || !state.currentTarget.wc) {
         updateStatus("ターゲット未指定（作業指示QRを読み取るか、URLで指定）", "ng");
         DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざしてください。";
-       // ターゲットスコープを追加する関数
+        // start ボタンは押せる：order_Plain を読ませるため
+        DOM.btnStart.disabled = false;
+      } else {
+        DOM.tgtBN.textContent = state.currentTarget.book;
+        DOM.tgtWC.textContent = state.currentTarget.wc;
+        DOM.tgtWN.textContent = state.currentTarget.wn;
+        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+        updateStatus("準備完了");
+      }
+
+      const locParam = (params.get("loc") || "").trim();
+      if(locParam){
+        state.currentShelf = locParam;
+        DOM.currentShelf.textContent = state.currentShelf;
+        DOM.currentShelf.className = "chip loc";
+      }
+    }
+
+    // ★ ターゲットスコープを追加する関数をここに移動
     function addTargetScope() {
       // 既存のターゲットスコープを削除
       const existingScope = document.querySelector('.target-scope');
@@ -897,39 +915,23 @@ const parseOrderPlain = (raw) => {
       
       // スタックコンテナに追加
       DOM.stack.appendChild(scope);
-    } // start ボタンは押せる：order_Plain を読ませるため
-        DOM.btnStart.disabled = false;
-      } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
-      }
-
-      const locParam = (params.get("loc") || "").trim();
-      if(locParam){
-        state.currentShelf = locParam;
-        DOM.currentShelf.textContent = state.currentShelf;
-        DOM.currentShelf.className = "chip loc";
-      }
     }
 
-   
-  // initialize() 関数をラップしてターゲットスコープを追加
-  const originalInitialize = initialize;
-  initialize = function() {
-    originalInitialize();
-    addTargetScope();
-  };
+    // initialize() 関数をラップしてターゲットスコープを追加
+    const originalInitialize = initialize;
+    initialize = function() {
+      originalInitialize();
+      addTargetScope();
+    };
 
-  // カメラ開始時にもターゲットスコープを再追加
-  const originalStartCam = startCam;
-  startCam = async function() {
-    await originalStartCam();
-    addTargetScope();
-  };
-   initialize();
+    // カメラ開始時にもターゲットスコープを再追加
+    const originalStartCam = startCam;
+    startCam = async function() {
+      await originalStartCam();
+      addTargetScope();
+    };
+
+    initialize();
   });
   </script>
 </body>
