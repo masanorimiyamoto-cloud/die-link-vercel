@@ -6,10 +6,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
-    --ok: #1c7ed6;      /* 一致=青 */
-    --ng: #e03131;      /* 不一致=赤 */
-    --loc: #2b8a3e;     /* LOC=緑 */
-    --info: #f59f00;    /* 情報=オレンジ */
+    --ok: #1c7ed6;
+    --ng: #e03131;
+    --loc: #2b8a3e;
+    --info: #f59f00;
     --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
     --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
   }
@@ -69,7 +69,6 @@
     100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   }
 
-   /* ターゲットスコープのスタイル - 既存のスタイルに追加 */
   .target-scope {
     position: absolute;
     top: 50%;
@@ -177,7 +176,7 @@
         </div>
       </div>
 
-      <!-- 🆕 手入力カードを追加 -->
+      <!-- 🆕 手入力カード -->
       <div class="card">
         <h4>📝 手入力でターゲット設定</h4>
         <div class="controls" style="gap:10px;align-items:center;flex-wrap:wrap">
@@ -196,7 +195,7 @@
         </div>
         <p class="muted" style="font-size:13px;margin-top:6px">
           URLで指定がないときはここから設定できます。<br>
-          設定すると上の「🎯ターゲット」が書き換わり、青枠で探すようになります。
+          設定すると上の「🎯ターゲット」と「棚」が更新されます。
         </p>
       </div>
 
@@ -242,7 +241,6 @@
       historyModal: document.getElementById('historyModal'),
       historyList: document.getElementById('historyList'),
       closeModal: document.getElementById('closeModal'),
-      // 🆕 手入力用
       inBook: document.getElementById('inBook'),
       inWc: document.getElementById('inWc'),
       btnSetTarget: document.getElementById('btnSetTarget'),
@@ -265,13 +263,54 @@
       __orderSetAt: 0,
     };
 
-    /* ====== 音声読み上げ ====== */
+    /* ==== ここから: GSheetのLocationをfetchする関数 ==== */
+    // CSRFが要らない/不要にしているAPIならこのままでOK。
+    // 要るようにしてあるなら、X-CSRFを足してください。
+    async function fetchShelfFromGSheet(book, wc) {
+      if (!book || !wc) return;
+      // すでにURLでlocが入っている場合は何もしない
+      if (state.currentShelf && state.currentShelf !== '（URL未指定）') return;
+
+      DOM.currentShelf.textContent = '（棚情報を取得中…）';
+      DOM.currentShelf.className = 'muted';
+      try {
+        const res = await fetch('/api/die-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ book, wc, json: true, limit: 1 })
+        });
+        const txt = await res.text();
+        let j = {};
+        try { j = JSON.parse(txt); } catch (e) {
+          throw new Error('JSON parse error: ' + txt.slice(0, 120));
+        }
+        if (!res.ok || j.ok !== true) {
+          throw new Error(j.error || ('HTTP ' + res.status));
+        }
+        const loc = j.gs && j.gs.Location ? String(j.gs.Location).trim() : '';
+        if (loc) {
+          state.currentShelf = loc;
+          DOM.currentShelf.textContent = loc;
+          DOM.currentShelf.className = 'chip loc';
+        } else {
+          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
+          DOM.currentShelf.className = 'muted';
+        }
+      } catch (e) {
+        console.warn('location取得失敗', e);
+        DOM.currentShelf.textContent = '（棚情報の取得に失敗）';
+        DOM.currentShelf.className = 'muted';
+      }
+    }
+    /* ==== ここまで追加 ==== */
+
+    /* ====== 音声まわり ====== */
     let __jpVoices = [];
     let __lastSpeak = 0;
     let __lastLocSpeak = 0;
     const __speakCooldownMs = 1500;
     const __locSpeakCooldownMs = 3000;
-
     function initTTS() {
       if (!('speechSynthesis' in window)) return;
       const synth = window.speechSynthesis;
@@ -389,7 +428,6 @@
 
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
-    // 種別判定
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       if (/^loc-/i.test(text)) return "loc";
@@ -398,7 +436,10 @@
       try { const url = new URL(text); if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die"; } catch {}
       if (/^order-/i.test(text)) return "order";
       if (/order[_-]?plain/i.test(text)) return "order";
-      try { const url = new URL(text); if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order"; } catch {}
+      try {
+        const url = new URL(text);
+        if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order";
+      } catch {}
       return "other";
     };
 
@@ -436,7 +477,11 @@
       const text = normalizeHyphen((raw || "").trim());
       let match = /^loc-(.+)$/i.exec(text);
       if (match) return { loc: match[1].trim() };
-      try { const url = new URL(text); const loc = url.searchParams.get("loc") || ""; if (loc) return { loc: loc.trim() }; } catch {}
+      try {
+        const url = new URL(text);
+        const loc = url.searchParams.get("loc") || "";
+        if (loc) return { loc: loc.trim() };
+      } catch {}
       return null;
     };
 
@@ -698,6 +743,9 @@
               showToastNearBox("ターゲット更新", pts);
               speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
 
+              // ★ orderから設定したときも棚をとりに行く
+              fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+
               holdScan(800);
             }
           } else {
@@ -778,6 +826,7 @@
         alert('Book（Ko/Ta/Yo）とWCを入力してください');
         return;
       }
+
       state.currentTarget = { book, wc, wn: '' };
       state.targetKey = dieKey(book, wc);
 
@@ -789,8 +838,8 @@
       showBigMessage('手動ターゲット設定', `Book=${book} / WC=${wc}`);
       speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`, { cooldown: 2000 });
 
-      // 入力を維持するならここで消さない
-      // DOM.inWc.value = '';
+      // ★ 手入力でも棚をとりに行く
+      fetchShelfFromGSheet(book, wc);
     }
 
     DOM.btnStart.addEventListener("click", () => {
@@ -857,7 +906,7 @@
       };
       
       if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
+        updateStatus("ターゲット未指定（作業指示QR・手入力で指定）", "ng");
         DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざすか、下の手入力でターゲットを設定してください。";
         DOM.btnStart.disabled = false;
       } else {
@@ -873,9 +922,14 @@
         state.currentShelf = locParam;
         DOM.currentShelf.textContent = state.currentShelf;
         DOM.currentShelf.className = "chip loc";
+      } else {
+        // ★ URLにlocがなかった場合、でもbook/wcはある → 起動時に棚を取りに行く
+        if (state.currentTarget.book && state.currentTarget.wc) {
+          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+        }
       }
 
-      // URLで来てたら手入力欄にも反映しておく
+      // URLで来てたら手入力欄にも反映
       if (DOM.inBook && state.currentTarget.book) {
         const b = state.currentTarget.book;
         const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === b.toLowerCase());
@@ -888,7 +942,6 @@
       addTargetScope();
     }
 
-    // ターゲットスコープ
     function addTargetScope() {
       const existingScope = document.querySelector('.target-scope');
       if (existingScope) existingScope.remove();
@@ -902,7 +955,6 @@
       DOM.stack.appendChild(scope);
     }
 
-    // 手入力ボタン
     DOM.btnSetTarget.addEventListener('click', () => {
       const book = DOM.inBook?.value || '';
       const wc   = DOM.inWc?.value   || '';
