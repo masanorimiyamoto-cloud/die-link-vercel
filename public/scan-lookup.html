@@ -68,109 +68,6 @@
     80%  { opacity: 1; }
     100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
   }
-  
-  /* ターゲットスコープのスタイル */
-  .target-scope {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 200px;
-    height: 200px;
-    border: 2px solid rgba(28, 126, 214, 0.8);
-    border-radius: 12px;
-    pointer-events: none;
-    z-index: 10;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
-  }
-  
-  .target-scope::before,
-  .target-scope::after {
-    content: '';
-    position: absolute;
-    background: rgba(28, 126, 214, 0.8);
-  }
-  
-  /* 四隅のL字マーク */
-  .target-scope::before {
-    width: 20px;
-    height: 20px;
-    top: -2px;
-    left: -2px;
-    border-top: 3px solid rgba(28, 126, 214, 0.8);
-    border-left: 3px solid rgba(28, 126, 214, 0.8);
-    border-radius: 4px 0 0 0;
-  }
-  
-  .target-scope::after {
-    width: 20px;
-    height: 20px;
-    bottom: -2px;
-    right: -2px;
-    border-bottom: 3px solid rgba(28, 126, 214, 0.8);
-    border-right: 3px solid rgba(28, 126, 214, 0.8);
-    border-radius: 0 0 4px 0;
-  }
-  
-  .target-scope .corner-tl,
-  .target-scope .corner-tr,
-  .target-scope .corner-bl,
-  .target-scope .corner-br {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border: 3px solid rgba(28, 126, 214, 0.8);
-    border-radius: 4px;
-  }
-  
-  .target-scope .corner-tl {
-    top: -2px;
-    left: -2px;
-    border-right: none;
-    border-bottom: none;
-  }
-  
-  .target-scope .corner-tr {
-    top: -2px;
-    right: -2px;
-    border-left: none;
-    border-bottom: none;
-  }
-  
-  .target-scope .corner-bl {
-    bottom: -2px;
-    left: -2px;
-    border-right: none;
-    border-top: none;
-  }
-  
-  .target-scope .corner-br {
-    bottom: -2px;
-    right: -2px;
-    border-left: none;
-    border-top: none;
-  }
-  
-  /* スキャンアニメーション */
-  .target-scope .scan-line {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(28, 126, 214, 0.8), transparent);
-    animation: scan 2s linear infinite;
-  }
-  
-  @keyframes scan {
-    0% {
-      top: 0;
-    }
-    100% {
-      top: 100%;
-    }
-  }
-
 
   /* ===== 🎨 UI/UX 微調整（既存） ===== */
   :root {
@@ -685,8 +582,6 @@
         });
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
-        // この行を追加
-        addTargetScope();
         DOM.btnStart.disabled = true;
         DOM.btnStop.disabled = false;
         if (state.useBarcodeDetector) {
@@ -1059,56 +954,8 @@
       if (DOM.inWc && state.currentTarget.wc) {
         DOM.inWc.value = state.currentTarget.wc;
       }
-      // この行を最後に追加
-      addTargetScope();
-    }
-   
-// DOMContentLoaded イベント内の initialize() 関数の最後に以下を追加
-    function addTargetScope() {
-      // 既存のターゲットスコープを削除
-      const existingScope = document.querySelector('.target-scope');
-      if (existingScope) {
-        existingScope.remove();
-      }
-      
-      // 新しいターゲットスコープを作成
-      const scope = document.createElement('div');
-      scope.className = 'target-scope';
-      
-      // 四隅の要素を追加
-      const cornerTL = document.createElement('div');
-      cornerTL.className = 'corner-tl';
-      scope.appendChild(cornerTL);
-      
-      const cornerTR = document.createElement('div');
-      cornerTR.className = 'corner-tr';
-      scope.appendChild(cornerTR);
-      
-      const cornerBL = document.createElement('div');
-      cornerBL.className = 'corner-bl';
-      scope.appendChild(cornerBL);
-      
-      const cornerBR = document.createElement('div');
-      cornerBR.className = 'corner-br';
-      scope.appendChild(cornerBR);
-      
-      // スキャンラインを追加
-      const scanLine = document.createElement('div');
-      scanLine.className = 'scan-line';
-      scope.appendChild(scanLine);
-      
-      // スタックコンテナに追加
-      DOM.stack.appendChild(scope);
     }
 
-    // initialize() 関数の最後で addTargetScope() を呼び出す
-    // 既存の initialize() 関数内の最後に以下を追加:
-    // addTargetScope();
-
-    // カメラ開始時にもターゲットスコープを再追加
-    // startCam() 関数内の DOM.video.play() の後に以下を追加:
-    // addTargetScope();
-   
     initialize();
   });
   </script>
