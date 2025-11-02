@@ -83,15 +83,6 @@
     z-index: 10;
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
   }
-  
-  .target-scope::before,
-  .target-scope::after {
-    content: '';
-    position: absolute;
-    background: rgba(28, 126, 214, 0.8);
-  }
-  
-  /* 四隅のL字マーク */
   .target-scope .corner-tl,
   .target-scope .corner-tr,
   .target-scope .corner-bl,
@@ -101,7 +92,6 @@
     height: 20px;
     border: 3px solid rgba(28, 126, 214, 0.8);
   }
-  
   .target-scope .corner-tl {
     top: -2px;
     left: -2px;
@@ -109,7 +99,6 @@
     border-bottom: none;
     border-radius: 4px 0 0 0;
   }
-  
   .target-scope .corner-tr {
     top: -2px;
     right: -2px;
@@ -117,7 +106,6 @@
     border-bottom: none;
     border-radius: 0 4px 0 0;
   }
-  
   .target-scope .corner-bl {
     bottom: -2px;
     left: -2px;
@@ -125,7 +113,6 @@
     border-top: none;
     border-radius: 0 0 0 4px;
   }
-  
   .target-scope .corner-br {
     bottom: -2px;
     right: -2px;
@@ -133,8 +120,6 @@
     border-top: none;
     border-radius: 0 0 4px 0;
   }
-  
-  /* スキャンアニメーション */
   .target-scope .scan-line {
     position: absolute;
     top: 0;
@@ -144,14 +129,9 @@
     background: linear-gradient(90deg, transparent, rgba(28, 126, 214, 0.8), transparent);
     animation: scan 2s linear infinite;
   }
-  
   @keyframes scan {
-    0% {
-      top: 0;
-    }
-    100% {
-      top: 100%;
-    }
+    0% { top: 0; }
+    100% { top: 100%; }
   }
 </style>
 </head>
@@ -170,13 +150,76 @@
       <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
     </div>
     <div class="panel">
-      <div class="card"><h4>🎯 ターゲット</h4><div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div></div>
-      <div class="card"><h4> 棚 探すべき棚</h4><div id="currentShelf" class="muted">（URL未指定）</div></div>
-      <div class="card"><h4>⚙️ 操作</h4><div class="controls"><button id="btnStart" class="primary">カメラ開始</button><button id="btnStop" disabled>停止</button><button id="btnHistory">スキャン履歴</button></div><div class="legend"><span class="chip ok">一致(型)</span><span class="chip loc">一致(棚)</span><span class="chip ng">不一致</span></div></div>
-      <div class="card"><h4>💡 ヒント</h4><div class="muted" style="font-size:13px;">・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。</div></div>
+      <div class="card">
+        <h4>🎯 ターゲット</h4>
+        <div class="target-info">
+          Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br>
+          <span id="tgtWN" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4> 棚 探すべき棚</h4>
+        <div id="currentShelf" class="muted">（URL未指定）</div>
+      </div>
+
+      <div class="card">
+        <h4>⚙️ 操作</h4>
+        <div class="controls">
+          <button id="btnStart" class="primary">カメラ開始</button>
+          <button id="btnStop" disabled>停止</button>
+          <button id="btnHistory">スキャン履歴</button>
+        </div>
+        <div class="legend">
+          <span class="chip ok">一致(型)</span>
+          <span class="chip loc">一致(棚)</span>
+          <span class="chip ng">不一致</span>
+        </div>
+      </div>
+
+      <!-- 🆕 手入力カードを追加 -->
+      <div class="card">
+        <h4>📝 手入力でターゲット設定</h4>
+        <div class="controls" style="gap:10px;align-items:center;flex-wrap:wrap">
+          <label>Book:
+            <select id="inBook" style="padding:6px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px">
+              <option value="" selected>選択してください</option>
+              <option value="Ko">Ko</option>
+              <option value="Ta">Ta</option>
+              <option value="Yo">Yo</option>
+            </select>
+          </label>
+          <label>WC:
+            <input id="inWc" type="text" placeholder="例: 2356" style="padding:6px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch">
+          </label>
+          <button id="btnSetTarget" class="primary">ターゲット設定</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin-top:6px">
+          URLで指定がないときはここから設定できます。<br>
+          設定すると上の「🎯ターゲット」が書き換わり、青枠で探すようになります。
+        </p>
+      </div>
+
+      <div class="card">
+        <h4>💡 ヒント</h4>
+        <div class="muted" style="font-size:13px;">
+          ・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>
+          ・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>
+          ・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。
+        </div>
+      </div>
     </div>
   </div>
-  <div id="historyModal" class="modal"><div class="modal-content"><div class="modal-header"><h4>スキャン履歴</h4><span id="closeModal" class="close-button">&times;</span></div><ul id="historyList"></ul></div></div>
+
+  <div id="historyModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4>スキャン履歴</h4>
+        <span id="closeModal" class="close-button">&times;</span>
+      </div>
+      <ul id="historyList"></ul>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
   <script>
@@ -199,6 +242,10 @@
       historyModal: document.getElementById('historyModal'),
       historyList: document.getElementById('historyList'),
       closeModal: document.getElementById('closeModal'),
+      // 🆕 手入力用
+      inBook: document.getElementById('inBook'),
+      inWc: document.getElementById('inWc'),
+      btnSetTarget: document.getElementById('btnSetTarget'),
     };
 
     const overlayCtx = DOM.overlay.getContext('2d', { willReadFrequently: true });
@@ -214,12 +261,11 @@
       targetKey: '',
       currentShelf: null,
       scanHistory: new Map(),
-      __lastOrderKey: '',     // ← 追加：直近の order_Plain で設定した key
-      __orderSetAt: 0,        // ← 追加：いつセットしたか（ms）
+      __lastOrderKey: '',
+      __orderSetAt: 0,
     };
 
     /* ====== 音声読み上げ ====== */
-    let __ttsReady = false;
     let __jpVoices = [];
     let __lastSpeak = 0;
     let __lastLocSpeak = 0;
@@ -239,21 +285,17 @@
             const ib = pref.findIndex(p => (b.name||'').includes(p));
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
           });
-        __ttsReady = true;
       }
       loadVoices();
       synth.onvoiceschanged = loadVoices;
     }
-
     const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
-
     function unlockTTS() {
       if (!('speechSynthesis' in window)) return;
       const u = new SpeechSynthesisUtterance(' ');
       u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
       try { window.speechSynthesis.speak(u); } catch {}
     }
-
     function speakAfterReady(utterance) {
       if (!('speechSynthesis' in window)) return;
       const synth = window.speechSynthesis;
@@ -267,51 +309,32 @@
           if (__jpVoices.length) utterance.voice = __jpVoices[0];
         }
         try { synth.speak(utterance); }
-        catch (e) {
-          if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200);
-        }
+        catch (e) { if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200); }
       };
       trySpeak();
     }
-
     function speakFoundOnce(workName) {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastSpeak < __speakCooldownMs) return;
       __lastSpeak = now;
-
       const hasWN = !!workName && String(workName).trim().length > 0;
-      const text = hasWN
-        ? `お探しの型、${workName}、が見つかりました。`
-        : `お探しの型が見つかりました。`;
-
+      const text = hasWN ? `お探しの型、${workName}、が見つかりました。` : `お探しの型が見つかりました。`;
       const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang   = 'ja-JP';
-      u.rate   = 1.05;
-      u.pitch  = 1.3;
-      u.volume = 1.0;
-
+      u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=1.0;
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
       speakAfterReady(u);
     }
-
     function speakTargetLocFound() {
       if (!('speechSynthesis' in window)) return;
       const now = performance.now();
       if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
       __lastLocSpeak = now;
-
       const u = new SpeechSynthesisUtterance("目的の棚です");
-      u.lang   = 'ja-JP';
-      u.rate   = 1.0;
-      u.pitch  = 1.1;
-      u.volume = 0.8;
-
+      u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=0.8;
       if (__jpVoices.length > 0) u.voice = __jpVoices[0];
       speakAfterReady(u);
     }
-
-    // 任意一言
     let __lastGenericSpeak = 0;
     function speakLineOnce(text, {rate=1.08, pitch=1.4, cooldown=1200} = {}) {
       if (!('speechSynthesis' in window)) return;
@@ -323,12 +346,6 @@
       if (__jpVoices.length>0) u.voice=__jpVoices[0];
       speakAfterReady(u);
     }
-
-    document.addEventListener('pointerdown', function __once() {
-      initTTS();
-      document.removeEventListener('pointerdown', __once, true);
-    }, true);
-    /* ====== /音声読み上げ ====== */
 
     function cssVarOr(name, fallback) {
       const v = getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -345,7 +362,7 @@
       },
       holdDuration: 3000,
       lockCooldown: 700,
-      orderResetCooldownMs: 2000, // order 読み取り後すぐは連続更新を抑える
+      orderResetCooldownMs: 2000,
     };
 
     const confirmationBeep = (() => {
@@ -372,36 +389,19 @@
 
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
-    /* === 種別判定 === */
-    // === 種別判定 ===
+    // 種別判定
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
-      // 棚
       if (/^loc-/i.test(text)) return "loc";
-      try {
-        const url = new URL(text);
-        if (url.searchParams.has("loc")) return "loc";
-      } catch {}
-
-      // 型
+      try { const url = new URL(text); if (url.searchParams.has("loc")) return "loc"; } catch {}
       if (/^die-/i.test(text)) return "die";
-      try {
-        const url = new URL(text);
-        if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die";
-      } catch {}
-
-      // 作業指示（order, order-plain/order_plain の両方を許可）
-      if (/^order-/i.test(text)) return "order";                     // ← 追加：order-Book-WC
+      try { const url = new URL(text); if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die"; } catch {}
+      if (/^order-/i.test(text)) return "order";
       if (/order[_-]?plain/i.test(text)) return "order";
-      try {
-        const url = new URL(text);
-        if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order";
-      } catch {}
-
+      try { const url = new URL(text); if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order"; } catch {}
       return "other";
     };
 
-    /* === 各種パーサ === */
     const tryExtractWN = (rawUrl) => {
       try {
         const u = new URL(rawUrl);
@@ -436,44 +436,29 @@
       const text = normalizeHyphen((raw || "").trim());
       let match = /^loc-(.+)$/i.exec(text);
       if (match) return { loc: match[1].trim() };
-      try {
-        const url = new URL(text);
-        const loc = url.searchParams.get("loc") || "";
-        if (loc) return { loc: loc.trim() };
-      } catch {}
+      try { const url = new URL(text); const loc = url.searchParams.get("loc") || ""; if (loc) return { loc: loc.trim() }; } catch {}
       return null;
     };
 
-    
-    // ★ 作業指示 QR（order 系）→ {bn, wc} を取り出す
-const parseOrderPlain = (raw) => {
-  const text = normalizeHyphen((raw || "").trim());
-
-  // 0) 「order-Book-WC」
-  let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
-  if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-
-  // 1) URL 形式（/order_plain など）
-  try {
-    const url = new URL(text);
-    if (/order[_-]?plain/i.test(url.pathname + url.search)) {
-      const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
-      const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
-      if (book || wc) return { bn: book, wc };
-    }
-  } catch {}
-
-  // 2) 非URL・ゆるパターン（例：order_plain:Ta-8742 / order Ta 8742 など）
-  m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
-  if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-
-  return null;
-};
-
+    const parseOrderPlain = (raw) => {
+      const text = normalizeHyphen((raw || "").trim());
+      let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+      try {
+        const url = new URL(text);
+        if (/order[_-]?plain/i.test(url.pathname + url.search)) {
+          const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
+          const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
+          if (book || wc) return { bn: book, wc };
+        }
+      } catch {}
+      m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
+      return null;
+    };
 
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
-    /* === 描画・UI === */
     function drawBox(points, color, label, style = 'solid') {
       if (!points || points.length < 4) return;
       overlayCtx.save();
@@ -566,7 +551,6 @@ const parseOrderPlain = (raw) => {
       } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
     }
 
-    /* === 検出 === */
     async function detectCombined() {
       if (!DOM.video.videoWidth) return [];
       const tmpCanvas = document.createElement("canvas");
@@ -630,10 +614,8 @@ const parseOrderPlain = (raw) => {
       state.scanHistory.set(raw, { kind, isMatch, time: new Date() });
     }
 
-    /* === 検出結果適用 === */
     function applyDetections(detections) {
       let anyMatch = false;
-      let locFound = false;
       let anyLocMatch = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
@@ -673,7 +655,6 @@ const parseOrderPlain = (raw) => {
 
         } else if (kind === 'loc') {
           const locData = parseLoc(raw);
-          locFound = true;
 
           const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
           anyLocMatch = anyLocMatch || isLocMatch;
@@ -693,7 +674,6 @@ const parseOrderPlain = (raw) => {
           }
 
         } else if (kind === 'order') {
-          // ★ 作業指示QR（order_Plain）を読むとターゲットを設定
           const od = parseOrderPlain(raw);
           if (od && (od.bn || od.wc)) {
             const newKey = dieKey(od.bn, od.wc);
@@ -705,13 +685,11 @@ const parseOrderPlain = (raw) => {
             updateHistory(raw, 'order', true);
 
             if (!sameAsBefore || !stillCooling || newKey !== state.targetKey) {
-              // ターゲット更新
               state.currentTarget = { book: od.bn || "", wc: od.wc || "", wn: "" };
               state.targetKey = newKey;
               state.__lastOrderKey = newKey;
               state.__orderSetAt = now;
 
-              // UI反映
               DOM.tgtBN.textContent = state.currentTarget.book || "-";
               DOM.tgtWC.textContent = state.currentTarget.wc || "-";
               DOM.tgtWN.textContent = "";
@@ -720,7 +698,6 @@ const parseOrderPlain = (raw) => {
               showToastNearBox("ターゲット更新", pts);
               speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
 
-              // 直後の連続検出で UI がブレないよう、短いホールド
               holdScan(800);
             }
           } else {
@@ -737,7 +714,6 @@ const parseOrderPlain = (raw) => {
       if (!state.holdTimer) {
         let msg = "探索中...";
         let statusType = "info";
-        
         if (detections.length > 0) {
           if (anyMatch) {
             msg = "ターゲット発見";
@@ -794,12 +770,34 @@ const parseOrderPlain = (raw) => {
       DOM.historyModal.style.display = 'block';
     }
 
+    // 🆕 手入力ターゲット設定
+    function setTargetByManual(book, wc) {
+      book = (book || '').trim();
+      wc   = (wc   || '').trim();
+      if (!book || !wc) {
+        alert('Book（Ko/Ta/Yo）とWCを入力してください');
+        return;
+      }
+      state.currentTarget = { book, wc, wn: '' };
+      state.targetKey = dieKey(book, wc);
+
+      DOM.tgtBN.textContent = book;
+      DOM.tgtWC.textContent = wc;
+      DOM.tgtWN.textContent = '';
+
+      updateStatus('ターゲット設定しました', 'ok');
+      showBigMessage('手動ターゲット設定', `Book=${book} / WC=${wc}`);
+      speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`, { cooldown: 2000 });
+
+      // 入力を維持するならここで消さない
+      // DOM.inWc.value = '';
+    }
+
     DOM.btnStart.addEventListener("click", () => {
       initTTS();
       unlockTTS();
       startCam();
     });
-
     DOM.btnStop.addEventListener("click", stopCam);
     DOM.btnHistory.addEventListener("click", showHistoryModal);
     DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
@@ -859,9 +857,8 @@ const parseOrderPlain = (raw) => {
       };
       
       if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QRを読み取るか、URLで指定）", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざしてください。";
-        // start ボタンは押せる：order_Plain を読ませるため
+        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざすか、下の手入力でターゲットを設定してください。";
         DOM.btnStart.disabled = false;
       } else {
         DOM.tgtBN.textContent = state.currentTarget.book;
@@ -877,59 +874,40 @@ const parseOrderPlain = (raw) => {
         DOM.currentShelf.textContent = state.currentShelf;
         DOM.currentShelf.className = "chip loc";
       }
+
+      // URLで来てたら手入力欄にも反映しておく
+      if (DOM.inBook && state.currentTarget.book) {
+        const b = state.currentTarget.book;
+        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === b.toLowerCase());
+        if (opt) DOM.inBook.value = opt.value;
+      }
+      if (DOM.inWc && state.currentTarget.wc) {
+        DOM.inWc.value = state.currentTarget.wc;
+      }
+
+      addTargetScope();
     }
 
-    // ★ ターゲットスコープを追加する関数をここに移動
+    // ターゲットスコープ
     function addTargetScope() {
-      // 既存のターゲットスコープを削除
       const existingScope = document.querySelector('.target-scope');
-      if (existingScope) {
-        existingScope.remove();
-      }
-      
-      // 新しいターゲットスコープを作成
+      if (existingScope) existingScope.remove();
       const scope = document.createElement('div');
       scope.className = 'target-scope';
-      
-      // 四隅の要素を追加
-      const cornerTL = document.createElement('div');
-      cornerTL.className = 'corner-tl';
-      scope.appendChild(cornerTL);
-      
-      const cornerTR = document.createElement('div');
-      cornerTR.className = 'corner-tr';
-      scope.appendChild(cornerTR);
-      
-      const cornerBL = document.createElement('div');
-      cornerBL.className = 'corner-bl';
-      scope.appendChild(cornerBL);
-      
-      const cornerBR = document.createElement('div');
-      cornerBR.className = 'corner-br';
-      scope.appendChild(cornerBR);
-      
-      // スキャンラインを追加
-      const scanLine = document.createElement('div');
-      scanLine.className = 'scan-line';
-      scope.appendChild(scanLine);
-      
-      // スタックコンテナに追加
+      const cornerTL = document.createElement('div'); cornerTL.className = 'corner-tl'; scope.appendChild(cornerTL);
+      const cornerTR = document.createElement('div'); cornerTR.className = 'corner-tr'; scope.appendChild(cornerTR);
+      const cornerBL = document.createElement('div'); cornerBL.className = 'corner-bl'; scope.appendChild(cornerBL);
+      const cornerBR = document.createElement('div'); cornerBR.className = 'corner-br'; scope.appendChild(cornerBR);
+      const scanLine = document.createElement('div'); scanLine.className = 'scan-line'; scope.appendChild(scanLine);
       DOM.stack.appendChild(scope);
     }
 
-    // initialize() 関数をラップしてターゲットスコープを追加
-    const originalInitialize = initialize;
-    initialize = function() {
-      originalInitialize();
-      addTargetScope();
-    };
-
-    // カメラ開始時にもターゲットスコープを再追加
-    const originalStartCam = startCam;
-    startCam = async function() {
-      await originalStartCam();
-      addTargetScope();
-    };
+    // 手入力ボタン
+    DOM.btnSetTarget.addEventListener('click', () => {
+      const book = DOM.inBook?.value || '';
+      const wc   = DOM.inWc?.value   || '';
+      setTargetByManual(book, wc);
+    });
 
     initialize();
   });
