@@ -1,138 +1,144 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<title>抜型ファインダー from Air</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<style>
-  :root {
-    --ok: #1c7ed6;
-    --ng: #e03131;
-    --loc: #2b8a3e;
-    --info: #f59f00;
-    --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
-    --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
-  }
-  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; margin: 0; padding: 12px; color: var(--tx); background: #f8f9fa; }
-  h3, h4 { margin: 0 0 8px 0; }
-  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-  .panel { flex: 1 1 360px; min-width: 320px; }
-  .card { background: #fff; border: 1px solid var(--bd); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
-  video { width: 100%; max-width: 520px; border-radius: 12px; background: #000; display: block; }
-  .stack { position: relative; max-width: 520px; border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; }
-  canvas { position: absolute; inset: 0; pointer-events: none; }
-  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
-  button { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--bd); background: #fff; cursor: pointer; font-size: 14px; transition: background-color 0.2s; }
-  button:disabled { cursor: not-allowed; opacity: 0.6; }
-  button.primary { background: var(--ok); color: #fff; border-color: var(--ok); }
-  button:hover:not(:disabled) { background-color: #f1f3f5; }
-  button.primary:hover:not(:disabled) { background: #339af0; }
-  .badge { display: inline-block; border-radius: 6px; padding: 4px 8px; font-size: 12px; border: 1px solid var(--bd); background: #f1f3f5; }
-  .target-info b { font-size: 1.1em; }
-  .chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
-  .chip.ok { background: var(--bg-ok); color: var(--ok); border: 1px solid #a5d8ff; }
-  .chip.ng { background: var(--bg-ng); color: var(--ng); border: 1px solid #ffc9c9; }
-  .chip.loc { background: var(--bg-loc); color: var(--loc); border: 1px solid #96f2d7; }
-  .muted { color: var(--sub); font-size: 14px; }
-  .toast { position: absolute; padding: 8px 12px; background: #000c; color: #fff; border-radius: 8px; font-size: 14px; transform: translate(-50%, -150%); pointer-events: none; animation: fade-out 1.2s forwards; }
-  @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
-  .legend { font-size: 12px; color: #555; margin-top: 8px; }
+  <meta charset="utf-8" />
+  <title>抜型ファインダー from AirQRMa</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root {
+      --ok: #1c7ed6;      /* 一致=青 */
+      --ng: #e03131;      /* 不一致=赤 */
+      --loc: #2b8a3e;     /* LOC=緑 */
+      --info: #f59f00;    /* 情報=オレンジ */
+      --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
+      --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
+    }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+      margin: 0; padding: 12px;
+      color: var(--tx);
+      background: #f8f9fa;
+    }
+    h3, h4 { margin: 0 0 8px 0; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .panel { flex: 1 1 360px; min-width: 320px; }
+    .card { background: #fff; border: 1px solid var(--bd); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+    video { width: 100%; max-width: 520px; border-radius: 12px; background: #000; display: block; }
+    .stack { position: relative; max-width: 520px; border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; }
+    canvas { position: absolute; inset: 0; pointer-events: none; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+    button { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--bd); background: #fff; cursor: pointer; font-size: 14px; transition: background-color 0.2s; }
+    button:disabled { cursor: not-allowed; opacity: 0.6; }
+    button.primary { background: var(--ok); color: #fff; border-color: var(--ok); }
+    button:hover:not(:disabled) { background-color: #f1f3f5; }
+    button.primary:hover:not(:disabled) { background: #339af0; }
+    .badge { display: inline-block; border-radius: 6px; padding: 4px 8px; font-size: 12px; border: 1px solid var(--bd); background: #f1f3f5; }
+    .target-info b { font-size: 1.1em; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
+    .chip.ok { background: var(--bg-ok); color: var(--ok); border: 1px solid #a5d8ff; }
+    .chip.ng { background: var(--bg-ng); color: var(--ng); border: 1px solid #ffc9c9; }
+    .chip.loc { background: var(--bg-loc); color: var(--loc); border: 1px solid #96f2d7; }
+    .muted { color: var(--sub); font-size: 14px; }
+    .toast { position: absolute; padding: 8px 12px; background: #000c; color: #fff; border-radius: 8px; font-size: 14px; transform: translate(-50%, -150%); pointer-events: none; animation: fade-out 1.2s forwards; }
+    @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+    .legend { font-size: 12px; color: #555; margin-top: 8px; }
 
-  .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
-  .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid var(--bd); width: 80%; max-width: 600px; border-radius: 12px; }
-  .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
-  .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
-  #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+    .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid var(--bd); width: 80%; max-width: 600px; border-radius: 12px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
+    .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
+    #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
 
-  .bigmsg {
-    position: fixed;
-    left: 50%;
-    top: 18%;
-    transform: translateX(-50%);
-    z-index: 1200;
-    background: rgba(28, 126, 214, 0.95);
-    color: #fff;
-    padding: 16px 22px;
-    border-radius: 12px;
-    font-size: clamp(18px, 3.2vw, 26px);
-    box-shadow: 0 8px 24px rgba(0,0,0,.2);
-    letter-spacing: .02em;
-    text-align: center;
-    pointer-events: none;
-    animation: bigmsg-fade 1.2s ease-out forwards;
-  }
-  .bigmsg .sub { display:block; font-size: .8em; opacity: .9; margin-top: 2px; }
-  @keyframes bigmsg-fade {
-    0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-    10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
-    80%  { opacity: 1; }
-    100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-  }
+    .bigmsg {
+      position: fixed;
+      left: 50%;
+      top: 18%;
+      transform: translateX(-50%);
+      z-index: 1200;
+      background: rgba(28, 126, 214, 0.95);
+      color: #fff;
+      padding: 16px 22px;
+      border-radius: 12px;
+      font-size: clamp(18px, 3.2vw, 26px);
+      box-shadow: 0 8px 24px rgba(0,0,0,.2);
+      letter-spacing: .02em;
+      text-align: center;
+      pointer-events: none;
+      animation: bigmsg-fade 1.2s ease-out forwards;
+    }
+    .bigmsg .sub { display:block; font-size: .8em; opacity: .9; margin-top: 2px; }
+    @keyframes bigmsg-fade {
+      0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+      10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+      80%  { opacity: 1; }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+    }
 
-  .target-scope {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 200px;
-    height: 200px;
-    border: 2px solid rgba(28, 126, 214, 0.8);
-    border-radius: 12px;
-    pointer-events: none;
-    z-index: 10;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
-  }
-  .target-scope .corner-tl,
-  .target-scope .corner-tr,
-  .target-scope .corner-bl,
-  .target-scope .corner-br {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border: 3px solid rgba(28, 126, 214, 0.8);
-  }
-  .target-scope .corner-tl {
-    top: -2px;
-    left: -2px;
-    border-right: none;
-    border-bottom: none;
-    border-radius: 4px 0 0 0;
-  }
-  .target-scope .corner-tr {
-    top: -2px;
-    right: -2px;
-    border-left: none;
-    border-bottom: none;
-    border-radius: 0 4px 0 0;
-  }
-  .target-scope .corner-bl {
-    bottom: -2px;
-    left: -2px;
-    border-right: none;
-    border-top: none;
-    border-radius: 0 0 0 4px;
-  }
-  .target-scope .corner-br {
-    bottom: -2px;
-    right: -2px;
-    border-left: none;
-    border-top: none;
-    border-radius: 0 0 4px 0;
-  }
-  .target-scope .scan-line {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(28, 126, 214, 0.8), transparent);
-    animation: scan 2s linear infinite;
-  }
-  @keyframes scan {
-    0% { top: 0; }
-    100% { top: 100%; }
-  }
-</style>
+    /* ターゲットスコープ */
+    .target-scope {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px;
+      height: 200px;
+      border: 2px solid rgba(28, 126, 214, 0.8);
+      border-radius: 12px;
+      pointer-events: none;
+      z-index: 10;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+    }
+    .target-scope .corner-tl,
+    .target-scope .corner-tr,
+    .target-scope .corner-bl,
+    .target-scope .corner-br {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(28, 126, 214, 0.8);
+    }
+    .target-scope .corner-tl {
+      top: -2px;
+      left: -2px;
+      border-right: none;
+      border-bottom: none;
+      border-radius: 4px 0 0 0;
+    }
+    .target-scope .corner-tr {
+      top: -2px;
+      right: -2px;
+      border-left: none;
+      border-bottom: none;
+      border-radius: 0 4px 0 0;
+    }
+    .target-scope .corner-bl {
+      bottom: -2px;
+      left: -2px;
+      border-right: none;
+      border-top: none;
+      border-radius: 0 0 0 4px;
+    }
+    .target-scope .corner-br {
+      bottom: -2px;
+      right: -2px;
+      border-left: none;
+      border-top: none;
+      border-radius: 0 0 4px 0;
+    }
+    .target-scope .scan-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(28, 126, 214, 0.8), transparent);
+      animation: scan 2s linear infinite;
+    }
+    @keyframes scan {
+      0% { top: 0; }
+      100% { top: 100%; }
+    }
+  </style>
 </head>
 <body>
   <div class="row">
@@ -148,17 +154,15 @@
       </div>
       <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
     </div>
+
     <div class="panel">
       <div class="card">
         <h4>🎯 ターゲット</h4>
-        <div class="target-info">
-          Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br>
-          <span id="tgtWN" class="muted"></span>
-        </div>
+        <div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div>
       </div>
 
       <div class="card">
-        <h4> 棚 探すべき棚</h4>
+        <h4>棚 探すべき棚</h4>
         <div id="currentShelf" class="muted">（URL未指定）</div>
       </div>
 
@@ -176,27 +180,27 @@
         </div>
       </div>
 
-      <!-- 🆕 手入力カード -->
+      <!-- 🆕 手入力ターゲット設定 -->
       <div class="card">
         <h4>📝 手入力でターゲット設定</h4>
         <div class="controls" style="gap:10px;align-items:center;flex-wrap:wrap">
           <label>Book:
-            <select id="inBook" style="padding:6px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px">
-              <option value="" selected>選択してください</option>
+            <select id="inBook" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px">
+              <option value="" disabled selected>選択してください</option>
               <option value="Ko">Ko</option>
               <option value="Ta">Ta</option>
               <option value="Yo">Yo</option>
             </select>
           </label>
           <label>WC:
-            <input id="inWc" type="text" placeholder="例: 2356" style="padding:6px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch">
+            <input id="inWc" type="text" placeholder="例: 2356" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch">
           </label>
           <button id="btnSetTarget" class="primary">ターゲット設定</button>
         </div>
-        <p class="muted" style="font-size:13px;margin-top:6px">
-          URLで指定がないときはここから設定できます。<br>
-          設定すると上の「🎯ターゲット」と「棚」が更新されます。
-        </p>
+        <div class="muted" style="font-size:13px;margin-top:6px">
+          ・Book は Ko / Ta / Yo から選択できます。<br>
+          ・設定後は、該当の棚（Location）も自動取得します。
+        </div>
       </div>
 
       <div class="card">
@@ -261,103 +265,110 @@
       scanHistory: new Map(),
       __lastOrderKey: '',
       __orderSetAt: 0,
+      csrf: ''
     };
 
-    // ==== GSheet から Location を取ってくる（CSRFあり・キーゆるめ） ====
-    const isLocal = () =>
-      location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
-
+    /* ===== 共通ユーティリティ (CSRF, fetch) ===== */
+    const isLocal = () => location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
     const readCookie = (name) => {
-      const m = document.cookie.match(
-        new RegExp('(?:^|; )' + name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '=([^;]*)')
-      );
+      const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&')+'=([^;]*)'));
       return m ? decodeURIComponent(m[1]) : '';
     };
-
-    async function ensureCsrf() {
-      // すでにある？
-      let tok = readCookie('xcsrf');
-      if (tok) return tok;
-
-      // ない場合は一度セッションを叩いてもらう
+    async function ensureCsrf(){
+      let t = readCookie('xcsrf');
+      if (t) { state.csrf = t; return t; }
       const url = isLocal() ? '/api/session?dev=1' : '/api/session';
-      await fetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store' }).catch(() => {});
-      tok = readCookie('xcsrf');
-      return tok || '';
+      await fetch(url, { method:'GET', credentials:'same-origin', cache:'no-store' }).catch(()=>{});
+      t = readCookie('xcsrf');
+      if (t) state.csrf = t;
+      return t || '';
     }
 
+    // GSheetからLocation取得
     async function fetchShelfFromGSheet(book, wc) {
       if (!book || !wc) return;
-
-      // いま既にURLでlocが決まっているなら無理に上書きしない
-      if (typeof state !== 'undefined' && state.currentShelf && state.currentShelf !== '（URL未指定）') {
-        return;
-      }
+      // URLでlocが決まっているなら上書きしない
+      if (state.currentShelf && state.currentShelf !== '（URL未指定）') return;
 
       DOM.currentShelf.textContent = '（棚情報を取得中…）';
       DOM.currentShelf.className = 'muted';
 
+      // 1. まずPOSTで試す
+      let jsonOk = false;
       try {
-        const csrf = await ensureCsrf();  // ← ここ追加
-
-        const res = await fetch('/api/die-check', {
+        const csrf = await ensureCsrf();
+        const r = await fetch('/api/die-check', {
           method: 'POST',
           credentials: 'same-origin',
           headers: {
-            'Content-Type': 'application/json',
-            ...(csrf ? { 'X-CSRF': csrf } : {})
+            'Content-Type':'application/json',
+            ...(csrf ? {'X-CSRF': csrf} : {})
           },
-          body: JSON.stringify({
-            book,
-            wc,
-            json: true,
-            limit: 1
-          })
+          body: JSON.stringify({ book, wc, json:true, limit:1 })
         });
+        const txt = await r.text();
+        let j = {};
+        try { j = JSON.parse(txt); }
+        catch (e) { console.warn('JSON parse失敗(POST):', txt.slice(0,200)); throw e; }
 
-        const txt = await res.text();
-
-        // ここで HTML が返ることがあるので防御的にパース
-        let j;
-        try {
-          j = JSON.parse(txt);
-        } catch (e) {
-          console.warn('JSONでない応答:', txt.slice(0, 200));
-          throw new Error('JSONでない応答でした');
+        if (!r.ok || j.ok !== true) {
+          throw new Error(j?.error || `HTTP ${r.status}`);
         }
 
-        if (!res.ok || j.ok !== true) {
-          throw new Error(j.error || `HTTP ${res.status}`);
-        }
-
-        // ←←← ここを一番ゆるくする
         const gs = j.gs || j.GS || j.sheet || {};
-        const loc =
-          (gs.Location ?? gs.location ?? gs.Loc ?? gs.loc ?? '').toString().trim();
-
+        const loc = (gs.Location ?? gs.location ?? gs.Loc ?? gs.loc ?? '').toString().trim();
         if (loc) {
-          if (typeof state !== 'undefined') state.currentShelf = loc;
+          state.currentShelf = loc;
           DOM.currentShelf.textContent = loc;
+          DOM.currentShelf.className = 'chip loc';
+          jsonOk = true;
+        } else {
+          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
+          DOM.currentShelf.className = 'muted';
+          jsonOk = true;
+        }
+      } catch (e) {
+        console.warn('POSTで棚情報取得失敗 → GETにフォールバックします', e);
+      }
+      if (jsonOk) return;
+
+      // 2. GETでフォールバック
+      try {
+        const qs = new URLSearchParams({ book, wc, json:'1', limit:'1' }).toString();
+        const r2 = await fetch('/api/die-check?'+qs, { credentials:'same-origin' });
+        const txt2 = await r2.text();
+        let j2 = {};
+        try { j2 = JSON.parse(txt2); }
+        catch (e) { console.warn('JSON parse失敗(GET):', txt2.slice(0,200)); throw e; }
+
+        if (!r2.ok || j2.ok !== true) {
+          throw new Error(j2?.error || `HTTP ${r2.status}`);
+        }
+
+        const gs2 = j2.gs || j2.GS || j2.sheet || {};
+        const loc2 = (gs2.Location ?? gs2.location ?? gs2.Loc ?? gs2.loc ?? '').toString().trim();
+        if (loc2) {
+          state.currentShelf = loc2;
+          DOM.currentShelf.textContent = loc2;
           DOM.currentShelf.className = 'chip loc';
         } else {
           DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
           DOM.currentShelf.className = 'muted';
         }
       } catch (e) {
-        console.warn('location取得失敗', e);
+        console.warn('GETでも棚情報取得できませんでした', e);
         DOM.currentShelf.textContent = '（棚情報の取得に失敗）';
         DOM.currentShelf.className = 'muted';
       }
     }
 
-    /* ==== ここまで追加 ==== */
-
-    /* ====== 音声まわり ====== */
+    /* ====== 音声読み上げ（前と同じ） ====== */
     let __jpVoices = [];
     let __lastSpeak = 0;
     let __lastLocSpeak = 0;
     const __speakCooldownMs = 1500;
     const __locSpeakCooldownMs = 3000;
+
     function initTTS() {
       if (!('speechSynthesis' in window)) return;
       const synth = window.speechSynthesis;
@@ -433,11 +444,11 @@
       speakAfterReady(u);
     }
 
-    function cssVarOr(name, fallback) {
+    const cssVarOr = (name, fallback) => {
       const v = getComputedStyle(document.documentElement).getPropertyValue(name);
       const s = (v || '').trim();
       return s || fallback;
-    }
+    };
 
     const CONFIG = {
       colors: {
@@ -475,6 +486,7 @@
 
     const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
 
+    /* === 種別判定 === */
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       if (/^loc-/i.test(text)) return "loc";
@@ -483,13 +495,11 @@
       try { const url = new URL(text); if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die"; } catch {}
       if (/^order-/i.test(text)) return "order";
       if (/order[_-]?plain/i.test(text)) return "order";
-      try {
-        const url = new URL(text);
-        if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order";
-      } catch {}
+      try { const url = new URL(text); if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order"; } catch {}
       return "other";
     };
 
+    /* === 各パーサ === */
     const tryExtractWN = (rawUrl) => {
       try {
         const u = new URL(rawUrl);
@@ -502,7 +512,6 @@
         return (obj.wn || "").trim();
       } catch { return ""; }
     };
-
     const parseDie = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
@@ -519,7 +528,6 @@
       } catch {}
       return null;
     };
-
     const parseLoc = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       let match = /^loc-(.+)$/i.exec(text);
@@ -531,7 +539,6 @@
       } catch {}
       return null;
     };
-
     const parseOrderPlain = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
@@ -551,6 +558,7 @@
 
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
+    /* === 描画/UI === */
     function drawBox(points, color, label, style = 'solid') {
       if (!points || points.length < 4) return;
       overlayCtx.save();
@@ -567,7 +575,6 @@
       overlayCtx.stroke();
       overlayCtx.restore();
     }
-
     function showToastNearBox(text, points) {
       if(!points || points.length < 2) return;
       const el = document.createElement("div");
@@ -582,7 +589,6 @@
       DOM.stack.appendChild(el);
       setTimeout(() => el.remove(), 1200);
     }
-
     function showBigMessage(text, sub = "") {
       document.querySelectorAll(".bigmsg").forEach(el => el.remove());
       const el = document.createElement("div");
@@ -597,7 +603,6 @@
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 1500);
     }
-
     function fitOverlay() {
       if (DOM.video.videoWidth === 0) return;
       DOM.overlay.width = DOM.video.videoWidth;
@@ -605,7 +610,6 @@
       DOM.overlay.style.width = DOM.video.clientWidth + "px";
       DOM.overlay.style.height = DOM.video.clientHeight + "px";
     }
-
     function stopCam() {
       if (state.rafId) cancelAnimationFrame(state.rafId);
       state.rafId = null;
@@ -615,12 +619,10 @@
       DOM.btnStop.disabled = true;
       updateStatus("停止中");
     }
-
-    function showError(e) { 
-      console.error(e); 
-      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`; 
+    function showError(e) {
+      console.error(e);
+      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
     }
-
     async function startCam() {
       stopCam();
       DOM.error.textContent = "";
@@ -639,10 +641,12 @@
         }
         DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
         fitOverlay();
+        addTargetScope();
         tick();
       } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
     }
 
+    /* === 検出 === */
     async function detectCombined() {
       if (!DOM.video.videoWidth) return [];
       const tmpCanvas = document.createElement("canvas");
@@ -706,16 +710,17 @@
       state.scanHistory.set(raw, { kind, isMatch, time: new Date() });
     }
 
+    /* === 検出結果適用 === */
     function applyDetections(detections) {
       let anyMatch = false;
       let anyLocMatch = false;
       overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
 
       for (const d of (detections || [])) {
-        const raw = (d.rawValue || "").trim(); 
+        const raw = (d.rawValue || "").trim();
         if (!raw) continue;
-        
-        const kind = classify(raw); 
+
+        const kind = classify(raw);
         const pts = d.cornerPoints;
 
         if (kind === 'die') {
@@ -747,7 +752,6 @@
 
         } else if (kind === 'loc') {
           const locData = parseLoc(raw);
-
           const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
           anyLocMatch = anyLocMatch || isLocMatch;
 
@@ -788,10 +792,12 @@
 
               showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
               showToastNearBox("ターゲット更新", pts);
-              speakLineOnce("ターゲットを設定しました。お探しの型をスキャンしてください。");
+              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、wc ${state.currentTarget.wc} に設定しました。`, { cooldown: 2500 });
 
-              // ★ orderから設定したときも棚をとりに行く
-              fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+              // ←ここでgSheetからlocationを取る
+              if (!state.currentShelf) {
+                fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+              }
 
               holdScan(800);
             }
@@ -809,6 +815,7 @@
       if (!state.holdTimer) {
         let msg = "探索中...";
         let statusType = "info";
+
         if (detections.length > 0) {
           if (anyMatch) {
             msg = "ターゲット発見";
@@ -842,7 +849,7 @@
 
     function showHistoryModal() {
       DOM.historyList.innerHTML = '';
-      if(state.scanHistory.size === 0){
+      if (state.scanHistory.size === 0) {
         DOM.historyList.innerHTML = '<li>スキャン履歴はありません。</li>';
       } else {
         const sortedHistory = Array.from(state.scanHistory.entries()).reverse();
@@ -865,12 +872,12 @@
       DOM.historyModal.style.display = 'block';
     }
 
-    // 🆕 手入力ターゲット設定
+    // 手入力ターゲット設定
     function setTargetByManual(book, wc) {
       book = (book || '').trim();
       wc   = (wc   || '').trim();
       if (!book || !wc) {
-        alert('Book（Ko/Ta/Yo）とWCを入力してください');
+        alert('book と wc を入力（選択）してください');
         return;
       }
 
@@ -881,14 +888,81 @@
       DOM.tgtWC.textContent = wc;
       DOM.tgtWN.textContent = '';
 
-      updateStatus('ターゲット設定しました', 'ok');
-      showBigMessage('手動ターゲット設定', `Book=${book} / WC=${wc}`);
-      speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`, { cooldown: 2000 });
+      updateStatus('ターゲット設定', 'ok');
+      showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
+      speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`);
 
-      // ★ 手入力でも棚をとりに行く
-      fetchShelfFromGSheet(book, wc);
+      // URLでlocがなかったときだけ自動取得
+      if (!state.currentShelf) {
+        fetchShelfFromGSheet(book, wc);
+      }
     }
 
+    // ターゲットスコープ追加
+    function addTargetScope() {
+      const existingScope = document.querySelector('.target-scope');
+      if (existingScope) existingScope.remove();
+
+      const scope = document.createElement('div');
+      scope.className = 'target-scope';
+
+      const cornerTL = document.createElement('div'); cornerTL.className = 'corner-tl'; scope.appendChild(cornerTL);
+      const cornerTR = document.createElement('div'); cornerTR.className = 'corner-tr'; scope.appendChild(cornerTR);
+      const cornerBL = document.createElement('div'); cornerBL.className = 'corner-bl'; scope.appendChild(cornerBL);
+      const cornerBR = document.createElement('div'); cornerBR.className = 'corner-br'; scope.appendChild(cornerBR);
+
+      const scanLine = document.createElement('div');
+      scanLine.className = 'scan-line';
+      scope.appendChild(scanLine);
+
+      DOM.stack.appendChild(scope);
+    }
+
+    function initialize() {
+      const params = new URLSearchParams(location.search);
+      state.currentTarget = {
+        book: (params.get("book") || "").trim(),
+        wc: (params.get("wc") || "").trim(),
+        wn: (params.get("wn") || "").trim()
+      };
+
+      if (!state.currentTarget.book || !state.currentTarget.wc) {
+        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_plain）/手入力で指定してください。";
+        DOM.btnStart.disabled = false;
+      } else {
+        DOM.tgtBN.textContent = state.currentTarget.book;
+        DOM.tgtWC.textContent = state.currentTarget.wc;
+        DOM.tgtWN.textContent = state.currentTarget.wn;
+        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+        updateStatus("準備完了");
+      }
+
+      const locParam = (params.get("loc") || "").trim();
+      if (locParam) {
+        state.currentShelf = locParam;
+        DOM.currentShelf.textContent = state.currentShelf;
+        DOM.currentShelf.className = "chip loc";
+      } else {
+        // loc がURLにない & book/wc はある → 起動時に取得しておく
+        if (state.currentTarget.book && state.currentTarget.wc) {
+          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+        }
+      }
+
+      // 手入力にも初期値を反映
+      if (DOM.inBook && state.currentTarget.book) {
+        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
+        if (opt) DOM.inBook.value = opt.value;
+      }
+      if (DOM.inWc && state.currentTarget.wc) {
+        DOM.inWc.value = state.currentTarget.wc;
+      }
+
+      addTargetScope();
+    }
+
+    // イベント
     DOM.btnStart.addEventListener("click", () => {
       initTTS();
       unlockTTS();
@@ -898,7 +972,6 @@
     DOM.btnHistory.addEventListener("click", showHistoryModal);
     DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
     window.addEventListener("click", (event) => { if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none"; });
-
     DOM.fileTest.addEventListener("change", async (ev) => {
       const file = ev.target.files?.[0];
       if (!file) return;
@@ -917,6 +990,13 @@
       };
       img.src = URL.createObjectURL(file);
     });
+    if (DOM.btnSetTarget) {
+      DOM.btnSetTarget.addEventListener('click', () => {
+        const book = DOM.inBook?.value || '';
+        const wc   = DOM.inWc?.value   || '';
+        setTargetByManual(book, wc);
+      });
+    }
 
     function jsqrMulti(imgData) {
       const hits = [];
@@ -943,70 +1023,6 @@
       }
       return hits;
     }
-
-    function initialize() {
-      const params = new URLSearchParams(location.search);
-      state.currentTarget = {
-        book: (params.get("book") || "").trim(),
-        wc: (params.get("wc") || "").trim(),
-        wn: (params.get("wn") || "").trim()
-      };
-      
-      if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QR・手入力で指定）", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_Plain）をかざすか、下の手入力でターゲットを設定してください。";
-        DOM.btnStart.disabled = false;
-      } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
-      }
-
-      const locParam = (params.get("loc") || "").trim();
-      if(locParam){
-        state.currentShelf = locParam;
-        DOM.currentShelf.textContent = state.currentShelf;
-        DOM.currentShelf.className = "chip loc";
-      } else {
-        // ★ URLにlocがなかった場合、でもbook/wcはある → 起動時に棚を取りに行く
-        if (state.currentTarget.book && state.currentTarget.wc) {
-          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
-        }
-      }
-
-      // URLで来てたら手入力欄にも反映
-      if (DOM.inBook && state.currentTarget.book) {
-        const b = state.currentTarget.book;
-        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === b.toLowerCase());
-        if (opt) DOM.inBook.value = opt.value;
-      }
-      if (DOM.inWc && state.currentTarget.wc) {
-        DOM.inWc.value = state.currentTarget.wc;
-      }
-
-      addTargetScope();
-    }
-
-    function addTargetScope() {
-      const existingScope = document.querySelector('.target-scope');
-      if (existingScope) existingScope.remove();
-      const scope = document.createElement('div');
-      scope.className = 'target-scope';
-      const cornerTL = document.createElement('div'); cornerTL.className = 'corner-tl'; scope.appendChild(cornerTL);
-      const cornerTR = document.createElement('div'); cornerTR.className = 'corner-tr'; scope.appendChild(cornerTR);
-      const cornerBL = document.createElement('div'); cornerBL.className = 'corner-bl'; scope.appendChild(cornerBL);
-      const cornerBR = document.createElement('div'); cornerBR.className = 'corner-br'; scope.appendChild(cornerBR);
-      const scanLine = document.createElement('div'); scanLine.className = 'scan-line'; scope.appendChild(scanLine);
-      DOM.stack.appendChild(scope);
-    }
-
-    DOM.btnSetTarget.addEventListener('click', () => {
-      const book = DOM.inBook?.value || '';
-      const wc   = DOM.inWc?.value   || '';
-      setTargetByManual(book, wc);
-    });
 
     initialize();
   });
