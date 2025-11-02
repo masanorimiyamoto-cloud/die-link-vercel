@@ -892,6 +892,10 @@
       showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
       speakLineOnce(`ターゲットを book ${book} 、wc ${wc} に設定しました。`);
       // ←ここを追加
+      // URLでlocがなかったときだけ自動取得
+      if (!state.currentShelf) {
+        fetchShelfFromGSheet(book, wc);
+      }
       if (state.currentShelf) {
         // すでに URL や gsheet で棚が分かっているとき
         speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`, { cooldown: 2500 });
@@ -899,10 +903,7 @@
         // まだ棚が分かっていないとき
         speakLineOnce(`棚のQRコードをスキャンしてください。`, { cooldown: 2500 });
       }
-      // URLでlocがなかったときだけ自動取得
-      if (!state.currentShelf) {
-        fetchShelfFromGSheet(book, wc);
-      }
+      
     }
 
     // ターゲットスコープ追加
