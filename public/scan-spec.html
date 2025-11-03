@@ -8,6 +8,7 @@
   :root{
     --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
     --tx:#212529; --sub:#6c757d; --bg:#f8f9fa; --bd:#dee2e6;
+    --soft:#ffffff;
   }
   html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
   .wrap{max-width:1100px;margin:0 auto;padding:14px}
@@ -28,21 +29,20 @@
   .chip.info{background:#e3fafc;color:#0b7285;border-color:#99e9f2}
   .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
   .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
-  .muted{color:var(--sub);font-size:13px}
+  .muted{color:#5a636c;font-size:13px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
   .kvs b{color:#333}
   .thumbs{display:flex;flex-wrap:wrap;gap:6px}
   .thumbs img{height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:#fff}
-  .err{color:#b00020;white-space:pre-wrap}
+  .err{padding:10px 14px;border-radius:10px;background:#fff5f5;color:#b00020;border:1px solid #ffc9c9;font-weight:500;white-space:pre-wrap}
   .hint{padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fcfcff}
   .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:#f1f3f5;font-size:12px}
   .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:13px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
   @keyframes fade-out{from{opacity:1}to{opacity:0}}
   .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   .rowbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  input[type=text]{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch}
-  select{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;background:#fff}
+  input[type=text], select{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch;background:#fff}
   .tbl{width:100%;border-collapse:collapse;font-size:14px}
   .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
   .tbl thead th{background:#f8f9fb}
@@ -54,36 +54,30 @@
   }
   @keyframes hint-pop{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(6px)}}
 
-  /* 見た目微調整（前回どおり） */
-  :root { --tx:#212529; --sub:#5a636c; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
+  /* 見た目微調整 */
+  :root { --tx:#212529; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
   .wrap{padding:20px}
   h1{margin:0 0 20px;font-weight:700;color:#111}
   h3{font-size:16px;font-weight:600;margin-top:0;padding-bottom:6px;border-bottom:1px solid var(--bd);color:var(--tx)}
-  .card{padding:16px 20px;border-radius:12px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
+  .card{padding:16px 20px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
   .card:hover{box-shadow:0 6px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04)}
   button{transition:.2s;font-weight:600}
   button:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.05)}
   button.primary:not(:disabled):hover{filter:brightness(110%);box-shadow:0 4px 10px rgba(28,126,214,.25)}
   input[type=text]:focus, select:focus{border-color:var(--ok);box-shadow:0 0 0 3px rgba(28,126,214,.15);outline:none}
-  .badge{background:var(--bg)}
-  .chip{padding:4px 12px;font-size:13px}
-  .chip.info{background:var(--info-soft);color:#0b7285;border-color:#bdecf2}
-  .chip.ok{background:var(--ok-soft);color:#1c7ed6;border-color:#a5d8ff}
-  .chip.ng{background:var(--ng-soft);color:#e03131;border-color:#ffc9c9}
-  .kvs{gap:8px 12px}
-  .kvs b{color:var(--sub);font-weight:500;white-space:nowrap}
-  .kvs div{font-weight:500;word-break:break-all}
-  .thumbs img{border-radius:8px;border:1px solid var(--bd);transition:.2s}
-  .thumbs img:hover{border-color:var(--ok);box-shadow:0 2px 6px rgba(0,0,0,.1);transform:scale(1.05)}
-  .tbl{border:none;border-top:1px solid var(--bd);margin-top:8px}
-  .tbl th,.tbl td{padding:10px 8px;border:none;border-bottom:1px solid var(--bd);text-align:left;vertical-align:middle}
-  .tbl thead th{background:var(--bg);color:var(--sub);font-weight:600;font-size:13px}
-  .tbl tbody tr:hover{background:#fcfcff}
-  .err{padding:10px 14px;border-radius:10px;background:#fff5f5;color:#b00020;border:1px solid #ffc9c9;font-weight:500}
-  #loading{display:flex;align-items:center;gap:10px;font-weight:600;color:#5a636c;margin-top:10px;padding:8px}
-  #loading::before{content:'';width:20px;height:20px;border:3px solid #ccc;border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite}
-  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-  .hint{border-radius:10px;border:1px solid #ffe8cc;background:#fff9f0;color:#8c5b0c}
+
+  /* ★ 追加：スコープバーを常に見える位置に固定 */
+  .scopebar{
+    position: sticky;
+    top: 8px;
+    z-index: 5;
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    background: var(--soft);
+    margin-top:10px; padding:8px 10px;
+    border:1px solid var(--bd); border-radius:12px;
+    box-shadow:0 2px 8px rgba(0,0,0,.05);
+  }
+  .scopebar .grow{flex:1 1 auto; min-width:180px}
 </style>
 </head>
 <body>
@@ -99,20 +93,34 @@
           <canvas id="freeze"></canvas>
           <canvas id="overlay"></canvas>
         </div>
+
         <div class="controls">
           <button id="btnStart" class="primary">カメラ開始</button>
           <button id="btnStop" disabled>停止</button>
           <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
           <span id="detectorInfo" class="badge"></span>
           <span id="scanStatus" class="chip info">待機中</span>
-          <!-- Airtable fetch 状態の小バッジ（ON/OFF確認用・表示だけ） -->
           <span id="atState" class="badge"></span>
         </div>
+
+        <!-- ★ ここに常設のターゲットスコープバー -->
+        <div class="scopebar" id="scopeBar">
+          <span class="badge">Scope</span>
+          <select id="selScope" class="grow" title="スキャン許可範囲">
+            <option value="any">全QR</option>
+            <option value="book">Book限定</option>
+            <option value="exact">Book+WC一致</option>
+          </select>
+          <button id="btnUseCurrent" title="現在のターゲット(BN/WC)を固定">現在値を固定</button>
+          <button id="btnClearTarget" title="ターゲット解除（Scopeは維持）">解除</button>
+          <span id="targetBadge" class="badge" title="現在のターゲット / スコープ状態">🎯 なし / 全QR</span>
+        </div>
+
         <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
         <div id="errCam" class="err" style="margin-top:6px;"></div>
       </div>
 
-      <!-- 手入力クイック照会 + ターゲット/スコープ -->
+      <!-- 手入力クイック照会（ここは簡素化。詳細スコープは上のバーで常時操作） -->
       <div class="card">
         <div class="hdr">
           <div class="rowbar">
@@ -121,27 +129,13 @@
           </div>
           <button id="btnQuery" class="primary">照会</button>
         </div>
-
         <div class="rowbar" style="margin-top:8px">
           <label>Book: <input type="text" id="inBook" placeholder="例: Ta"></label>
           <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
           <button id="btnFillTarget">スキャン中の値で埋める</button>
+          <!-- 入力からターゲット固定ボタンはここに配置 -->
+          <button id="btnSetTarget" title="入力値をターゲットに固定（スコープ適用）">入力をターゲット</button>
         </div>
-
-        <!-- ▼ ターゲットスコープ機能（追加） -->
-        <div class="rowbar" style="margin-top:10px">
-          <span class="badge">Scope</span>
-          <select id="selScope" title="スキャン許可範囲">
-            <option value="any">全QR</option>
-            <option value="book">Book限定</option>
-            <option value="exact">Book+WC一致</option>
-          </select>
-          <button id="btnSetTarget" class="primary" title="上の入力値をターゲットに固定（スコープ適用）">ターゲット設定</button>
-          <button id="btnUseCurrent" title="現在のターゲット(BN/WC)を固定">現在値を固定</button>
-          <button id="btnClearTarget" title="ターゲット解除（Scopeは維持）">ターゲット解除</button>
-          <span id="targetBadge" class="badge" title="現在のターゲット / スコープ状態">🎯 なし / 全QR</span>
-        </div>
-        <!-- ▲ ターゲットスコープ機能（追加） -->
 
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span id="csrfStatus" class="badge">CSRF: 検査中…</span>
@@ -206,13 +200,8 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
-  // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
-  const FEATURE = {
-    AIRTABLE_FETCH: true,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
-  };
-  // ==============================================
+  const FEATURE = { AIRTABLE_FETCH: true };
 
-  // ===== DOM =====
   const D = {
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
     btnStart: q('#btnStart'), btnStop: q('#btnStop'), fileTest: q('#fileTest'),
@@ -226,38 +215,28 @@
     btnOpenHtml: q('#btnOpenHtml'),
     csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
     atState: q('#atState'),
-    // ▼ 追加
+    // scope bar
     selScope: q('#selScope'), btnSetTarget: q('#btnSetTarget'), btnUseCurrent: q('#btnUseCurrent'), btnClearTarget: q('#btnClearTarget'),
     targetBadge: q('#targetBadge'),
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
 
-  // Airtableオフ時はボタンを無効化（HTML版はAT依存するケースが多いため）
-  if(!FEATURE.AIRTABLE_FETCH){
-    D.btnOpenHtml.disabled = true;
-    D.btnOpenHtml.title = 'Airtable取得OFF中';
-  }
-  // 状態バッジ
+  if(!FEATURE.AIRTABLE_FETCH){ D.btnOpenHtml.disabled = true; D.btnOpenHtml.title = 'Airtable取得OFF中'; }
   if(D.atState){ D.atState.textContent = FEATURE.AIRTABLE_FETCH ? 'AT:ON' : 'AT:OFF'; }
 
-  // ===== Config =====
   const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
 
-  // ===== State =====
   const S = {
     stream: null, rafId: null,
     detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
-    current: { book:'', wc:'' },   // 直近で読んだ（または入力した）値
-    lastQueryKey: '',
+    current: { book:'', wc:'' }, lastQueryKey: '',
     csrf: '',
     locked: false,
-    // ▼ ターゲットスコープ（追加）
-    scope: 'any',                  // 'any' | 'book' | 'exact'
-    target: { book:'', wc:'' }     // スコープ比較に使う固定ターゲット
+    scope: 'any',
+    target: { book:'', wc:'' }
   };
 
-  // ===== Utils =====
   function q(s){ return document.querySelector(s); }
   function readCookie(name){
     const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
@@ -292,7 +271,6 @@
     D.freeze.style.height= D.video.clientHeight + 'px';
   }
 
-  // ===== CSRF bootstrap =====
   function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
   async function requestSession(){
     const url = isLocal() ? '/api/session?dev=1' : '/api/session';
@@ -322,7 +300,6 @@
     catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
   });
 
-  // ===== Parse & classify =====
   function classify(raw){
     const t = normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
@@ -360,7 +337,7 @@
     return null;
   }
 
-  // ===== ターゲット/スコープ ユーティリティ =====
+  // ===== ターゲット/スコープ =====
   function updateTargetBadge(){
     const bn = S.target.book || 'なし';
     const wc = S.target.book ? (S.target.wc || '*') : '—';
@@ -397,16 +374,13 @@
     const bn = (parsed?.bn || '').trim();
     const wc = (parsed?.wc || '').trim();
     if(!bn && !wc) return false;
-
-    if(S.scope==='book'){
-      return eqi(bn, S.target.book);
-    }
+    if(S.scope==='book'){ return eqi(bn, S.target.book); }
     const bookOk = eqi(bn, S.target.book);
     const wcOk   = S.target.wc ? eqi(wc, S.target.wc) : true;
     return bookOk && wcOk;
   }
 
-  // ===== Camera =====
+  // Camera
   function reallyStopStreamTracks(){
     if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} }
     S.stream = null;
@@ -473,7 +447,6 @@
     setStatus('ロック完了', 'ok');
   }
 
-  // ===== MULTI-PASS DETECTOR =====
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
     const scale = Math.max(1, Number(CFG.DOWNSCALE)||1);
@@ -530,7 +503,6 @@
     S.rafId = requestAnimationFrame(tick);
   }
 
-  // ===== 検出結果の適用（スコープ適用＆ロック） =====
   function applyDetections(ds){
     if(S.locked) return;
 
@@ -595,7 +567,6 @@
     D.tWC.textContent = S.current.wc   || '-';
   }
 
-  // ===== Query to /api/die-check (JSON) =====
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc) return;
@@ -756,7 +727,7 @@
   });
   D.btnFillTarget.addEventListener('click', () => { D.inBook.value = S.current.book || ''; D.inWc.value = S.current.wc || ''; });
 
-  // ▼ ターゲット/スコープ操作（追加）
+  // スコープ操作
   D.selScope.addEventListener('change', () => setScope(D.selScope.value));
   D.btnSetTarget.addEventListener('click', () => setTargetScope(D.inBook.value, D.inWc.value));
   D.btnUseCurrent.addEventListener('click', () => setTargetScope(S.current.book, S.current.wc));
@@ -808,7 +779,6 @@
     return hits;
   }
 
-  // URL で事前指定
   (function initFromParams(){
     const p = new URLSearchParams(location.search);
     const book=(p.get('book')||'').trim();
