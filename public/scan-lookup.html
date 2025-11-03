@@ -846,9 +846,9 @@
               DOM.tgtWC.textContent = state.currentTarget.wc || "-";
               DOM.tgtWN.textContent = "";
 
-              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
+              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました　抜型のQRをスキャンしてください");
               showToastNearBox("ターゲット更新", pts);
-              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。`, { cooldown: 2500 });
+              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。抜型のQRをスキャンして下さい`, { cooldown: 2500 });
 
               // ★locationがまだなら取る
               if (!state.currentShelf) {
@@ -950,7 +950,7 @@
 
       updateStatus('ターゲット設定', 'ok');
       showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
-      speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。`);
+      speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　抜型のQRをスキャンしてください`);
 
       if (!state.currentShelf) {
         fetchShelfFromGSheet(book, wc);
