@@ -6,10 +6,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root {
-      --ok: #1c7ed6;      /* 一致=青 */
-      --ng: #e03131;      /* 不一致=赤 */
-      --loc: #2b8a3e;     /* LOC=緑 */
-      --info: #f59f00;    /* 情報=オレンジ */
+      --ok: #1c7ed6;
+      --ng: #e03131;
+      --loc: #2b8a3e;
+      --info: #f59f00;
       --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
       --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
     }
@@ -74,7 +74,7 @@
       100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
     }
 
-    /* ターゲットスコープ */
+    /* ガイドスコープ */
     .target-scope {
       position: absolute;
       top: 50%;
@@ -180,7 +180,7 @@
         </div>
       </div>
 
-      <!-- 🆕 手入力ターゲット設定 -->
+      <!-- 手入力ターゲット設定 -->
       <div class="card">
         <h4>📝 手入力でターゲット設定</h4>
         <div class="controls" style="gap:10px;align-items:center;flex-wrap:wrap">
@@ -268,7 +268,7 @@
       csrf: ''
     };
 
-    /* ===== 共通ユーティリティ (CSRF, fetch) ===== */
+    /* ====== CSRF ====== */
     const isLocal = () => location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
     const readCookie = (name) => {
       const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&')+'=([^;]*)'));
@@ -284,85 +284,7 @@
       return t || '';
     }
 
-    // GSheetからLocation取得
-    async function fetchShelfFromGSheet(book, wc) {
-      if (!book || !wc) return;
-      // URLでlocが決まっているなら上書きしない
-      if (state.currentShelf && state.currentShelf !== '（URL未指定）') return;
-
-      DOM.currentShelf.textContent = '（棚情報を取得中…）';
-      DOM.currentShelf.className = 'muted';
-
-      // 1. まずPOSTで試す
-      let jsonOk = false;
-      try {
-        const csrf = await ensureCsrf();
-        const r = await fetch('/api/die-check', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type':'application/json',
-            ...(csrf ? {'X-CSRF': csrf} : {})
-          },
-          body: JSON.stringify({ book, wc, json:true, limit:1 })
-        });
-        const txt = await r.text();
-        let j = {};
-        try { j = JSON.parse(txt); }
-        catch (e) { console.warn('JSON parse失敗(POST):', txt.slice(0,200)); throw e; }
-
-        if (!r.ok || j.ok !== true) {
-          throw new Error(j?.error || `HTTP ${r.status}`);
-        }
-
-        const gs = j.gs || j.GS || j.sheet || {};
-        const loc = (gs.Location ?? gs.location ?? gs.Loc ?? gs.loc ?? '').toString().trim();
-        if (loc) {
-          state.currentShelf = loc;
-          DOM.currentShelf.textContent = loc;
-          DOM.currentShelf.className = 'chip loc';
-          jsonOk = true;
-        } else {
-          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
-          DOM.currentShelf.className = 'muted';
-          jsonOk = true;
-        }
-      } catch (e) {
-        console.warn('POSTで棚情報取得失敗 → GETにフォールバックします', e);
-      }
-      if (jsonOk) return;
-
-      // 2. GETでフォールバック
-      try {
-        const qs = new URLSearchParams({ book, wc, json:'1', limit:'1' }).toString();
-        const r2 = await fetch('/api/die-check?'+qs, { credentials:'same-origin' });
-        const txt2 = await r2.text();
-        let j2 = {};
-        try { j2 = JSON.parse(txt2); }
-        catch (e) { console.warn('JSON parse失敗(GET):', txt2.slice(0,200)); throw e; }
-
-        if (!r2.ok || j2.ok !== true) {
-          throw new Error(j2?.error || `HTTP ${r2.status}`);
-        }
-
-        const gs2 = j2.gs || j2.GS || j2.sheet || {};
-        const loc2 = (gs2.Location ?? gs2.location ?? gs2.Loc ?? gs2.loc ?? '').toString().trim();
-        if (loc2) {
-          state.currentShelf = loc2;
-          DOM.currentShelf.textContent = loc2;
-          DOM.currentShelf.className = 'chip loc';
-        } else {
-          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
-          DOM.currentShelf.className = 'muted';
-        }
-      } catch (e) {
-        console.warn('GETでも棚情報取得できませんでした', e);
-        DOM.currentShelf.textContent = '（棚情報の取得に失敗）';
-        DOM.currentShelf.className = 'muted';
-      }
-    }
-
-    /* ====== 音声読み上げ（前と同じ） ====== */
+    /* ====== TTS ====== */
     let __jpVoices = [];
     let __lastSpeak = 0;
     let __lastLocSpeak = 0;
@@ -444,6 +366,15 @@
       speakAfterReady(u);
     }
 
+    // ★棚スキャンガイドを1箇所にまとめる
+    function promptScanShelf() {
+      if (state.currentShelf) {
+        speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`, { cooldown: 2500 });
+      } else {
+        speakLineOnce(`棚のQRコードをスキャンしてください。`, { cooldown: 2500 });
+      }
+    }
+
     const cssVarOr = (name, fallback) => {
       const v = getComputedStyle(document.documentElement).getPropertyValue(name);
       const s = (v || '').trim();
@@ -460,6 +391,8 @@
       holdDuration: 3000,
       lockCooldown: 700,
       orderResetCooldownMs: 2000,
+      scopeSize: 200,   // ガイドスコープのCSSサイズ (正方形)
+      scopeAllowance: 12 // 少しはみ出してもOKにするマージン(px相当)
     };
 
     const confirmationBeep = (() => {
@@ -558,10 +491,89 @@
 
     const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
 
+    /* === GSheetからLocation取得 === */
+    async function fetchShelfFromGSheet(book, wc) {
+      if (!book || !wc) return;
+      if (state.currentShelf && state.currentShelf !== '（URL未指定）') return;
+
+      DOM.currentShelf.textContent = '（棚情報を取得中…）';
+      DOM.currentShelf.className = 'muted';
+
+      let success = false;
+      try {
+        const csrf = await ensureCsrf();
+        const r = await fetch('/api/die-check', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type':'application/json',
+            ...(csrf ? {'X-CSRF': csrf} : {})
+          },
+          body: JSON.stringify({ book, wc, json:true, limit:1 })
+        });
+        const txt = await r.text();
+        let j = {};
+        try { j = JSON.parse(txt); }
+        catch (e) { console.warn('JSON parse失敗(POST):', txt.slice(0,200)); throw e; }
+
+        if (!r.ok || j.ok !== true) {
+          throw new Error(j?.error || `HTTP ${r.status}`);
+        }
+
+        const gs = j.gs || j.GS || j.sheet || {};
+        const loc = (gs.Location ?? gs.location ?? gs.Loc ?? gs.loc ?? '').toString().trim();
+        if (loc) {
+          state.currentShelf = loc;
+          DOM.currentShelf.textContent = loc;
+          DOM.currentShelf.className = 'chip loc';
+          success = true;
+          // ★ここでガイドのセリフ
+          promptScanShelf();
+        } else {
+          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
+          DOM.currentShelf.className = 'muted';
+        }
+      } catch (e) {
+        console.warn('POSTで棚情報取得失敗 → GETにフォールバックします', e);
+      }
+      if (success) return;
+
+      try {
+        const qs = new URLSearchParams({ book, wc, json:'1', limit:'1' }).toString();
+        const r2 = await fetch('/api/die-check?'+qs, { credentials:'same-origin' });
+        const txt2 = await r2.text();
+        let j2 = {};
+        try { j2 = JSON.parse(txt2); }
+        catch (e) { console.warn('JSON parse失敗(GET):', txt2.slice(0,200)); throw e; }
+
+        if (!r2.ok || j2.ok !== true) {
+          throw new Error(j2?.error || `HTTP ${r2.status}`);
+        }
+
+        const gs2 = j2.gs || j2.GS || j2.sheet || {};
+        const loc2 = (gs2.Location ?? gs2.location ?? gs2.Loc ?? gs2.loc ?? '').toString().trim();
+        if (loc2) {
+          state.currentShelf = loc2;
+          DOM.currentShelf.textContent = loc2;
+          DOM.currentShelf.className = 'chip loc';
+          // ★ここでも
+          promptScanShelf();
+        } else {
+          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
+          DOM.currentShelf.className = 'muted';
+        }
+      } catch (e) {
+        console.warn('GETでも棚情報取得できませんでした', e);
+        DOM.currentShelf.textContent = '（棚情報の取得に失敗）';
+        DOM.currentShelf.className = 'muted';
+      }
+    }
+
     /* === 描画/UI === */
-    function drawBox(points, color, label, style = 'solid') {
+    function drawBox(points, color, label, style = 'solid', alpha=1) {
       if (!points || points.length < 4) return;
       overlayCtx.save();
+      overlayCtx.globalAlpha = alpha;
       const isNG = (color === CONFIG.colors.ng);
       overlayCtx.lineWidth = isNG ? 4 : (color === CONFIG.colors.ok ? 5 : 3);
       overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
@@ -694,6 +706,41 @@
       return Array.from(allDetections.values());
     }
 
+    // ★ガイドスコープ内かどうか判定する
+    function isDetectionInScope(cornerPoints) {
+      if (!cornerPoints || cornerPoints.length < 4) return false;
+      // DOM上のサイズ
+      const stackW = DOM.stack.clientWidth;
+      const stackH = DOM.stack.clientHeight;
+      if (!stackW || !stackH) return true; // 保険
+
+      // ガイドは中央200x200（CSS）
+      const scopeCssSize = CONFIG.scopeSize;
+      const scopeCssX = (stackW / 2) - (scopeCssSize / 2);
+      const scopeCssY = (stackH / 2) - (scopeCssSize / 2);
+
+      // overlay(=video)座標へスケール
+      const scaleX = DOM.overlay.width / stackW;
+      const scaleY = DOM.overlay.height / stackH;
+
+      const scopeX = scopeCssX * scaleX;
+      const scopeY = scopeCssY * scaleY;
+      const scopeW = scopeCssSize * scaleX;
+      const scopeH = scopeCssSize * scaleY;
+
+      const marginX = CONFIG.scopeAllowance * scaleX;
+      const marginY = CONFIG.scopeAllowance * scaleY;
+
+      // 4点すべてがスコープ＋マージン内にあるか
+      for (const pt of cornerPoints) {
+        if (pt.x < scopeX - marginX) return false;
+        if (pt.x > scopeX + scopeW + marginX) return false;
+        if (pt.y < scopeY - marginY) return false;
+        if (pt.y > scopeY + scopeH + marginY) return false;
+      }
+      return true;
+    }
+
     function holdScan(ms) {
       if (state.holdTimer) clearTimeout(state.holdTimer);
       if (state.rafId) cancelAnimationFrame(state.rafId);
@@ -720,8 +767,17 @@
         const raw = (d.rawValue || "").trim();
         if (!raw) continue;
 
-        const kind = classify(raw);
         const pts = d.cornerPoints;
+
+        // ★ガイド外なら「見えてるけど無視」
+        const inScope = isDetectionInScope(pts);
+        if (!inScope) {
+          // 薄く表示するだけ
+          drawBox(pts, CONFIG.colors.ng, "ガイド外", 'dashed', 0.3);
+          continue;
+        }
+
+        const kind = classify(raw);
 
         if (kind === 'die') {
           const p = parseDie(raw);
@@ -794,9 +850,13 @@
               showToastNearBox("ターゲット更新", pts);
               speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。`, { cooldown: 2500 });
 
-              // ←ここでgSheetからlocationを取る
+              // ★locationがまだなら取る
               if (!state.currentShelf) {
                 fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+                // 取れたら fetchShelfFromGSheet 側でしゃべる
+              } else {
+                // もうあるならここでしゃべる
+                promptScanShelf();
               }
 
               holdScan(800);
@@ -891,22 +951,17 @@
       updateStatus('ターゲット設定', 'ok');
       showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
       speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。`);
-      // ←ここを追加
-      // URLでlocがなかったときだけ自動取得
+
       if (!state.currentShelf) {
         fetchShelfFromGSheet(book, wc);
-      }
-      if (state.currentShelf) {
-        // すでに URL や gsheet で棚が分かっているとき
-        speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`, { cooldown: 2500 });
+        // 取得できたら fetchShelfFromGSheet 側でしゃべる
       } else {
-        // まだ棚が分かっていないとき
-        speakLineOnce(`棚のQRコードをスキャンしてください。`, { cooldown: 2500 });
+        // 既にあるならここでしゃべる
+        promptScanShelf();
       }
-      
     }
 
-    // ターゲットスコープ追加
+    // ガイドスコープ追加
     function addTargetScope() {
       const existingScope = document.querySelector('.target-scope');
       if (existingScope) existingScope.remove();
@@ -951,14 +1006,15 @@
         state.currentShelf = locParam;
         DOM.currentShelf.textContent = state.currentShelf;
         DOM.currentShelf.className = "chip loc";
+        // ★URLでわかっているときもしゃべる
+        promptScanShelf();
       } else {
-        // loc がURLにない & book/wc はある → 起動時に取得しておく
         if (state.currentTarget.book && state.currentTarget.wc) {
           fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
         }
       }
 
-      // 手入力にも初期値を反映
+      // 手入力側に初期値反映
       if (DOM.inBook && state.currentTarget.book) {
         const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
         if (opt) DOM.inBook.value = opt.value;
