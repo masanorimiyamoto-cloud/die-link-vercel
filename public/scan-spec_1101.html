@@ -191,7 +191,7 @@
 (() => {
   // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
   const FEATURE = {
-    AIRTABLE_FETCH: True,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
+    AIRTABLE_FETCH: true,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
   };
   // ==============================================
 
@@ -378,15 +378,41 @@
   }
 
   function freezeFrameAndStopCam(){
-    try{
-      fitOverlay();
-      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
-      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
-      D.freeze.style.display = 'block';
-      D.video.style.visibility = 'hidden';
-    }catch{}
-    stopCam({keepFrame:true});
-  }
+    try{
+      fitOverlay();
+      // 直前フレームをfreezeへ
+      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
+      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
+      D.freeze.style.display = 'block';
+      // ビデオを隠す
+      D.video.style.visibility = 'hidden';
+
+      // ▼▼▼ 修正箇所（ロックアイコン描画） ▼▼▼
+      ctx.save();
+      // 半透明の黒いフィルター
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillRect(0, 0, D.overlay.width, D.overlay.height);
+      // ロックアイコン
+      ctx.font = 'bold 80px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 10;
+      ctx.fillText('🔒', D.overlay.width / 2, D.overlay.height / 2); // 🔒
+      ctx.restore();
+      // ▲▲▲ 修正箇所（ロックアイコン描画） ▲▲▲
+
+    }catch{}
+
+    // stopCam を呼び出す前にステータスを変更
+    setStatus('ロック完了', 'ok');
+    
+    stopCam({keepFrame:true});
+    
+    // stopCamによって '停止中' に上書きされるため、再度 'ロック完了' に設定
+    setStatus('ロック完了', 'ok');
+  }
 
   // ===== MULTI-PASS DETECTOR =====
   async function detectCombined(){
@@ -446,34 +472,47 @@
   }
 
   function applyDetections(ds){
-    for(const d of ds){
-      const raw=(d.rawValue||'').trim(); if(!raw) continue;
-      const kind = classify(raw); const pts = d.cornerPoints;
-      if(kind==='order'){
-        const od = parseOrder(raw);
-        if(od && (od.bn || od.wc)){
-          drawBox(pts, '#f59f00', true); showToastNear(`order: ${od.bn||'-'}/${od.wc||'-'}`, pts);
-          setTarget(od.bn||'', od.wc||''); querySpec();
-        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
-      }else if(kind==='die'){
-        const p = parseDie(raw);
-        if(p && (p.bn || p.wc)){
-          drawBox(pts, '#1c7ed6', true);
-          showToastNear('ロック｜ターゲットを設定しました', pts);
-          setTarget(p.bn||'', p.wc||'');
+    for(const d of ds){
+      const raw=(d.rawValue||'').trim(); if(!raw) continue;
+      const kind = classify(raw); const pts = d.cornerPoints;
+      
+      // ▼▼▼ 修正箇所（orderブロック） ▼▼▼
+      if(kind==='order'){
+        const od = parseOrder(raw);
+        if(od && (od.bn || od.wc)){
+          // 枠の色は order (オレンジ) のまま
+          drawBox(pts, '#f59f00', true); 
+          showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`, pts);
+          setTarget(od.bn||'', od.wc||'');
 
-          if(!S.locked){
-            S.locked = true;
-            freezeFrameAndStopCam();
-            showSwipeHint();
-            querySpec();
-          }
-        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
-      }else{
-        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
-      }
-    }
-  }
+          if(!S.locked){ // die と同様のロック処理
+            S.locked = true;
+            freezeFrameAndStopCam(); // カメラ停止
+            showSwipeHint(); // ヒント表示
+            querySpec(); // 照会実行
+          }
+        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
+      // ▲▲▲ 修正箇所（orderブロック） ▲▲▲
+
+      }else if(kind==='die'){
+        const p = parseDie(raw);
+        if(p && (p.bn || p.wc)){
+          drawBox(pts, '#1c7ed6', true);
+          showToastNear('ロック｜ターゲットを設定しました', pts);
+          setTarget(p.bn||'', p.wc||'');
+
+          if(!S.locked){
+            S.locked = true;
+            freezeFrameAndStopCam();
+            showSwipeHint();
+            querySpec();
+          }
+        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
+      }else{
+        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
+      }
+    }
+  }
 
   function setTarget(book, wc){
     S.current.book = String(book||'').trim();

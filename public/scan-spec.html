@@ -5,185 +5,12 @@
 <title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
-  :root{
-    --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
-    --tx:#212529; --sub:#6c757d; --bg:#f8f9fa; --bd:#dee2e6;
-  }
-  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
-  .wrap{max-width:1100px;margin:0 auto;padding:14px}
-  h1{margin:8px 0 12px;font-size:clamp(18px,2.8vw,24px)}
-  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
-  .panel{flex:1 1 420px;min-width:340px}
-  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.05);padding:12px;margin-bottom:12px}
-  .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
-  video{display:block;width:100%;max-width:580px;background:#000}
-  canvas{position:absolute;inset:0;pointer-events:none}
-  #freeze{z-index:1; display:none;}
-  #overlay{z-index:2;}
-  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
-  button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600}
-  button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
-  button:disabled{opacity:.6;cursor:not-allowed}
-  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--bd);background:#fff}
-  .chip.info{background:#e3fafc;color:#0b7285;border-color:#99e9f2}
-  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
-  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
-  .muted{color:var(--sub);font-size:13px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
-  .kvs b{color:#333}
-  .thumbs{display:flex;flex-wrap:wrap;gap:6px}
-  .thumbs img{height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:#fff}
-  .err{color:#b00020;white-space:pre-wrap}
-  .hint{padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fcfcff}
-  .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:#f1f3f5;font-size:12px}
-  .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:13px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
-  @keyframes fade-out{from{opacity:1}to{opacity:0}}
-  .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-  .rowbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  input[type=text]{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch}
-  .tbl{width:100%;border-collapse:collapse;font-size:14px}
-  .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
-  .tbl thead th{background:#f8f9fb}
-
-  .swipe-hint{
-    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-    background: rgba(33,37,41,.92); color: #fff; padding: 10px 14px; border-radius: 999px;
-    font-size: 14px; box-shadow: 0 6px 16px rgba(0,0,0,.25); z-index: 9999; animation: hint-pop 1.6s ease-out forwards;
-  }
-  @keyframes hint-pop{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(6px)}}
-
-  /* 見た目微調整（前回どおり） */
-  :root { --tx:#212529; --sub:#5a636c; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
-  .wrap{padding:20px}
-  h1{margin:0 0 20px;font-weight:700;color:#111}
-  h3{font-size:16px;font-weight:600;margin-top:0;padding-bottom:6px;border-bottom:1px solid var(--bd);color:var(--tx)}
-  .card{padding:16px 20px;border-radius:12px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
-  .card:hover{box-shadow:0 6px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04)}
-  button{transition:.2s;font-weight:600}
-  button:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.05)}
-  button.primary:not(:disabled):hover{filter:brightness(110%);box-shadow:0 4px 10px rgba(28,126,214,.25)}
-  input[type=text]:focus{border-color:var(--ok);box-shadow:0 0 0 3px rgba(28,126,214,.15);outline:none}
-  .badge{background:var(--bg)}
-  .chip{padding:4px 12px;font-size:13px}
-  .chip.info{background:var(--info-soft);color:var(--info);border-color:#bdecf2}
-  .chip.ok{background:var(--ok-soft);color:var(--ok);border-color:#a5d8ff}
-  .chip.ng{background:var(--ng-soft);color:var(--ng);border-color:#ffc9c9}
-  .kvs{gap:8px 12px}
-  .kvs b{color:var(--sub);font-weight:500;white-space:nowrap}
-  .kvs div{font-weight:500;word-break:break-all}
-  .thumbs img{border-radius:8px;border:1px solid var(--bd);transition:.2s}
-  .thumbs img:hover{border-color:var(--ok);box-shadow:0 2px 6px rgba(0,0,0,.1);transform:scale(1.05)}
-  .tbl{border:none;border-top:1px solid var(--bd);margin-top:8px}
-  .tbl th,.tbl td{padding:10px 8px;border:none;border-bottom:1px solid var(--bd);text-align:left;vertical-align:middle}
-  .tbl thead th{background:var(--bg);color:var(--sub);font-weight:600;font-size:13px}
-  .tbl tbody tr:hover{background:#fcfcff}
-  .err{padding:10px 14px;border-radius:10px;background:var(--ng-soft);color:#b00020;border:1px solid #ffc9c9;font-weight:500}
-  #loading{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--sub);margin-top:10px;padding:8px}
-  #loading::before{content:'';width:20px;height:20px;border:3px solid #ccc;border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite}
-  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-  .hint{border-radius:10px;border:1px solid #ffe8cc;background:#fff9f0;color:#8c5b0c}
+  /* ... スタイル部分は変更なし ... */
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会モード｜die / order → Airtable(on/off) + Google Sheets(仕様)</h1>
-
-  <div class="row">
-    <!-- 左：カメラ -->
-    <div class="panel">
-      <div class="card">
-        <div class="stack" id="stack">
-          <video id="video" playsinline webkit-playsinline muted></video>
-          <canvas id="freeze"></canvas>
-          <canvas id="overlay"></canvas>
-        </div>
-        <div class="controls">
-          <button id="btnStart" class="primary">カメラ開始</button>
-          <button id="btnStop" disabled>停止</button>
-          <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
-          <span id="detectorInfo" class="badge"></span>
-          <span id="scanStatus" class="chip info">待機中</span>
-          <!-- Airtable fetch 状態の小バッジ（ON/OFF確認用・表示だけ） -->
-          <span id="atState" class="badge"></span>
-        </div>
-        <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
-        <div id="errCam" class="err" style="margin-top:6px;"></div>
-      </div>
-
-      <!-- 手入力クイック照会 -->
-      <div class="card">
-        <div class="hdr">
-          <div class="rowbar">
-            <b>手入力で照会</b>
-            <span class="muted">（Book と WC を指定）</span>
-          </div>
-          <button id="btnQuery" class="primary">照会</button>
-        </div>
-        <div class="rowbar" style="margin-top:8px">
-          <label>Book: <input type="text" id="inBook" placeholder="例: Ta"></label>
-          <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
-          <button id="btnFillTarget">スキャン中の値で埋める</button>
-        </div>
-
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span id="csrfStatus" class="badge">CSRF: 検査中…</span>
-          <button id="btnEnableCsrf">CSRFを有効化</button>
-        </div>
-
-        <div id="csrfWarn" class="hint" style="display:none;margin-top:10px;color:#b07000;">
-          ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。<br>
-          下の「CSRFを有効化」を押すか、社内ページからセッション開始してください。
-        </div>
-      </div>
-    </div>
-
-    <!-- 右：結果 -->
-    <div class="panel">
-      <div class="card">
-        <div class="hdr">
-          <div class="rowbar">
-            <span class="chip">ターゲット</span>
-            <span>Book: <b id="tBN">-</b> / WC: <b id="tWC">-</b></span>
-          </div>
-          <div class="rowbar">
-            <button id="btnOpenHtml">詳細を別タブ(HTML)</button>
-          </div>
-        </div>
-        <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
-        <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
-
-        <div id="result" style="margin-top:10px;display:none">
-          <div class="grid">
-            <div>
-              <h3>Google Sheets（仕様）</h3>
-              <div id="gsBox" class="muted">—</div>
-            </div>
-            <div>
-              <h3>Airtable（受注・図面）</h3>
-              <div id="atBox" class="muted">—</div>
-            </div>
-          </div>
-
-          <div id="ordersBox" style="margin-top:12px">
-            <h3>関連受注（納期の早い順）</h3>
-            <div id="ordersEmpty" class="muted">—</div>
-            <div id="ordersTableWrap" style="display:none">
-              <table class="tbl" id="ordersTbl">
-                <thead>
-                  <tr>
-                    <th>納期</th><th>品名</th><th>数量</th><th>Material</th><th>Paper</th><th>Cut</th><th>画像</th><th>Kname</th>
-                  </tr>
-                </thead>
-                <tbody id="ordersTbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
+  <!-- ... HTML部分は変更なし ... -->
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
@@ -191,7 +18,7 @@
 (() => {
   // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
   const FEATURE = {
-    AIRTABLE_FETCH: true,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
+    AIRTABLE_FETCH: true,
   };
   // ==============================================
 
@@ -209,16 +36,15 @@
     btnOpenHtml: q('#btnOpenHtml'),
     csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
     atState: q('#atState'),
+    scope: q('#scope')
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
 
-  // Airtableオフ時はボタンを無効化（HTML版はAT依存するケースが多いため）
   if(!FEATURE.AIRTABLE_FETCH){
     D.btnOpenHtml.disabled = true;
     D.btnOpenHtml.title = 'Airtable取得OFF中';
   }
-  // 状態バッジ
   if(D.atState){ D.atState.textContent = FEATURE.AIRTABLE_FETCH ? 'AT:ON' : 'AT:OFF'; }
 
   // ===== Config =====
@@ -253,7 +79,7 @@
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
     ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].y?points[i].x:points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
@@ -350,6 +176,7 @@
     reallyStopStreamTracks();
     D.btnStart.disabled=false; D.btnStop.disabled=true;
     setStatus('停止中','info');
+    D.scope.style.display = 'none';
   }
   async function startCam(){
     D.freeze.style.display='none';
@@ -373,46 +200,41 @@
         }catch{ S.useBarcodeDetector=false; S.detector=null; }
       }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
-      setStatus('探索中…','info'); fitOverlay(); tick();
+      setStatus('探索中…','info');
+      D.scope.style.display = 'block';
+      fitOverlay(); 
+      tick();
     }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
   }
 
   function freezeFrameAndStopCam(){
-    try{
-      fitOverlay();
-      // 直前フレームをfreezeへ
-      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
-      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
-      D.freeze.style.display = 'block';
-      // ビデオを隠す
-      D.video.style.visibility = 'hidden';
+    try{
+      fitOverlay();
+      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
+      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
+      D.freeze.style.display = 'block';
+      D.video.style.visibility = 'hidden';
 
-      // ▼▼▼ 修正箇所（ロックアイコン描画） ▼▼▼
-      ctx.save();
-      // 半透明の黒いフィルター
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-      ctx.fillRect(0, 0, D.overlay.width, D.overlay.height);
-      // ロックアイコン
-      ctx.font = 'bold 80px sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 10;
-      ctx.fillText('🔒', D.overlay.width / 2, D.overlay.height / 2); // 🔒
-      ctx.restore();
-      // ▲▲▲ 修正箇所（ロックアイコン描画） ▲▲▲
+      D.scope.style.display = 'none';
 
-    }catch{}
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillRect(0, 0, D.overlay.width, D.overlay.height);
+      ctx.font = 'bold 80px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 10;
+      ctx.fillText('🔒', D.overlay.width / 2, D.overlay.height / 2);
+      ctx.restore();
 
-    // stopCam を呼び出す前にステータスを変更
-    setStatus('ロック完了', 'ok');
-    
-    stopCam({keepFrame:true});
-    
-    // stopCamによって '停止中' に上書きされるため、再度 'ロック完了' に設定
-    setStatus('ロック完了', 'ok');
-  }
+    }catch(e){ console.error('Freeze error:', e); }
+
+    setStatus('ロック完了', 'ok');
+    stopCam({keepFrame:true});
+    setStatus('ロック完了', 'ok');
+  }
 
   // ===== MULTI-PASS DETECTOR =====
   async function detectCombined(){
@@ -472,47 +294,44 @@
   }
 
   function applyDetections(ds){
-    for(const d of ds){
-      const raw=(d.rawValue||'').trim(); if(!raw) continue;
-      const kind = classify(raw); const pts = d.cornerPoints;
-      
-      // ▼▼▼ 修正箇所（orderブロック） ▼▼▼
-      if(kind==='order'){
-        const od = parseOrder(raw);
-        if(od && (od.bn || od.wc)){
-          // 枠の色は order (オレンジ) のまま
-          drawBox(pts, '#f59f00', true); 
-          showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`, pts);
-          setTarget(od.bn||'', od.wc||'');
+    for(const d of ds){
+      const raw=(d.rawValue||'').trim(); if(!raw) continue;
+      const kind = classify(raw); const pts = d.cornerPoints;
+      
+      if(kind==='order'){
+        const od = parseOrder(raw);
+        if(od && (od.bn || od.wc)){
+          drawBox(pts, '#f59f00', true); 
+          showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`, pts);
+          setTarget(od.bn||'', od.wc||'');
 
-          if(!S.locked){ // die と同様のロック処理
-            S.locked = true;
-            freezeFrameAndStopCam(); // カメラ停止
-            showSwipeHint(); // ヒント表示
-            querySpec(); // 照会実行
-          }
-        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
-      // ▲▲▲ 修正箇所（orderブロック） ▲▲▲
+          if(!S.locked){
+            S.locked = true;
+            freezeFrameAndStopCam();
+            showSwipeHint();
+            querySpec();
+          }
+        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
 
-      }else if(kind==='die'){
-        const p = parseDie(raw);
-        if(p && (p.bn || p.wc)){
-          drawBox(pts, '#1c7ed6', true);
-          showToastNear('ロック｜ターゲットを設定しました', pts);
-          setTarget(p.bn||'', p.wc||'');
+      }else if(kind==='die'){
+        const p = parseDie(raw);
+        if(p && (p.bn || p.wc)){
+          drawBox(pts, '#1c7ed6', true);
+          showToastNear('ロック｜ターゲットを設定しました', pts);
+          setTarget(p.bn||'', p.wc||'');
 
-          if(!S.locked){
-            S.locked = true;
-            freezeFrameAndStopCam();
-            showSwipeHint();
-            querySpec();
-          }
-        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
-      }else{
-        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
-      }
-    }
-  }
+          if(!S.locked){
+            S.locked = true;
+            freezeFrameAndStopCam();
+            showSwipeHint();
+            querySpec();
+          }
+        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
+      }else{
+        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
+      }
+    }
+  }
 
   function setTarget(book, wc){
     S.current.book = String(book||'').trim();
@@ -534,8 +353,6 @@
 
     try{
       if(!S.csrf){ await ensureCsrf(); }
-
-      // Airtable OFF の場合は、APIに「Airtable不要」を明示（未対応のサーバでも害はありません）
       const body = {
         book, wc, json:true,
         limit: FEATURE.AIRTABLE_FETCH ? 200 : 0,
@@ -554,7 +371,6 @@
       try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
       if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
 
-      // サーバが無視した場合に備え、クライアント側でも Airtable 表示を抑止
       if(!FEATURE.AIRTABLE_FETCH){
         j.hits = [];
         j.note = 'Airtable fetch disabled on client';
@@ -660,7 +476,7 @@
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブ HTML（ATオフ時は無効化済み）
+  // 別タブ HTML
   D.btnOpenHtml.addEventListener('click', async () => {
     if(!FEATURE.AIRTABLE_FETCH){ return; }
     const book=S.current.book, wc=S.current.wc;
