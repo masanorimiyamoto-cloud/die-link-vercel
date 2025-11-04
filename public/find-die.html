@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>抜型ファインダー QR_Manual</title>
+  <title>抜型ファインダー QR_Manual（高解像度対応）</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root {
@@ -138,6 +138,70 @@
       0% { top: 0; }
       100% { top: 100%; }
     }
+
+    /* 高解像度制御UI */
+    .advanced-controls {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid var(--bd);
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .control-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--sub);
+    }
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .zoom-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--bd);
+      background: #fff;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .zoom-level {
+      font-size: 12px;
+      font-weight: 600;
+      min-width: 35px;
+      text-align: center;
+    }
+    .zoom-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    select.small {
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+    .performance-warning {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      color: #856404;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -147,11 +211,39 @@
         <video id="video" playsinline muted></video>
         <canvas id="overlay"></canvas>
       </div>
+      
       <div class="controls">
         <span id="scanStatus" class="badge">待機中</span>
         <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></label>
         <span id="detectorInfo" class="badge"></span>
+        <span id="resolutionInfo" class="badge">標準モード</span>
       </div>
+
+      <!-- 高解像度制御パネル -->
+      <div class="advanced-controls" id="advancedControls" style="display: none;">
+        <div class="control-group">
+          <span class="control-label">解像度:</span>
+          <select id="resolutionSelect" class="small">
+            <option value="720p">標準(720p)</option>
+            <option value="1080p">高画質(1080p)</option>
+            <option value="4k">超高画質(4K)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <span class="control-label">ズーム:</span>
+          <div class="zoom-controls">
+            <button id="btnZoomOut" class="zoom-btn">－</button>
+            <span id="zoomLevel" class="zoom-level">1.0x</span>
+            <button id="btnZoomIn" class="zoom-btn">＋</button>
+          </div>
+        </div>
+        <button id="btnToggleAdvanced" class="small" style="font-size:11px; padding:4px 8px;">基本モード</button>
+      </div>
+
+      <div id="performanceWarning" class="performance-warning" style="display: none;">
+        ⚠️ 処理が遅いため解像度を自動調整しました
+      </div>
+
       <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
     </div>
 
@@ -172,6 +264,7 @@
           <button id="btnStart" class="primary">カメラ開始</button>
           <button id="btnStop" disabled>停止</button>
           <button id="btnHistory">スキャン履歴</button>
+          <button id="btnToggleAdvancedUI" style="font-size:12px; padding:6px 10px;">高画質モード</button>
         </div>
         <div class="legend">
           <span class="chip ok">一致(型)</span>
@@ -206,9 +299,11 @@
       <div class="card">
         <h4>💡 ヒント</h4>
         <div class="muted" style="font-size:13px;">
-          ・URLパラメータ <code>?book=...&wc=...&loc=...</code> で探す抜型と棚を指定します。<br>
-          ・ターゲットと一致したQRは<strong style="color:var(--ok)">青枠</strong>と音と振動でお知らせします。<br>
-          ・目的の棚と一致したQRは<strong style="color:var(--loc)">緑枠</strong>でお知らせします。
+          ・<b>標準モード</b>: 近距離のQRコードに最適（高速）<br>
+          ・<b>高画質モード</b>: 遠距離/小さいQRコードに最適<br>
+          ・URLパラメータ <code>?book=...&wc=...&loc=...</code> で指定<br>
+          ・ターゲット一致: <strong style="color:var(--ok)">青枠</strong> + 音 + 振動<br>
+          ・棚一致: <strong style="color:var(--loc)">緑枠</strong>
         </div>
       </div>
     </div>
@@ -240,6 +335,7 @@
       currentShelf: document.getElementById('currentShelf'),
       scanStatus: document.getElementById('scanStatus'),
       detectorInfo: document.getElementById('detectorInfo'),
+      resolutionInfo: document.getElementById('resolutionInfo'),
       error: document.getElementById('error'),
       fileTest: document.getElementById('fileTest'),
       historyModal: document.getElementById('historyModal'),
@@ -248,6 +344,15 @@
       inBook: document.getElementById('inBook'),
       inWc: document.getElementById('inWc'),
       btnSetTarget: document.getElementById('btnSetTarget'),
+      // 高解像度制御
+      advancedControls: document.getElementById('advancedControls'),
+      resolutionSelect: document.getElementById('resolutionSelect'),
+      btnZoomIn: document.getElementById('btnZoomIn'),
+      btnZoomOut: document.getElementById('btnZoomOut'),
+      zoomLevel: document.getElementById('zoomLevel'),
+      btnToggleAdvanced: document.getElementById('btnToggleAdvanced'),
+      btnToggleAdvancedUI: document.getElementById('btnToggleAdvancedUI'),
+      performanceWarning: document.getElementById('performanceWarning')
     };
 
     const overlayCtx = DOM.overlay.getContext('2d', { willReadFrequently: true });
@@ -265,10 +370,159 @@
       scanHistory: new Map(),
       __lastOrderKey: '',
       __orderSetAt: 0,
-      csrf: ''
+      csrf: '',
+      // 高解像度設定
+      advancedMode: false,
+      currentResolution: '720p',
+      zoom: {
+        level: 1.0,
+        maxZoom: 3.0,
+        minZoom: 1.0,
+        step: 0.5
+      },
+      performance: {
+        lastDetectionTime: 0,
+        slowDetectionCount: 0,
+        autoDowngraded: false
+      }
     };
 
-    /* ====== CSRF ====== */
+    /* ====== 高解像度制御機能 ====== */
+    const RESOLUTIONS = {
+      '720p': { width: 1280, height: 720, label: '標準(720p)' },
+      '1080p': { width: 1920, height: 1080, label: '高画質(1080p)' },
+      '4k': { width: 3840, height: 2160, label: '超高画質(4K)' }
+    };
+
+    // 端末性能検出
+    function detectDeviceCapability() {
+      const cores = navigator.hardwareConcurrency || 4;
+      const memory = performance.memory ? performance.memory.jsHeapSizeLimit : 0;
+      const hasGoodCPU = cores >= 4;
+      const hasEnoughMemory = memory === 0 || memory > 1000000000; // 1GB以上
+      
+      return {
+        capable: hasGoodCPU && hasEnoughMemory,
+        cores: cores,
+        memory: memory
+      };
+    }
+
+    // 高解像度モード切り替え
+    function toggleAdvancedMode() {
+      state.advancedMode = !state.advancedMode;
+      
+      if (state.advancedMode) {
+        DOM.advancedControls.style.display = 'flex';
+        DOM.btnToggleAdvancedUI.textContent = '標準モード';
+        DOM.btnToggleAdvanced.textContent = '基本モード';
+        showToastNearBox('高画質モード有効', [{x:100, y:100}, {x:150, y:100}]);
+      } else {
+        DOM.advancedControls.style.display = 'none';
+        DOM.btnToggleAdvancedUI.textContent = '高画質モード';
+        // 解像度を標準に戻す
+        if (state.currentResolution !== '720p') {
+          changeResolution('720p');
+        }
+      }
+    }
+
+    // 解像度変更
+    async function changeResolution(resolution) {
+      if (state.currentResolution === resolution) return;
+      
+      const wasRunning = state.stream !== null;
+      if (wasRunning) {
+        stopCam();
+        DOM.scanStatus.textContent = `解像度変更中... (${RESOLUTIONS[resolution].label})`;
+      }
+
+      state.currentResolution = resolution;
+      DOM.resolutionInfo.textContent = RESOLUTIONS[resolution].label;
+
+      if (wasRunning) {
+        await startCam();
+      }
+    }
+
+    // ズーム制御
+    function setupZoomControls() {
+      DOM.btnZoomIn.addEventListener('click', zoomIn);
+      DOM.btnZoomOut.addEventListener('click', zoomOut);
+      updateZoomDisplay();
+    }
+
+    function zoomIn() {
+      if (state.zoom.level < state.zoom.maxZoom) {
+        state.zoom.level += state.zoom.step;
+        applyZoom();
+      }
+    }
+
+    function zoomOut() {
+      if (state.zoom.level > state.zoom.minZoom) {
+        state.zoom.level -= state.zoom.step;
+        applyZoom();
+      }
+    }
+
+    function applyZoom() {
+      if (state.stream && state.advancedMode) {
+        const track = state.stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities();
+        
+        if (capabilities.zoom) {
+          const zoom = Math.min(state.zoom.level, capabilities.zoom.max);
+          track.applyConstraints({
+            advanced: [{ zoom: zoom }]
+          }).catch(console.warn);
+        }
+      }
+      updateZoomDisplay();
+    }
+
+    function updateZoomDisplay() {
+      DOM.zoomLevel.textContent = state.zoom.level.toFixed(1) + 'x';
+      DOM.btnZoomIn.disabled = state.zoom.level >= state.zoom.maxZoom;
+      DOM.btnZoomOut.disabled = state.zoom.level <= state.zoom.minZoom;
+    }
+
+    // パフォーマンス監視
+    function monitorPerformance(detectionTime) {
+      state.performance.lastDetectionTime = detectionTime;
+      
+      // 処理が遅すぎる場合
+      if (detectionTime > 300) { // 300ms以上
+        state.performance.slowDetectionCount++;
+        
+        if (state.performance.slowDetectionCount >= 3 && !state.performance.autoDowngraded) {
+          // 自動的に解像度を下げる
+          autoDowngradeResolution();
+        }
+      } else {
+        state.performance.slowDetectionCount = Math.max(0, state.performance.slowDetectionCount - 1);
+      }
+    }
+
+    function autoDowngradeResolution() {
+      const resolutions = ['4k', '1080p', '720p'];
+      const currentIndex = resolutions.indexOf(state.currentResolution);
+      
+      if (currentIndex > 0) {
+        const newResolution = resolutions[currentIndex - 1];
+        state.performance.autoDowngraded = true;
+        DOM.performanceWarning.style.display = 'block';
+        DOM.performanceWarning.textContent = `⚠️ 処理が遅いため解像度を${RESOLUTIONS[newResolution].label}に自動調整しました`;
+        
+        setTimeout(() => {
+          DOM.performanceWarning.style.display = 'none';
+        }, 5000);
+        
+        changeResolution(newResolution);
+      }
+    }
+
+    /* ====== 既存の機能（変更なし） ====== */
     const isLocal = () => location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
     const readCookie = (name) => {
       const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&')+'=([^;]*)'));
@@ -366,7 +620,6 @@
       speakAfterReady(u);
     }
 
-    // ★棚スキャンガイドを1箇所にまとめる
     function promptScanShelf() {
       if (state.currentShelf) {
         speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`, { cooldown: 2500 });
@@ -391,8 +644,8 @@
       holdDuration: 3000,
       lockCooldown: 700,
       orderResetCooldownMs: 2000,
-      scopeSize: 200,   // ガイドスコープのCSSサイズ (正方形)
-      scopeAllowance: 12 // 少しはみ出してもOKにするマージン(px相当)
+      scopeSize: 200,
+      scopeAllowance: 12
     };
 
     const confirmationBeep = (() => {
@@ -527,7 +780,6 @@
           DOM.currentShelf.textContent = loc;
           DOM.currentShelf.className = 'chip loc';
           success = true;
-          // ★ここでガイドのセリフ
           promptScanShelf();
         } else {
           DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
@@ -556,7 +808,6 @@
           state.currentShelf = loc2;
           DOM.currentShelf.textContent = loc2;
           DOM.currentShelf.className = 'chip loc';
-          // ★ここでも
           promptScanShelf();
         } else {
           DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
@@ -635,27 +886,75 @@
       console.error(e);
       DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
     }
+
+    /* === カメラ起動（高解像度対応） === */
     async function startCam() {
       stopCam();
       DOM.error.textContent = "";
+      
       try {
-        state.stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        const resolution = RESOLUTIONS[state.currentResolution];
+        const constraints = {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: resolution.width },
+            height: { ideal: resolution.height },
+            frameRate: { ideal: 30 }
+          },
           audio: false
-        });
+        };
+
+        // 高解像度が利用可能かチェック
+        const deviceCapability = detectDeviceCapability();
+        if (!deviceCapability.capable && state.currentResolution !== '720p') {
+          console.warn('端末性能不足のため標準解像度にフォールバック');
+          state.currentResolution = '720p';
+          DOM.resolutionInfo.textContent = '標準モード(自動)';
+        }
+
+        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
+        
+        // 解像度情報表示
+        const settings = state.stream.getVideoTracks()[0].getSettings();
+        console.log(`カメラ解像度: ${settings.width}x${settings.height}`);
+        
         DOM.btnStart.disabled = true;
         DOM.btnStop.disabled = false;
+        
         if (state.useBarcodeDetector) {
           try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
           catch { state.useBarcodeDetector = false; state.detector = null; }
         }
-        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
+        
+        DOM.detectorInfo.textContent = state.useBarcodeDetector ? 
+          `BarcodeDetector (${settings.width}x${settings.height})` : 
+          `jsQR (${settings.width}x${settings.height})`;
+        
         fitOverlay();
         addTargetScope();
+        
+        // 高解像度モードの場合はズームを有効化
+        if (state.advancedMode) {
+          applyZoom();
+        }
+        
         tick();
-      } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
+        
+      } catch (e) {
+        console.error('カメラ起動失敗:', e);
+        // フォールバック: 標準解像度で再試行
+        if (state.currentResolution !== '720p') {
+          console.log('標準解像度で再試行します');
+          state.currentResolution = '720p';
+          DOM.resolutionInfo.textContent = '標準モード(自動)';
+          await startCam();
+        } else {
+          showError(e);
+          updateStatus("カメラエラー", "ng");
+        }
+      }
     }
 
     /* === 検出 === */
@@ -706,20 +1005,16 @@
       return Array.from(allDetections.values());
     }
 
-    // ★ガイドスコープ内かどうか判定する
     function isDetectionInScope(cornerPoints) {
       if (!cornerPoints || cornerPoints.length < 4) return false;
-      // DOM上のサイズ
       const stackW = DOM.stack.clientWidth;
       const stackH = DOM.stack.clientHeight;
-      if (!stackW || !stackH) return true; // 保険
+      if (!stackW || !stackH) return true;
 
-      // ガイドは中央200x200（CSS）
       const scopeCssSize = CONFIG.scopeSize;
       const scopeCssX = (stackW / 2) - (scopeCssSize / 2);
       const scopeCssY = (stackH / 2) - (scopeCssSize / 2);
 
-      // overlay(=video)座標へスケール
       const scaleX = DOM.overlay.width / stackW;
       const scaleY = DOM.overlay.height / stackH;
 
@@ -731,7 +1026,6 @@
       const marginX = CONFIG.scopeAllowance * scaleX;
       const marginY = CONFIG.scopeAllowance * scaleY;
 
-      // 4点すべてがスコープ＋マージン内にあるか
       for (const pt of cornerPoints) {
         if (pt.x < scopeX - marginX) return false;
         if (pt.x > scopeX + scopeW + marginX) return false;
@@ -769,10 +1063,9 @@
 
         const pts = d.cornerPoints;
 
-        // ★ガイド外なら「見えてるけど無視」
+        // ガイド外なら「見えてるけど無視」
         const inScope = isDetectionInScope(pts);
         if (!inScope) {
-          // 薄く表示するだけ
           drawBox(pts, CONFIG.colors.ng, "ガイド外", 'dashed', 0.3);
           continue;
         }
@@ -850,12 +1143,9 @@
               showToastNearBox("ターゲット更新", pts);
               speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。抜型のQRをスキャンして下さい`, { cooldown: 2500 });
 
-              // ★locationがまだなら取る
               if (!state.currentShelf) {
                 fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
-                // 取れたら fetchShelfFromGSheet 側でしゃべる
               } else {
-                // もうあるならここでしゃべる
                 promptScanShelf();
               }
 
@@ -892,137 +1182,25 @@
       }
     }
 
-    // initialize関数を修正
-    function initialize() {
-      const params = new URLSearchParams(location.search);
-      state.currentTarget = {
-        book: (params.get("book") || "").trim(),
-        wc: (params.get("wc") || "").trim(),
-        wn: (params.get("wn") || "").trim()
-      };
-
-      if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_plain）/手入力で指定してください。";
-        DOM.btnStart.disabled = false;
-      } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
-        
-        // ★追加: URLパラメータでターゲットが指定されている場合は自動でカメラ起動
-        setTimeout(() => {
-          initTTS();
-          unlockTTS();
-          startCam();
-        }, 500);
-      }
-
-      const locParam = (params.get("loc") || "").trim();
-      if (locParam) {
-        state.currentShelf = locParam;
-        DOM.currentShelf.textContent = state.currentShelf;
-        DOM.currentShelf.className = "chip loc";
-        promptScanShelf();
-      } else {
-        if (state.currentTarget.book && state.currentTarget.wc) {
-          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
-        }
-      }
-
-      // 手入力側に初期値反映
-      if (DOM.inBook && state.currentTarget.book) {
-        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
-        if (opt) DOM.inBook.value = opt.value;
-      }
-      if (DOM.inWc && state.currentTarget.wc) {
-        DOM.inWc.value = state.currentTarget.wc;
-      }
-
-      addTargetScope();
-    }
-
-    // startCam関数を修正（tick()の呼び出しを確実にする）
-    async function startCam() {
-      stopCam();
-      DOM.error.textContent = "";
-      try {
-        state.stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false
-        });
-        DOM.video.srcObject = state.stream;
-        
-        // ビデオの読み込みを待つ
-        await new Promise((resolve, reject) => {
-          DOM.video.onloadedmetadata = resolve;
-          DOM.video.onerror = reject;
-          setTimeout(resolve, 1000); // タイムアウト保険
-        });
-        
-        await DOM.video.play();
-        DOM.btnStart.disabled = true;
-        DOM.btnStop.disabled = false;
-        
-        if (state.useBarcodeDetector) {
-          try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
-          catch { state.useBarcodeDetector = false; state.detector = null; }
-        }
-        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
-        
-        fitOverlay();
-        addTargetScope();
-        
-        // ★重要: tick()を確実に開始
-        if (!state.rafId) {
-          tick();
-        }
-        
-      } catch (e) { 
-        showError(e); 
-        updateStatus("カメラエラー", "ng");
-      }
-    }
-
-    // tick関数にエラーハンドリングを追加
     async function tick() {
       if (!state.stream) return;
-      
-      try {
-        if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
-          fitOverlay();
-          const detections = await detectCombined();
-          applyDetections(detections);
-        }
-      } catch (error) {
-        console.error('Tick error:', error);
-        // エラーが発生しても処理を継続
+      if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
+        fitOverlay();
+        const startTime = performance.now();
+        const detections = await detectCombined();
+        const detectionTime = performance.now() - startTime;
+        
+        // パフォーマンス監視
+        monitorPerformance(detectionTime);
+        
+        applyDetections(detections);
       }
-      
-      // 次のフレームをリクエスト（常に継続）
       state.rafId = requestAnimationFrame(tick);
     }
 
-    // stopCam関数も修正
-    function stopCam() {
-      if (state.rafId) {
-        cancelAnimationFrame(state.rafId);
-        state.rafId = null;
-      }
-      if (state.stream) {
-        state.stream.getTracks().forEach(t => t.stop());
-        state.stream = null;
-      }
-      DOM.btnStart.disabled = false;
-      DOM.btnStop.disabled = true;
-      updateStatus("停止中");
-      
-      // オーバーレイをクリア
-      if (overlayCtx) {
-        overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
-      }
+    function updateStatus(text, type = 'info') {
+      DOM.scanStatus.textContent = text;
+      DOM.scanStatus.className = `badge chip ${type}`;
     }
 
     function showHistoryModal() {
@@ -1072,9 +1250,7 @@
 
       if (!state.currentShelf) {
         fetchShelfFromGSheet(book, wc);
-        // 取得できたら fetchShelfFromGSheet 側でしゃべる
       } else {
-        // 既にあるならここでしゃべる
         promptScanShelf();
       }
     }
@@ -1099,7 +1275,57 @@
       DOM.stack.appendChild(scope);
     }
 
-    
+    function initialize() {
+      const params = new URLSearchParams(location.search);
+      state.currentTarget = {
+        book: (params.get("book") || "").trim(),
+        wc: (params.get("wc") || "").trim(),
+        wn: (params.get("wn") || "").trim()
+      };
+
+      if (!state.currentTarget.book || !state.currentTarget.wc) {
+        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_plain）/手入力で指定してください。";
+        DOM.btnStart.disabled = false;
+      } else {
+        DOM.tgtBN.textContent = state.currentTarget.book;
+        DOM.tgtWC.textContent = state.currentTarget.wc;
+        DOM.tgtWN.textContent = state.currentTarget.wn;
+        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+        updateStatus("準備完了");
+      }
+
+      const locParam = (params.get("loc") || "").trim();
+      if (locParam) {
+        state.currentShelf = locParam;
+        DOM.currentShelf.textContent = state.currentShelf;
+        DOM.currentShelf.className = "chip loc";
+        promptScanShelf();
+      } else {
+        if (state.currentTarget.book && state.currentTarget.wc) {
+          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+        }
+      }
+
+      // 手入力側に初期値反映
+      if (DOM.inBook && state.currentTarget.book) {
+        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
+        if (opt) DOM.inBook.value = opt.value;
+      }
+      if (DOM.inWc && state.currentTarget.wc) {
+        DOM.inWc.value = state.currentTarget.wc;
+      }
+
+      // 高解像度制御の初期化
+      setupZoomControls();
+      DOM.resolutionSelect.addEventListener('change', (e) => {
+        changeResolution(e.target.value);
+      });
+      DOM.btnToggleAdvanced.addEventListener('click', toggleAdvancedMode);
+      DOM.btnToggleAdvancedUI.addEventListener('click', toggleAdvancedMode);
+
+      addTargetScope();
+    }
 
     // イベント
     DOM.btnStart.addEventListener("click", () => {
