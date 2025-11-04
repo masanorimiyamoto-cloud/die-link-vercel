@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>抜型ファインダー FromAir_QR_Manual</title>
+  <title>抜型ファインダー QR_Manual</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root {
@@ -635,48 +635,28 @@
       console.error(e);
       DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
     }
-    
-    /* 追加：UAで簡易Android判定 */
-    const IS_ANDROID = /Android/i.test(navigator.userAgent);
-
-    /* 置き換え：startCam 内の getUserMedia 部分＆BarcodeDetector 初期化 */
     async function startCam() {
       stopCam();
       DOM.error.textContent = "";
       try {
-        const constraints = {
-          video: {
-            facingMode: { ideal: "environment" },
-            width:  IS_ANDROID ? { ideal: 1280, max: 1280 } : { ideal: 1280 },
-            height: IS_ANDROID ? { ideal: 720,  max: 720  } : { ideal: 720  },
-            frameRate: IS_ANDROID ? { ideal: 24, max: 30 } : { ideal: 30 },
-            advanced: [{ focusMode: "continuous" }]
-          },
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false
-        };
-
-        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+        });
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
         DOM.btnStart.disabled = true;
-        DOM.btnStop.disabled  = true === false; // そのまま
-
-        // AndroidではBarcodeDetectorを無効化（jsQRのみ使用）
-        state.useBarcodeDetector = (!IS_ANDROID) && ('BarcodeDetector' in window);
-
+        DOM.btnStop.disabled = false;
         if (state.useBarcodeDetector) {
           try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
           catch { state.useBarcodeDetector = false; state.detector = null; }
         }
-
         DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
         fitOverlay();
         addTargetScope();
         tick();
       } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
     }
-    
-
 
     /* === 検出 === */
     async function detectCombined() {
@@ -727,34 +707,29 @@
     }
 
     // ★ガイドスコープ内かどうか判定する
-    /* 置き換え：isDetectionInScope を全文差し替え */
     function isDetectionInScope(cornerPoints) {
       if (!cornerPoints || cornerPoints.length < 4) return false;
+      // DOM上のサイズ
+      const stackW = DOM.stack.clientWidth;
+      const stackH = DOM.stack.clientHeight;
+      if (!stackW || !stackH) return true; // 保険
 
-      // overlay(=video画素座標)のサイズ
-      const ovw = DOM.overlay.width;
-      const ovh = DOM.overlay.height;
-      if (!ovw || !ovh) return true; // 保険
+      // ガイドは中央200x200（CSS）
+      const scopeCssSize = CONFIG.scopeSize;
+      const scopeCssX = (stackW / 2) - (scopeCssSize / 2);
+      const scopeCssY = (stackH / 2) - (scopeCssSize / 2);
 
-      // ガイドDOMの見かけの矩形（CSSピクセル）
-      const scopeEl = document.querySelector('.target-scope');
-      const ovRect  = DOM.overlay.getBoundingClientRect();
-      const scRect  = scopeEl?.getBoundingClientRect();
-      if (!scopeEl || !ovRect.width || !ovRect.height || !scRect) return true;
+      // overlay(=video)座標へスケール
+      const scaleX = DOM.overlay.width / stackW;
+      const scaleY = DOM.overlay.height / stackH;
 
-      // CSSピクセル → overlay座標へのスケール
-      const scaleX = ovw / ovRect.width;
-      const scaleY = ovh / ovRect.height;
+      const scopeX = scopeCssX * scaleX;
+      const scopeY = scopeCssY * scaleY;
+      const scopeW = scopeCssSize * scaleX;
+      const scopeH = scopeCssSize * scaleY;
 
-      // スコープ矩形（overlay座標系）
-      const scopeX = (scRect.left   - ovRect.left) * scaleX;
-      const scopeY = (scRect.top    - ovRect.top ) * scaleY;
-      const scopeW = (scRect.width)               * scaleX;
-      const scopeH = (scRect.height)              * scaleY;
-
-      // 少し緩めるマージン
-      const marginX = 16 * scaleX;
-      const marginY = 16 * scaleY;
+      const marginX = CONFIG.scopeAllowance * scaleX;
+      const marginY = CONFIG.scopeAllowance * scaleY;
 
       // 4点すべてがスコープ＋マージン内にあるか
       for (const pt of cornerPoints) {
@@ -871,9 +846,9 @@
               DOM.tgtWC.textContent = state.currentTarget.wc || "-";
               DOM.tgtWN.textContent = "";
 
-              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました");
+              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました　抜型のQRをスキャンしてください");
               showToastNearBox("ターゲット更新", pts);
-              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。抜型のQRをスキャンしてください`, { cooldown: 2500 });
+              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。抜型のQRをスキャンして下さい`, { cooldown: 2500 });
 
               // ★locationがまだなら取る
               if (!state.currentShelf) {
@@ -917,19 +892,137 @@
       }
     }
 
+    // initialize関数を修正
+    function initialize() {
+      const params = new URLSearchParams(location.search);
+      state.currentTarget = {
+        book: (params.get("book") || "").trim(),
+        wc: (params.get("wc") || "").trim(),
+        wn: (params.get("wn") || "").trim()
+      };
+
+      if (!state.currentTarget.book || !state.currentTarget.wc) {
+        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
+        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_plain）/手入力で指定してください。";
+        DOM.btnStart.disabled = false;
+      } else {
+        DOM.tgtBN.textContent = state.currentTarget.book;
+        DOM.tgtWC.textContent = state.currentTarget.wc;
+        DOM.tgtWN.textContent = state.currentTarget.wn;
+        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+        updateStatus("準備完了");
+        
+        // ★追加: URLパラメータでターゲットが指定されている場合は自動でカメラ起動
+        setTimeout(() => {
+          initTTS();
+          unlockTTS();
+          startCam();
+        }, 500);
+      }
+
+      const locParam = (params.get("loc") || "").trim();
+      if (locParam) {
+        state.currentShelf = locParam;
+        DOM.currentShelf.textContent = state.currentShelf;
+        DOM.currentShelf.className = "chip loc";
+        promptScanShelf();
+      } else {
+        if (state.currentTarget.book && state.currentTarget.wc) {
+          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
+        }
+      }
+
+      // 手入力側に初期値反映
+      if (DOM.inBook && state.currentTarget.book) {
+        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
+        if (opt) DOM.inBook.value = opt.value;
+      }
+      if (DOM.inWc && state.currentTarget.wc) {
+        DOM.inWc.value = state.currentTarget.wc;
+      }
+
+      addTargetScope();
+    }
+
+    // startCam関数を修正（tick()の呼び出しを確実にする）
+    async function startCam() {
+      stopCam();
+      DOM.error.textContent = "";
+      try {
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        DOM.video.srcObject = state.stream;
+        
+        // ビデオの読み込みを待つ
+        await new Promise((resolve, reject) => {
+          DOM.video.onloadedmetadata = resolve;
+          DOM.video.onerror = reject;
+          setTimeout(resolve, 1000); // タイムアウト保険
+        });
+        
+        await DOM.video.play();
+        DOM.btnStart.disabled = true;
+        DOM.btnStop.disabled = false;
+        
+        if (state.useBarcodeDetector) {
+          try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
+          catch { state.useBarcodeDetector = false; state.detector = null; }
+        }
+        DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
+        
+        fitOverlay();
+        addTargetScope();
+        
+        // ★重要: tick()を確実に開始
+        if (!state.rafId) {
+          tick();
+        }
+        
+      } catch (e) { 
+        showError(e); 
+        updateStatus("カメラエラー", "ng");
+      }
+    }
+
+    // tick関数にエラーハンドリングを追加
     async function tick() {
       if (!state.stream) return;
-      if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
-        fitOverlay();
-        const detections = await detectCombined();
-        applyDetections(detections);
+      
+      try {
+        if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
+          fitOverlay();
+          const detections = await detectCombined();
+          applyDetections(detections);
+        }
+      } catch (error) {
+        console.error('Tick error:', error);
+        // エラーが発生しても処理を継続
       }
+      
+      // 次のフレームをリクエスト（常に継続）
       state.rafId = requestAnimationFrame(tick);
     }
 
-    function updateStatus(text, type = 'info') {
-      DOM.scanStatus.textContent = text;
-      DOM.scanStatus.className = `badge chip ${type}`;
+    // stopCam関数も修正
+    function stopCam() {
+      if (state.rafId) {
+        cancelAnimationFrame(state.rafId);
+        state.rafId = null;
+      }
+      if (state.stream) {
+        state.stream.getTracks().forEach(t => t.stop());
+        state.stream = null;
+      }
+      DOM.btnStart.disabled = false;
+      DOM.btnStop.disabled = true;
+      updateStatus("停止中");
+      
+      // オーバーレイをクリア
+      if (overlayCtx) {
+        overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
+      }
     }
 
     function showHistoryModal() {
@@ -975,7 +1068,7 @@
 
       updateStatus('ターゲット設定', 'ok');
       showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
-      speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。抜型のQRをスキャンしてください`);
+      speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　抜型のQRをスキャンしてください`);
 
       if (!state.currentShelf) {
         fetchShelfFromGSheet(book, wc);
@@ -1006,50 +1099,7 @@
       DOM.stack.appendChild(scope);
     }
 
-    function initialize() {
-      const params = new URLSearchParams(location.search);
-      state.currentTarget = {
-        book: (params.get("book") || "").trim(),
-        wc: (params.get("wc") || "").trim(),
-        wn: (params.get("wn") || "").trim()
-      };
-
-      if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_plain）/手入力で指定してください。";
-        DOM.btnStart.disabled = false;
-      } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
-      }
-
-      const locParam = (params.get("loc") || "").trim();
-      if (locParam) {
-        state.currentShelf = locParam;
-        DOM.currentShelf.textContent = state.currentShelf;
-        DOM.currentShelf.className = "chip loc";
-        // ★URLでわかっているときもしゃべる
-        promptScanShelf();
-      } else {
-        if (state.currentTarget.book && state.currentTarget.wc) {
-          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
-        }
-      }
-
-      // 手入力側に初期値反映
-      if (DOM.inBook && state.currentTarget.book) {
-        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
-        if (opt) DOM.inBook.value = opt.value;
-      }
-      if (DOM.inWc && state.currentTarget.wc) {
-        DOM.inWc.value = state.currentTarget.wc;
-      }
-
-      addTargetScope();
-    }
+    
 
     // イベント
     DOM.btnStart.addEventListener("click", () => {
