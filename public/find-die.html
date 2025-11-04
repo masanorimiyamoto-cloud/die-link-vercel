@@ -635,28 +635,48 @@
       console.error(e);
       DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
     }
+    
+    /* 追加：UAで簡易Android判定 */
+    const IS_ANDROID = /Android/i.test(navigator.userAgent);
+
+    /* 置き換え：startCam 内の getUserMedia 部分＆BarcodeDetector 初期化 */
     async function startCam() {
       stopCam();
       DOM.error.textContent = "";
       try {
-        state.stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        const constraints = {
+          video: {
+            facingMode: { ideal: "environment" },
+            width:  IS_ANDROID ? { ideal: 1280, max: 1280 } : { ideal: 1280 },
+            height: IS_ANDROID ? { ideal: 720,  max: 720  } : { ideal: 720  },
+            frameRate: IS_ANDROID ? { ideal: 24, max: 30 } : { ideal: 30 },
+            advanced: [{ focusMode: "continuous" }]
+          },
           audio: false
-        });
+        };
+
+        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
         DOM.btnStart.disabled = true;
-        DOM.btnStop.disabled = false;
+        DOM.btnStop.disabled  = true === false; // そのまま
+
+        // AndroidではBarcodeDetectorを無効化（jsQRのみ使用）
+        state.useBarcodeDetector = (!IS_ANDROID) && ('BarcodeDetector' in window);
+
         if (state.useBarcodeDetector) {
           try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
           catch { state.useBarcodeDetector = false; state.detector = null; }
         }
+
         DOM.detectorInfo.textContent = state.useBarcodeDetector ? "BarcodeDetector" : "jsQR";
         fitOverlay();
         addTargetScope();
         tick();
       } catch (e) { showError(e); updateStatus("カメラエラー", "ng"); }
     }
+    
+
 
     /* === 検出 === */
     async function detectCombined() {
@@ -707,29 +727,34 @@
     }
 
     // ★ガイドスコープ内かどうか判定する
+    /* 置き換え：isDetectionInScope を全文差し替え */
     function isDetectionInScope(cornerPoints) {
       if (!cornerPoints || cornerPoints.length < 4) return false;
-      // DOM上のサイズ
-      const stackW = DOM.stack.clientWidth;
-      const stackH = DOM.stack.clientHeight;
-      if (!stackW || !stackH) return true; // 保険
 
-      // ガイドは中央200x200（CSS）
-      const scopeCssSize = CONFIG.scopeSize;
-      const scopeCssX = (stackW / 2) - (scopeCssSize / 2);
-      const scopeCssY = (stackH / 2) - (scopeCssSize / 2);
+      // overlay(=video画素座標)のサイズ
+      const ovw = DOM.overlay.width;
+      const ovh = DOM.overlay.height;
+      if (!ovw || !ovh) return true; // 保険
 
-      // overlay(=video)座標へスケール
-      const scaleX = DOM.overlay.width / stackW;
-      const scaleY = DOM.overlay.height / stackH;
+      // ガイドDOMの見かけの矩形（CSSピクセル）
+      const scopeEl = document.querySelector('.target-scope');
+      const ovRect  = DOM.overlay.getBoundingClientRect();
+      const scRect  = scopeEl?.getBoundingClientRect();
+      if (!scopeEl || !ovRect.width || !ovRect.height || !scRect) return true;
 
-      const scopeX = scopeCssX * scaleX;
-      const scopeY = scopeCssY * scaleY;
-      const scopeW = scopeCssSize * scaleX;
-      const scopeH = scopeCssSize * scaleY;
+      // CSSピクセル → overlay座標へのスケール
+      const scaleX = ovw / ovRect.width;
+      const scaleY = ovh / ovRect.height;
 
-      const marginX = CONFIG.scopeAllowance * scaleX;
-      const marginY = CONFIG.scopeAllowance * scaleY;
+      // スコープ矩形（overlay座標系）
+      const scopeX = (scRect.left   - ovRect.left) * scaleX;
+      const scopeY = (scRect.top    - ovRect.top ) * scaleY;
+      const scopeW = (scRect.width)               * scaleX;
+      const scopeH = (scRect.height)              * scaleY;
+
+      // 少し緩めるマージン
+      const marginX = 16 * scaleX;
+      const marginY = 16 * scaleY;
 
       // 4点すべてがスコープ＋マージン内にあるか
       for (const pt of cornerPoints) {
