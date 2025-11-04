@@ -372,8 +372,8 @@
       __orderSetAt: 0,
       csrf: '',
       // 高解像度設定
-      advancedMode: false,
-      currentResolution: '720p',
+      advancedMode: true,
+      currentResolution: '1080p',
       zoom: {
         level: 1.0,
         maxZoom: 3.0,
@@ -389,11 +389,10 @@
 
     /* ====== 高解像度制御機能 ====== */
     const RESOLUTIONS = {
-      '720p': { width: 1280, height: 720, label: '標準(720p)' },
-      '1080p': { width: 1920, height: 1080, label: '高画質(1080p)' },
-      '4k': { width: 3840, height: 2160, label: '超高画質(4K)' }
+      '1080p': { width: 1920, height: 1080, label: '高画質(1080p)' },  // 最初に表示
+      '720p': { width: 1280, height: 720, label: '標準(720p)' },      // 2番目
+      '4k': { width: 3840, height: 2160, label: '超高画質(4K)' }      // 3番目
     };
-
     // 端末性能検出
     function detectDeviceCapability() {
       const cores = navigator.hardwareConcurrency || 4;
@@ -1315,6 +1314,12 @@
       if (DOM.inWc && state.currentTarget.wc) {
         DOM.inWc.value = state.currentTarget.wc;
       }
+
+      // ★修正: 高解像度制御のUIを初期表示
+      DOM.advancedControls.style.display = 'flex';  // 追加
+      DOM.btnToggleAdvancedUI.textContent = '標準モード';  // 追加
+      DOM.btnToggleAdvanced.textContent = '基本モード';  // 追加
+      DOM.resolutionSelect.value = '1080p';  // 追加
 
       // 高解像度制御の初期化
       setupZoomControls();
