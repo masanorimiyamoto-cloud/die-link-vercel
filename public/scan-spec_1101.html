@@ -8,6 +8,7 @@
   :root{
     --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
     --tx:#212529; --sub:#6c757d; --bg:#f8f9fa; --bd:#dee2e6;
+    --soft:#ffffff;
   }
   html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
   .wrap{max-width:1100px;margin:0 auto;padding:14px}
@@ -28,20 +29,20 @@
   .chip.info{background:#e3fafc;color:#0b7285;border-color:#99e9f2}
   .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
   .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
-  .muted{color:var(--sub);font-size:13px}
+  .muted{color:#5a636c;font-size:13px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
   .kvs b{color:#333}
   .thumbs{display:flex;flex-wrap:wrap;gap:6px}
   .thumbs img{height:72px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:6px;background:#fff}
-  .err{color:#b00020;white-space:pre-wrap}
+  .err{padding:10px 14px;border-radius:10px;background:#fff5f5;color:#b00020;border:1px solid #ffc9c9;font-weight:500;white-space:pre-wrap}
   .hint{padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fcfcff}
   .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:#f1f3f5;font-size:12px}
   .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:13px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
   @keyframes fade-out{from{opacity:1}to{opacity:0}}
   .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
   .rowbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  input[type=text]{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch}
+  input[type=text], select{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch;background:#fff}
   .tbl{width:100%;border-collapse:collapse;font-size:14px}
   .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
   .tbl thead th{background:#f8f9fb}
@@ -53,36 +54,112 @@
   }
   @keyframes hint-pop{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(6px)}}
 
-  /* 見た目微調整（前回どおり） */
-  :root { --tx:#212529; --sub:#5a636c; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
+  /* 見た目微調整 */
+  :root { --tx:#212529; --bg:#f4f7f9; --bd:#e9ecef; --ok-soft:#e7f5ff; --ng-soft:#fff5f5; --info-soft:#e3fafc; }
   .wrap{padding:20px}
   h1{margin:0 0 20px;font-weight:700;color:#111}
   h3{font-size:16px;font-weight:600;margin-top:0;padding-bottom:6px;border-bottom:1px solid var(--bd);color:var(--tx)}
-  .card{padding:16px 20px;border-radius:12px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
+  .card{padding:16px 20px;border:none;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04)}
   .card:hover{box-shadow:0 6px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04)}
   button{transition:.2s;font-weight:600}
   button:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.05)}
   button.primary:not(:disabled):hover{filter:brightness(110%);box-shadow:0 4px 10px rgba(28,126,214,.25)}
-  input[type=text]:focus{border-color:var(--ok);box-shadow:0 0 0 3px rgba(28,126,214,.15);outline:none}
-  .badge{background:var(--bg)}
-  .chip{padding:4px 12px;font-size:13px}
-  .chip.info{background:var(--info-soft);color:var(--info);border-color:#bdecf2}
-  .chip.ok{background:var(--ok-soft);color:var(--ok);border-color:#a5d8ff}
-  .chip.ng{background:var(--ng-soft);color:var(--ng);border-color:#ffc9c9}
-  .kvs{gap:8px 12px}
-  .kvs b{color:var(--sub);font-weight:500;white-space:nowrap}
-  .kvs div{font-weight:500;word-break:break-all}
-  .thumbs img{border-radius:8px;border:1px solid var(--bd);transition:.2s}
-  .thumbs img:hover{border-color:var(--ok);box-shadow:0 2px 6px rgba(0,0,0,.1);transform:scale(1.05)}
-  .tbl{border:none;border-top:1px solid var(--bd);margin-top:8px}
-  .tbl th,.tbl td{padding:10px 8px;border:none;border-bottom:1px solid var(--bd);text-align:left;vertical-align:middle}
-  .tbl thead th{background:var(--bg);color:var(--sub);font-weight:600;font-size:13px}
-  .tbl tbody tr:hover{background:#fcfcff}
-  .err{padding:10px 14px;border-radius:10px;background:var(--ng-soft);color:#b00020;border:1px solid #ffc9c9;font-weight:500}
-  #loading{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--sub);margin-top:10px;padding:8px}
-  #loading::before{content:'';width:20px;height:20px;border:3px solid #ccc;border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite}
-  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-  .hint{border-radius:10px;border:1px solid #ffe8cc;background:#fff9f0;color:#8c5b0c}
+  input[type=text]:focus, select:focus{border-color:var(--ok);box-shadow:0 0 0 3px rgba(28,126,214,.15);outline:none}
+
+  /* スコープバー */
+  .scopebar{
+    position: sticky;
+    top: 8px;
+    z-index: 5;
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    background: var(--soft);
+    margin-top:10px; padding:8px 10px;
+    border:1px solid var(--bd); border-radius:12px;
+    box-shadow:0 2px 8px rgba(0,0,0,.05);
+  }
+  .scopebar .grow{flex:1 1 auto; min-width:180px}
+
+  /* ターゲットスコープ */
+  .target-scope {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 65%;
+    height: 65%;
+    border: 3px solid rgba(28, 126, 214, 0.6);
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 3;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+    display: none;
+  }
+  
+  .target-scope::before,
+  .target-scope::after {
+    content: '';
+    position: absolute;
+    background: rgba(28, 126, 214, 0.8);
+  }
+  
+  /* 四隅のL字マーク */
+  .target-scope .corner-tl,
+  .target-scope .corner-tr,
+  .target-scope .corner-bl,
+  .target-scope .corner-br {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(28, 126, 214, 0.8);
+  }
+  
+  .target-scope .corner-tl {
+    top: -3px;
+    left: -3px;
+    border-right: none;
+    border-bottom: none;
+    border-radius: 4px 0 0 0;
+  }
+  
+  .target-scope .corner-tr {
+    top: -3px;
+    right: -3px;
+    border-left: none;
+    border-bottom: none;
+    border-radius: 0 4px 0 0;
+  }
+  
+  .target-scope .corner-bl {
+    bottom: -3px;
+    left: -3px;
+    border-right: none;
+    border-top: none;
+    border-radius: 0 0 0 4px;
+  }
+  
+  .target-scope .corner-br {
+    bottom: -3px;
+    right: -3px;
+    border-left: none;
+    border-top: none;
+    border-radius: 0 0 4px 0;
+  }
+  
+  /* スキャンアニメーション */
+  .target-scope .scan-line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(28, 126, 214, 0.8), transparent);
+    animation: scan 2s linear infinite;
+  }
+  
+  @keyframes scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -95,18 +172,40 @@
       <div class="card">
         <div class="stack" id="stack">
           <video id="video" playsinline webkit-playsinline muted></video>
+          <!-- ターゲットスコープ -->
+          <div id="targetScope" class="target-scope">
+            <div class="corner-tl"></div>
+            <div class="corner-tr"></div>
+            <div class="corner-bl"></div>
+            <div class="corner-br"></div>
+            <div class="scan-line"></div>
+          </div>
           <canvas id="freeze"></canvas>
           <canvas id="overlay"></canvas>
         </div>
+
         <div class="controls">
           <button id="btnStart" class="primary">カメラ開始</button>
           <button id="btnStop" disabled>停止</button>
           <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
           <span id="detectorInfo" class="badge"></span>
           <span id="scanStatus" class="chip info">待機中</span>
-          <!-- Airtable fetch 状態の小バッジ（ON/OFF確認用・表示だけ） -->
           <span id="atState" class="badge"></span>
         </div>
+
+        <!-- 常設のターゲットスコープバー -->
+        <div class="scopebar" id="scopeBar">
+          <span class="badge">Scope</span>
+          <select id="selScope" class="grow" title="スキャン許可範囲">
+            <option value="any">全QR</option>
+            <option value="book">Book限定</option>
+            <option value="exact">Book+WC一致</option>
+          </select>
+          <button id="btnUseCurrent" title="現在のターゲット(BN/WC)を固定">現在値を固定</button>
+          <button id="btnClearTarget" title="ターゲット解除（Scopeは維持）">解除</button>
+          <span id="targetBadge" class="badge" title="現在のターゲット / スコープ状態">🎯 なし / 全QR</span>
+        </div>
+
         <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
         <div id="errCam" class="err" style="margin-top:6px;"></div>
       </div>
@@ -124,6 +223,7 @@
           <label>Book: <input type="text" id="inBook" placeholder="例: Ta"></label>
           <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
           <button id="btnFillTarget">スキャン中の値で埋める</button>
+          <button id="btnSetTarget" title="入力値をターゲットに固定（スコープ適用）">入力をターゲット</button>
         </div>
 
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -180,7 +280,6 @@
             </div>
           </div>
         </div>
-
       </div>
     </div>
   </div>
@@ -189,13 +288,8 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
-  // ====== ▼▼ 設定：ここだけで ON/OFF ▼▼ ======
-  const FEATURE = {
-    AIRTABLE_FETCH: true,   // ← ← ← ここを false にすると Airtable 取得を完全オフ（APIにも通知）
-  };
-  // ==============================================
+  const FEATURE = { AIRTABLE_FETCH: false };
 
-  // ===== DOM =====
   const D = {
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
     btnStart: q('#btnStart'), btnStop: q('#btnStop'), fileTest: q('#fileTest'),
@@ -209,51 +303,77 @@
     btnOpenHtml: q('#btnOpenHtml'),
     csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
     atState: q('#atState'),
+    // scope bar
+    selScope: q('#selScope'), btnSetTarget: q('#btnSetTarget'), btnUseCurrent: q('#btnUseCurrent'), btnClearTarget: q('#btnClearTarget'),
+    targetBadge: q('#targetBadge'),
+    // target scope
+    targetScope: q('#targetScope')
   };
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
 
-  // Airtableオフ時はボタンを無効化（HTML版はAT依存するケースが多いため）
-  if(!FEATURE.AIRTABLE_FETCH){
-    D.btnOpenHtml.disabled = true;
-    D.btnOpenHtml.title = 'Airtable取得OFF中';
+  if(!FEATURE.AIRTABLE_FETCH){ 
+    D.btnOpenHtml.disabled = true; 
+    D.btnOpenHtml.title = 'Airtable取得OFF中'; 
   }
-  // 状態バッジ
-  if(D.atState){ D.atState.textContent = FEATURE.AIRTABLE_FETCH ? 'AT:ON' : 'AT:OFF'; }
+  if(D.atState){ 
+    D.atState.textContent = FEATURE.AIRTABLE_FETCH ? 'AT:ON' : 'AT:OFF'; 
+  }
 
-  // ===== Config =====
   const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
 
-  // ===== State =====
   const S = {
-    stream: null, rafId: null,
-    detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
-    current: { book:'', wc:'' }, lastQueryKey: '',
+    stream: null, 
+    rafId: null,
+    detector: null, 
+    useBarcodeDetector: ('BarcodeDetector' in window),
+    current: { book:'', wc:'' }, 
+    lastQueryKey: '',
     csrf: '',
-    locked: false
+    locked: false,
+    scope: 'any',
+    target: { book:'', wc:'' }
   };
 
-  // ===== Utils =====
   function q(s){ return document.querySelector(s); }
   function readCookie(name){
     const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
     return m ? decodeURIComponent(m[1]) : '';
   }
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
+  function eqi(a,b){ return String(a||'').trim().toLowerCase() === String(b||'').trim().toLowerCase(); }
   const dieKey = (bn,wc)=> `${(bn||'').toLowerCase()}@@${(wc||'').toLowerCase()}`;
-  function setStatus(text, kind='info'){ D.scanStatus.textContent=text; D.scanStatus.className=`chip ${kind}`; }
+  function setStatus(text, kind='info'){ 
+    D.scanStatus.textContent=text; 
+    D.scanStatus.className=`chip ${kind}`; 
+  }
   function showToastNear(text, pts){
     if(!pts || pts.length<2) return;
-    const el=document.createElement('div'); el.className='toast'; el.textContent=text;
+    const el=document.createElement('div'); 
+    el.className='toast'; 
+    el.textContent=text;
     const x=(pts[0].x+pts[1].x)/2, y=Math.min(pts[0].y,pts[1].y);
     const rx = x / D.overlay.width * D.video.clientWidth;
     const ry = y / D.overlay.height * D.video.clientHeight;
-    el.style.left=rx+'px'; el.style.top=ry+'px'; D.stack.appendChild(el); setTimeout(()=>el.remove(),1200);
+    el.style.left=rx+'px'; 
+    el.style.top=ry+'px'; 
+    D.stack.appendChild(el); 
+    setTimeout(()=>el.remove(),1200);
   }
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
-    ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].y?points[i].x:points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+    ctx.save(); 
+    ctx.lineWidth= solid?5:3; 
+    ctx.setLineDash(solid?[]:[8,6]); 
+    ctx.shadowColor=color; 
+    ctx.shadowBlur=4; 
+    ctx.strokeStyle=color;
+    ctx.beginPath(); 
+    ctx.moveTo(points[0].x,points[0].y); 
+    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); 
+    ctx.closePath(); 
+    ctx.stroke(); 
+    ctx.restore();
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
@@ -267,7 +387,22 @@
     D.freeze.style.height= D.video.clientHeight + 'px';
   }
 
-  // ===== CSRF bootstrap =====
+  // ターゲットスコープの表示制御
+  function updateTargetScopeVisibility() {
+    if (S.scope === 'any') {
+      D.targetScope.style.display = 'none';
+    } else {
+      D.targetScope.style.display = 'block';
+      const color = S.scope === 'book' ? 'rgba(245, 159, 0, 0.6)' : 'rgba(32, 201, 151, 0.6)';
+      D.targetScope.style.borderColor = color;
+      
+      const corners = D.targetScope.querySelectorAll('[class*="corner-"]');
+      corners.forEach(corner => {
+        corner.style.borderColor = color;
+      });
+    }
+  }
+
   function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
   async function requestSession(){
     const url = isLocal() ? '/api/session?dev=1' : '/api/session';
@@ -275,7 +410,10 @@
   }
   async function ensureCsrf(){
     let t = readCookie('xcsrf');
-    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
+    if(!t){ 
+      await requestSession(); 
+      t = readCookie('xcsrf'); 
+    }
     if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
     S.csrf = t;
     D.csrfStatus.textContent = 'CSRF: 有効';
@@ -283,8 +421,11 @@
     D.csrfStatus.style.color = '#1c7ed6';
     D.csrfWarn.style.display = 'none';
   }
+  
   document.addEventListener('DOMContentLoaded', async () => {
-    try{ await ensureCsrf(); }
+    try{ 
+      await ensureCsrf(); 
+    }
     catch(e){
       D.csrfStatus.textContent = 'CSRF: 無効（未取得）';
       D.csrfStatus.style.background = '#fff5f5';
@@ -292,12 +433,18 @@
       D.csrfWarn.style.display = 'block';
     }
   });
+  
   D.btnEnableCsrf.addEventListener('click', async () => {
-    try{ await requestSession(); await ensureCsrf(); alert('CSRFを有効化しました'); }
-    catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
+    try{ 
+      await requestSession(); 
+      await ensureCsrf(); 
+      alert('CSRFを有効化しました'); 
+    }
+    catch(e){ 
+      alert('CSRFの取得に失敗: ' + (e.message||e)); 
+    }
   });
 
-  // ===== Parse & classify =====
   function classify(raw){
     const t = normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
@@ -309,6 +456,7 @@
     }catch{}
     return 'other';
   }
+  
   function parseOrder(raw){
     const t = normHyphen(raw);
     try{
@@ -322,6 +470,7 @@
     const m = /order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
     return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
   }
+  
   function parseDie(raw){
     const t = normHyphen(raw);
     const m = /^die-([^-\n]+)-([^-]+)/i.exec(t);
@@ -335,93 +484,161 @@
     return null;
   }
 
-  // ===== Camera =====
+  // ターゲット/スコープ
+  function updateTargetBadge(){
+    const bn = S.target.book || 'なし';
+    const wc = S.target.book ? (S.target.wc || '*') : '—';
+    const scopeLabel = S.scope==='any' ? '全QR' : (S.scope==='book' ? 'Book限定' : 'Book+WC一致');
+    D.targetBadge.textContent = `🎯 ${bn}${S.target.book ? (' / ' + wc) : ''} ｜ ${scopeLabel}`;
+  }
+  
+  function setScope(v){
+    S.scope = v==='book' ? 'book' : (v==='exact' ? 'exact' : 'any');
+    updateTargetBadge();
+    updateTargetScopeVisibility();
+    setStatus(`スコープ: ${D.selScope.options[D.selScope.selectedIndex].text}`, 'info');
+  }
+  
+  function setTargetScope(book, wc){
+    S.target.book = String(book||'').trim();
+    S.target.wc   = String(wc||'').trim();
+    updateTargetBadge();
+    if(S.target.book){
+      showToastNear(`ターゲット設定: ${S.target.book}/${S.target.wc || '*'}`, [{x:D.overlay.width/2,y:D.overlay.height/2},{x:D.overlay.width/2+1,y:D.overlay.height/2}]);
+      setStatus('ターゲット設定済', 'ok');
+    }else{
+      setStatus('ターゲット未設定', 'info');
+    }
+  }
+  
+  function clearTargetScope(){
+    S.target = { book:'', wc:'' };
+    updateTargetBadge();
+    setStatus('ターゲット解除', 'info');
+  }
+  
+  function withinScope(kind, parsed){
+    if(S.scope==='any') return true;
+    if(!S.target.book){
+      setStatus('スコープ有効ですがターゲット未設定', 'ng');
+      return false;
+    }
+    const bn = (parsed?.bn || '').trim();
+    const wc = (parsed?.wc || '').trim();
+    if(!bn && !wc) return false;
+    if(S.scope==='book'){ return eqi(bn, S.target.book); }
+    const bookOk = eqi(bn, S.target.book);
+    const wcOk   = S.target.wc ? eqi(wc, S.target.wc) : true;
+    return bookOk && wcOk;
+  }
+
+  // Camera
   function reallyStopStreamTracks(){
-    if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} }
+    if(S.stream){ 
+      try{ 
+        S.stream.getTracks().forEach(t=>t.stop()); 
+      }catch{} 
+    }
     S.stream = null;
   }
+  
   function stopCam({keepFrame=false}={}){
-    if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
+    if(S.rafId) cancelAnimationFrame(S.rafId); 
+    S.rafId=null;
     if(!keepFrame){
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       D.freeze.style.display='none';
       D.video.style.visibility = 'visible';
     }
     reallyStopStreamTracks();
-    D.btnStart.disabled=false; D.btnStop.disabled=true;
+    D.btnStart.disabled=false; 
+    D.btnStop.disabled=true;
     setStatus('停止中','info');
   }
+  
   async function startCam(){
     D.freeze.style.display='none';
     D.video.style.visibility = 'visible';
     S.locked = false;
 
-    stopCam(); D.errCam.textContent='';
+    stopCam(); 
+    D.errCam.textContent='';
     try{
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280, min:640, max:1920 }, height:{ ideal:720, min:480, max:1080 }, advanced:[{ focusMode:'continuous' }] },
+        video:{ 
+          facingMode:{ ideal:'environment' }, 
+          width:{ ideal:1280, min:640, max:1920 }, 
+          height:{ ideal:720, min:480, max:1080 }, 
+          advanced:[{ focusMode:'continuous' }] 
+        },
         audio:false
       });
-      D.video.srcObject=S.stream; await D.video.play();
-      D.btnStart.disabled=true; D.btnStop.disabled=false;
+      D.video.srcObject=S.stream; 
+      await D.video.play();
+      D.btnStart.disabled=true; 
+      D.btnStop.disabled=false;
 
       if(S.useBarcodeDetector){
         try{
           const fmts = (typeof BarcodeDetector.getSupportedFormats==='function') ? await BarcodeDetector.getSupportedFormats() : [];
           if(!fmts || !fmts.includes('qr_code')) throw new Error('qr_code unsupported');
           S.detector = new BarcodeDetector({ formats:['qr_code'] });
-        }catch{ S.useBarcodeDetector=false; S.detector=null; }
+        }catch{ 
+          S.useBarcodeDetector=false; 
+          S.detector=null; 
+        }
       }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
-      setStatus('探索中…','info'); fitOverlay(); tick();
-    }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
+      setStatus('探索中…','info'); 
+      
+      updateTargetScopeVisibility();
+      
+      fitOverlay(); 
+      tick();
+    }catch(e){ 
+      D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; 
+      setStatus('カメラエラー','ng'); 
+    }
   }
 
   function freezeFrameAndStopCam(){
-    try{
-      fitOverlay();
-      // 直前フレームをfreezeへ
-      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
-      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
-      D.freeze.style.display = 'block';
-      // ビデオを隠す
-      D.video.style.visibility = 'hidden';
+    try{
+      fitOverlay();
+      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
+      freezeCtx.drawImage(D.video, 0, 0, D.freeze.width, D.freeze.height);
+      D.freeze.style.display = 'block';
+      D.video.style.visibility = 'hidden';
 
-      // ▼▼▼ 修正箇所（ロックアイコン描画） ▼▼▼
-      ctx.save();
-      // 半透明の黒いフィルター
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-      ctx.fillRect(0, 0, D.overlay.width, D.overlay.height);
-      // ロックアイコン
-      ctx.font = 'bold 80px sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 10;
-      ctx.fillText('🔒', D.overlay.width / 2, D.overlay.height / 2); // 🔒
-      ctx.restore();
-      // ▲▲▲ 修正箇所（ロックアイコン描画） ▲▲▲
+      D.targetScope.style.display = 'none';
 
-    }catch{}
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillRect(0, 0, D.overlay.width, D.overlay.height);
+      ctx.font = 'bold 80px sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 10;
+      ctx.fillText('🔒', D.overlay.width / 2, D.overlay.height / 2);
+      ctx.restore();
+    }catch(e){ 
+      console.error('Freeze error:', e); 
+    }
+    setStatus('ロック完了', 'ok');
+    stopCam({keepFrame:true});
+    setStatus('ロック完了', 'ok');
+  }
 
-    // stopCam を呼び出す前にステータスを変更
-    setStatus('ロック完了', 'ok');
-    
-    stopCam({keepFrame:true});
-    
-    // stopCamによって '停止中' に上書きされるため、再度 'ロック完了' に設定
-    setStatus('ロック完了', 'ok');
-  }
-
-  // ===== MULTI-PASS DETECTOR =====
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
     const scale = Math.max(1, Number(CFG.DOWNSCALE)||1);
     const srcW = D.video.videoWidth, srcH = D.video.videoHeight;
     const w = Math.floor(srcW/scale), h = Math.floor(srcH/scale);
 
-    const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+    const tmp = document.createElement('canvas'); 
+    tmp.width = w; 
+    tmp.height = h;
     const tctx = tmp.getContext('2d', { willReadFrequently:true });
     tctx.imageSmoothingEnabled = false;
     tctx.drawImage(D.video, 0, 0, w, h);
@@ -433,9 +650,15 @@
         const codes = await S.detector.detect(tmp);
         for(const c of codes){
           const raw = (c.rawValue||'').trim();
-          if(raw && !all.has(raw)) all.set(raw, { rawValue: raw, cornerPoints: c.cornerPoints?.map(p=>({ x:p.x*scale, y:p.y*scale })) || null });
+          if(raw && !all.has(raw)) all.set(raw, { 
+            rawValue: raw, 
+            cornerPoints: c.cornerPoints?.map(p=>({ x:p.x*scale, y:p.y*scale })) || null 
+          });
         }
-      }catch{ S.useBarcodeDetector=false; S.detector=null; }
+      }catch{ 
+        S.useBarcodeDetector=false; 
+        S.detector=null; 
+      }
     }
 
     const img = tctx.getImageData(0,0,w,h);
@@ -446,8 +669,10 @@
       const raw = (hit.data||'').trim();
       if(raw && !all.has(raw)){
         const pts = [
-          hit.location.topLeftCorner, hit.location.topRightCorner,
-          hit.location.bottomRightCorner, hit.location.bottomLeftCorner
+          hit.location.topLeftCorner, 
+          hit.location.topRightCorner,
+          hit.location.bottomRightCorner, 
+          hit.location.bottomLeftCorner
         ].map(p=>({ x:p.x*scale, y:p.y*scale }));
         all.set(raw, { rawValue: raw, cornerPoints: pts });
       }
@@ -456,7 +681,12 @@
       const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
       const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
       const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
-      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
+      for(let y=minY;y<maxY;y++){ 
+        for(let x=minX;x<maxX;x++){ 
+          const i=(y*w+x)*4; 
+          masked[i]=masked[i+1]=masked[i+2]=255; 
+        } 
+      }
     }
     return Array.from(all.values());
   }
@@ -464,7 +694,8 @@
   async function tick(){
     if(!S.stream) return;
     if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
-      fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      fitOverlay(); 
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       const ds = await detectCombined();
       applyDetections(ds);
     }
@@ -472,47 +703,66 @@
   }
 
   function applyDetections(ds){
-    for(const d of ds){
-      const raw=(d.rawValue||'').trim(); if(!raw) continue;
-      const kind = classify(raw); const pts = d.cornerPoints;
-      
-      // ▼▼▼ 修正箇所（orderブロック） ▼▼▼
-      if(kind==='order'){
-        const od = parseOrder(raw);
-        if(od && (od.bn || od.wc)){
-          // 枠の色は order (オレンジ) のまま
-          drawBox(pts, '#f59f00', true); 
-          showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`, pts);
-          setTarget(od.bn||'', od.wc||'');
+    if(S.locked) return;
 
-          if(!S.locked){ // die と同様のロック処理
-            S.locked = true;
-            freezeFrameAndStopCam(); // カメラ停止
-            showSwipeHint(); // ヒント表示
-            querySpec(); // 照会実行
-          }
-        }else{ drawBox(pts, '#e03131', false); showToastNear('order(不明形式)', pts); }
-      // ▲▲▲ 修正箇所（orderブロック） ▲▲▲
+    for(const d of ds){
+      const raw=(d.rawValue||'').trim(); 
+      if(!raw) continue;
+      const kind = classify(raw); 
+      const pts = d.cornerPoints;
 
-      }else if(kind==='die'){
-        const p = parseDie(raw);
-        if(p && (p.bn || p.wc)){
-          drawBox(pts, '#1c7ed6', true);
-          showToastNear('ロック｜ターゲットを設定しました', pts);
-          setTarget(p.bn||'', p.wc||'');
+      if(kind==='order'){
+        const od = parseOrder(raw);
+        if(od && (od.bn || od.wc)){
+          if(!withinScope('order', od)){
+            drawBox(pts, '#e03131', false);
+            showToastNear(`スコープ外: ${od.bn||'-'}/${od.wc||'-'}`, pts);
+            continue;
+          }
+          drawBox(pts, '#f59f00', true);
+          showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`, pts);
+          setTarget(od.bn||'', od.wc||'');
 
-          if(!S.locked){
-            S.locked = true;
-            freezeFrameAndStopCam();
-            showSwipeHint();
-            querySpec();
-          }
-        }else{ drawBox(pts, '#e03131', false); showToastNear('die(不明形式)', pts); }
-      }else{
-        drawBox(pts, '#e03131', false); showToastNear('別QR', pts);
-      }
-    }
-  }
+          S.locked = true;
+          freezeFrameAndStopCam();
+          showSwipeHint();
+          S.lastQueryKey = '';
+          querySpec();
+          return;
+        }else{
+          drawBox(pts, '#e03131', false); 
+          showToastNear('order(不明形式)', pts);
+        }
+      }else if(kind==='die'){
+        const p = parseDie(raw);
+        if(p && (p.bn || p.wc)){
+          if(!withinScope('die', p)){
+            drawBox(pts, '#e03131', false);
+            showToastNear(`スコープ外: ${p.bn||'-'}/${p.wc||'-'}`, pts);
+            continue;
+          }
+          drawBox(pts, '#1c7ed6', true);
+          showToastNear('ロック｜ターゲットを設定しました', pts);
+          setTarget(p.bn||'', p.wc||'');
+
+          if(!S.locked){
+            S.locked = true;
+            freezeFrameAndStopCam();
+            showSwipeHint();
+            S.lastQueryKey = '';
+            querySpec();
+          }
+          return;
+        }else{
+          drawBox(pts, '#e03131', false); 
+          showToastNear('die(不明形式)', pts);
+        }
+      }else{
+        drawBox(pts, '#e03131', false); 
+        showToastNear('別QR', pts);
+      }
+    }
+  }
 
   function setTarget(book, wc){
     S.current.book = String(book||'').trim();
@@ -521,7 +771,6 @@
     D.tWC.textContent = S.current.wc   || '-';
   }
 
-  // ===== Query to /api/die-check (JSON) =====
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc;
     if(!book || !wc) return;
@@ -529,13 +778,16 @@
     if(key === S.lastQueryKey) return;
     S.lastQueryKey = key;
 
-    D.errApi.style.display='none'; D.errApi.textContent='';
-    D.loading.style.display='block'; D.result.style.display='none';
+    D.errApi.style.display='none'; 
+    D.errApi.textContent='';
+    D.loading.style.display='block'; 
+    D.result.style.display='none';
 
     try{
-      if(!S.csrf){ await ensureCsrf(); }
+      if(!S.csrf){ 
+        await ensureCsrf(); 
+      }
 
-      // Airtable OFF の場合は、APIに「Airtable不要」を明示（未対応のサーバでも害はありません）
       const body = {
         book, wc, json:true,
         limit: FEATURE.AIRTABLE_FETCH ? 200 : 0,
@@ -551,17 +803,23 @@
       });
       const txt = await r.text();
       let j = {};
-      try{ j = JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
-      if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
+      try{ 
+        j = JSON.parse(txt); 
+      }catch{ 
+        throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); 
+      }
+      if(!r.ok || j.ok!==true){ 
+        throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); 
+      }
 
-      // サーバが無視した場合に備え、クライアント側でも Airtable 表示を抑止
       if(!FEATURE.AIRTABLE_FETCH){
         j.hits = [];
         j.note = 'Airtable fetch disabled on client';
       }
       renderResult(j);
     }catch(e){
-      D.errApi.style.display='block'; D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
+      D.errApi.style.display='block'; 
+      D.errApi.textContent = `❌ APIエラー: ${e?.message || e}`;
     }finally{
       D.loading.style.display='none';
     }
@@ -570,7 +828,6 @@
   function renderResult(payload){
     const { gs, hits=[], book, workcord } = payload || {};
 
-    // Sheets
     if(gs){
       D.gsBox.innerHTML = `
         <div class="kvs">
@@ -588,7 +845,6 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // Airtable
     if(!FEATURE.AIRTABLE_FETCH){
       D.atBox.innerHTML = `<div class="muted">（Airtable照会は現在OFF）</div>`;
       D.ordersTableWrap.style.display='none';
@@ -620,7 +876,6 @@
         ${ (latest.attachments||[]).length>4 ? `<div class="muted" style="margin-top:4px">…他 ${(latest.attachments.length-4)} 件</div>`:'' }
       `;
 
-      // 受注一覧
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
       D.ordersTbody.innerHTML = hits.map(r => {
@@ -660,7 +915,6 @@
     D.inWc.value   = workcord || '';
   }
 
-  // 別タブ HTML（ATオフ時は無効化済み）
   D.btnOpenHtml.addEventListener('click', async () => {
     if(!FEATURE.AIRTABLE_FETCH){ return; }
     const book=S.current.book, wc=S.current.wc;
@@ -675,8 +929,11 @@
       });
       const html = await r.text();
       if(!r.ok) throw new Error(html.slice(0,300));
-      const w = window.open('', '_blank'); if(!w) throw new Error('ポップアップがブロックされました');
-      w.document.open(); w.document.write(html); w.document.close();
+      const w = window.open('', '_blank'); 
+      if(!w) throw new Error('ポップアップがブロックされました');
+      w.document.open(); 
+      w.document.write(html); 
+      w.document.close();
     }catch(e){ alert('HTML表示に失敗: ' + (e.message||e)); }
   });
 
@@ -684,9 +941,21 @@
   D.btnQuery.addEventListener('click', () => {
     setTarget(D.inBook.value, D.inWc.value);
     if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
-    S.lastQueryKey=''; querySpec();
+    S.lastQueryKey=''; 
+    querySpec();
   });
-  D.btnFillTarget.addEventListener('click', () => { D.inBook.value = S.current.book || ''; D.inWc.value = S.current.wc || ''; });
+  
+  D.btnFillTarget.addEventListener('click', () => { 
+    D.inBook.value = S.current.book || ''; 
+    D.inWc.value = S.current.wc || ''; 
+  });
+
+  // スコープ操作
+  D.selScope.addEventListener('change', () => setScope(D.selScope.value));
+  D.btnSetTarget.addEventListener('click', () => setTargetScope(D.inBook.value, D.inWc.value));
+  D.btnUseCurrent.addEventListener('click', () => setTargetScope(S.current.book, S.current.wc));
+  D.btnClearTarget.addEventListener('click', () => clearTargetScope());
+  updateTargetBadge();
 
   // カメラ制御
   D.btnStart.addEventListener('click', startCam);
@@ -695,21 +964,41 @@
 
   // 画像静止画テスト
   D.fileTest.addEventListener('change', async ev=>{
-    const file = ev.target.files?.[0]; if(!file) return;
+    const file = ev.target.files?.[0]; 
+    if(!file) return;
     const img = new Image();
     img.onload = ()=>{
-      const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
-      const cctx=c.getContext('2d',{willReadFrequently:true}); cctx.imageSmoothingEnabled=false; cctx.drawImage(img,0,0);
+      const c=document.createElement('canvas'); 
+      c.width=img.width; 
+      c.height=img.height;
+      const cctx=c.getContext('2d',{willReadFrequently:true}); 
+      cctx.imageSmoothingEnabled=false; 
+      cctx.drawImage(img,0,0);
       const data=cctx.getImageData(0,0,c.width,c.height);
       const hits = jsqrMulti(data);
-      D.overlay.width = c.width; D.overlay.height = c.height; ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      for(const h of hits){ drawBox(h.cornerPoints, '#1c7ed6', true); }
+      D.overlay.width = c.width; 
+      D.overlay.height = c.height; 
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      for(const h of hits){ 
+        drawBox(h.cornerPoints, '#1c7ed6', true); 
+      }
       if(hits[0]){
         const raw = hits[0].rawValue;
         const kind = classify(raw);
-        if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'', od.wc||''); } }
-        else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'', d.wc||''); } }
-        S.lastQueryKey=''; querySpec();
+        if(kind==='order'){ 
+          const od=parseOrder(raw); 
+          if(od){ 
+            setTarget(od.bn||'', od.wc||''); 
+          } 
+        }
+        else if(kind==='die'){ 
+          const d=parseDie(raw); 
+          if(d){ 
+            setTarget(d.bn||'', d.wc||''); 
+          } 
+        }
+        S.lastQueryKey=''; 
+        querySpec();
       }
       ev.target.value="";
     };
@@ -717,28 +1006,46 @@
   });
 
   function jsqrMulti(imgData){
-    const hits=[]; const w=imgData.width, h=imgData.height;
+    const hits=[]; 
+    const w=imgData.width, h=imgData.height;
     const masked=new Uint8ClampedArray(imgData.data);
     for(let k=0;k<CFG.JSQR_MAX_LOOPS;k++){
       const hit=jsQR(masked,w,h,{ inversionAttempts:'attemptBoth' });
       if(!hit) break;
-      hits.push({ rawValue: hit.data, cornerPoints:[ hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner ] });
+      hits.push({ 
+        rawValue: hit.data, 
+        cornerPoints:[ 
+          hit.location.topLeftCorner, 
+          hit.location.topRightCorner, 
+          hit.location.bottomRightCorner, 
+          hit.location.bottomLeftCorner 
+        ] 
+      });
       const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
       const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x)));
       const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
       const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y)));
       const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
-      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
+      for(let y=minY;y<maxY;y++){ 
+        for(let x=minX;x<maxX;x++){ 
+          const i=(y*w+x)*4; 
+          masked[i]=masked[i+1]=masked[i+2]=255; 
+        } 
+      }
     }
     return hits;
   }
 
-  // URL で事前指定
   (function initFromParams(){
     const p = new URLSearchParams(location.search);
     const book=(p.get('book')||'').trim();
     const wc  =(p.get('wc')||'').trim();
-    if(book || wc){ setTarget(book, wc); S.lastQueryKey=''; querySpec(); }
+    if(book || wc){ 
+      setTarget(book, wc); 
+      S.lastQueryKey=''; 
+      querySpec(); 
+    }
+    updateTargetScopeVisibility();
   })();
 
   function showSwipeHint(){
@@ -746,10 +1053,21 @@
     el.className = 'swipe-hint';
     el.textContent = '下にスワイプして情報を確認';
     document.body.appendChild(el);
-    setTimeout(()=>{ try{ el.remove(); }catch{} }, 1800);
+    setTimeout(()=>{ 
+      try{ 
+        el.remove(); 
+      }catch{} 
+    }, 1800);
   }
 
-  function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+  function esc(s){ 
+    return String(s??'').replace(/[&<>"]/g, c=>({ 
+      '&':'&amp;',
+      '<':'&lt;',
+      '>':'&gt;',
+      '"':'&quot;' 
+    }[c])); 
+  }
 })();
 </script>
 </body>
