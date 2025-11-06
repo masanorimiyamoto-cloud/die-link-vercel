@@ -159,51 +159,64 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  try {
-    const itemsRaw = (req.body && (req.body as any).items) as Item[] | undefined;
-    if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
-      res.status(400).send(JSON.stringify({ ok: false, error: 'no items' }));
-      return;
-    }
+  // ... (POSTハンドラの try ブロック内) ...
+  try {
+    const itemsRaw = (req.body && (req.body as any).items) as Item[] | undefined;
+    if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) {
+      res.status(400).send(JSON.stringify({ ok: false, error: 'no items' }));
+      return;
+    }
+    const key = (x: Item) =>
+      `${(x.book || '').trim()}:::${(x.wc || '').trim()}:::${(x.loc || '').trim()}:::${(x.captured_at || x.lastSeen || '').trim()}`; // ★ captured_at に対応
+    const uniq: Item[] = Array.from(new Map(itemsRaw.map((i) => [key(i), i])).values());
 
-    // 重複排除（book/wc/loc/lastSeen のトリム後でユニーク化）
-    const key = (x: Item) =>
-      `${(x.book || '').trim()}:::${(x.wc || '').trim()}:::${(x.loc || '').trim()}:::${(x.lastSeen || '').trim()}`;
-    const uniq: Item[] = Array.from(new Map(itemsRaw.map((i) => [key(i), i])).values());
+    let totalUpdated = 0;
+    const skippedDetails: string[] = []; // ★ デバッグ情報をここに追加
 
-    let totalUpdated = 0;
-    for (const it of uniq) {
-      const book = (it.book || '').trim();
-      const wc   = (it.wc   || '').trim();
-      const loc  = (it.loc  || '').trim();
-      // ▼▼▼ ここから修正 ▼▼▼
-      // client が送る captured_at を優先し、なければ lastSeen も見る
-      const last = (it.captured_at || it.lastSeen || '').trim();
-      // ▲▲▲ ここまで修正 ▲▲▲
+    for (const it of uniq) {
+      const book = (it.book || '').trim();
+      const wc   = (it.wc   || '').trim();
+      const loc  = (it.loc  || '').trim();
+      const last = (it.captured_at || it.lastSeen || '').trim(); // ★ captured_at を優先
 
-      if (!book || !wc || !loc) continue;
+      if (!book || !wc || !loc) continue;
 
-      const { ids } = await fetchAllRecordIds(book, wc);
-      if (ids.length === 0) continue;
+      // ★ 検索処理を try-catch で囲む
+      let ids: string[] = [];
+      try {
+        const result = await fetchAllRecordIds(book, wc);
+        ids = result.ids;
+        if (ids.length === 0) {
+          // 検索したが0件だった場合のデバッグ情報
+          skippedDetails.push(`{${book}/${wc}}: 0 matches (formula: ${result.formula})`);
+        }
+      } catch (fetchErr: any) {
+        // 検索自体が失敗した場合（例: フィールド名間違い）
+        skippedDetails.push(`{${book}/${wc}}: ERROR (field name mismatch?) ${fetchErr.message}`);
+        continue; // この item はスキップして次へ
+      }
 
-      const fields: Record<string, any> = { [FIELD_LOCATION]: loc };
-      if (last) fields[FIELD_LASTSEEN] = last; // 形式: YYYY-MM-DD
+      if (ids.length === 0) continue; // 0件なら更新しない
 
-      totalUpdated += await batchUpdate(ids, fields);
+      const fields: Record<string, any> = { [FIELD_LOCATION]: loc };
+      if (last) fields[FIELD_LASTSEEN] = last;
 
-      // 連続 item 更新の過負荷対策
-      await new Promise((r) => setTimeout(r, 140));
-    }
+      totalUpdated += await batchUpdate(ids, fields);
 
-    // ▼▼▼ ここから修正 ▼▼▼
-    // client(HTML)が 'success: true' を期待しているため、レスポンスに追加
+      await new Promise((r) => setTimeout(r, 140));
+    }
+
+    // ★ 成功レスポンスに skippedDetails を追加
     res.status(200).send(JSON.stringify({ 
       ok: true, 
-      success: true, // ← これを追加
+      success: true, // クライアント(HTML)が期待する success
       updatedRecords: totalUpdated, 
+      skippedDetails: skippedDetails, // スキップされた理由
       api: API 
     }));
-    // ▲▲▲ ここまで修正 ▲▲▲
+
+  
+// ... (catch ブロックは変更なし) ...
   } catch (e: any) {
     res.status(500).send(JSON.stringify({
       ok: false,

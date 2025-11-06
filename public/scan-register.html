@@ -90,7 +90,7 @@
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_air_on_1101</h1>
+  <h1>棚→型 QRスキャン登録_air_on_1106</h1>
   <div class="cam-controls">
     <button id="btnStart" class="btn btn-primary">カメラ開始</button>
     <button id="btnStop" class="btn" disabled>停止</button>
@@ -434,7 +434,7 @@ async function submitUpdate() {
       wc: d.wc,
       wn: d.wn || "",
       loc: fixedLoc.loc,
-      captured_at: captured_date
+      captured_at: captured_date // ★ API側と合わせるため 'captured_at' を使用
     }));
 
     const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
@@ -454,14 +454,12 @@ async function submitUpdate() {
 
     const parseSafe = (t) => { try { return JSON.parse(t); } catch { return null; } };
     
+    // ★ Airtableの成功判定を、ok:true または success:true があれば「0件」でも成功とみなす
     const looksLikeSuccess = (resObj) => {
       if (!resObj) return false;
       if (resObj.ok === true) return true;
       if (resObj.success === true) return true;
-      if (typeof resObj.updatedRecords === "number") return true; 
-      if (typeof resObj.updated === "number") return true;
-      if (typeof resObj.count === "number") return true;
-      if (Array.isArray(resObj.records)) return true;
+      if (typeof resObj.updatedRecords === "number") return true; // 0件でもtrue
       return false;
     };
 
@@ -490,7 +488,7 @@ async function submitUpdate() {
       // 2) Airtable 登録（有効な場合のみ）
       if (AIRTABLE_ENABLED) {
         try {
-          const payload = { items }; 
+          const payload = { items }; // API(ts) は .items を見ている
 
           const rA = await fetch(AIRTABLE_ENDPOINT, {
             method: "POST",
@@ -504,11 +502,19 @@ async function submitUpdate() {
           if (rA.ok && looksLikeSuccess(jA)) {
             const updatedCount = jA.updatedRecords ?? 0;
             message += ` / Airtable (更新 ${updatedCount}件)`;
+            
+            // ★ APIからのデバッグ情報をトーストに追加
+            if (jA.skippedDetails && jA.skippedDetails.length > 0) {
+              // 詳細が長すぎる場合に備えて短縮
+              const details = jA.skippedDetails.join(', ').slice(0, 150);
+              message += ` [詳細: ${details}...]`;
+            }
+            
           } else {
             const errMsg = (jA && jA.error) ? jA.error : `Status ${rA.status}`;
             console.warn("Airtable 応答が失敗:", { status: rA.status, body: rawResponseA });
             message += ` / Airtable更新失敗 (${errMsg})`;
-          }
+  S       }
           
         } catch (airtableError) {
           console.warn("Airtable 通信エラー:", airtableError);
@@ -519,9 +525,10 @@ async function submitUpdate() {
         message += " / Airtableは停止中";
       }
 
-      success = true; 
+      success = true; // GSheetが成功していれば、Airtableが失敗してもリセットは行う
 
     } catch (e) {
+      // GSheetが失敗した場合はここでキャッチ
       console.error("Submit Error (GSheet):", e, { rawResponseG });
       alert(
         "登録に失敗しました (GSheet):\n" +
@@ -530,7 +537,7 @@ async function submitUpdate() {
       );
     } finally {
       if (success) {
-        toast(message); 
+        toast(message); // "Airtable更新失敗" などのメッセージもトースト表示される
         playBeep(520, 140);
 
         // 状態リセット＆カメラ停止
@@ -543,7 +550,6 @@ async function submitUpdate() {
 
       btnUpdate.disabled = false;
       btnUpdate.classList.remove('loading');
-      // ▼▼▼ 'G' を削除した行 ▼▼▼
       btnLabel.textContent = "データベースに登録";
       updateUIState();
     }
