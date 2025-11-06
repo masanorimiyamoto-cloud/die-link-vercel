@@ -159,8 +159,9 @@
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const AIRTABLE_ENDPOINT = "/api/airtable-update"; // Airtable APIエンドポイント
-const AIRTABLE_ENABLED = true; // ★ Airtable更新を一時停止
-const SCAN_RESOLUTION = 600; // スキャン解像度(px)。高いほど高精細だが遅くなる。600-800がおすすめ。
+const AIRTABLE_ENABLED = true; // ← Airtable更新を有効化
+const SCAN_RESOLUTION = 600;
+
 
 // ========= 状態 (State) =========
 let fixedLoc = null;
@@ -420,112 +421,135 @@ async function tick() {
 // ========= 送信 (Submission) =========
 // ★ 修正: wn を含め、レスポンスチェックを強化
 // ========= 送信 (Submission) =========
+// ========= 送信 (Submission) =========
 async function submitUpdate() {
-  if (!fixedLoc || fixedDies.size === 0) return;
-  const now = new Date(); 
-  const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  
-  const items = [...fixedDies.values()].map(d => ({ 
-    book: d.bn, 
-    wc: d.wc, 
-    wn: d.wn || "",
-    loc: fixedLoc.loc, 
-    captured_at: captured_date 
-  }));
-  
-  const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
-  
-  // Airtableの状態を表示
-  const airtableStatus = AIRTABLE_ENABLED ? "有効" : "停止中";
-  if (!confirm(`以下の内容を登録しますか？\n\n${msg}\n\n📊 Googleスプレッドシート: 登録\n🗄️ Airtable: ${airtableStatus}\n\n(成功すると画面はクリアされ、カメラは停止します)`)) return;
+    if (!fixedLoc || fixedDies.size === 0) return;
 
-  const btnLabel = $("#btnUpdateLabel");
-  btnUpdate.disabled = true; 
-  btnUpdate.classList.add('loading'); 
-  btnLabel.textContent = "登録中...";
-  
-  let rawResponse = "";
-  let success = false;
-  let message = "";
+    const now = new Date();
+    const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  try {
-    // Googleスプレッドシートへの登録
-    const r = await fetch(SHEET_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items })
-    });
+    const items = [...fixedDies.values()].map(d => ({
+      book: d.bn,
+      wc: d.wc,
+      wn: d.wn || "",
+      loc: fixedLoc.loc,
+      captured_at: captured_date
+    }));
 
-    rawResponse = await r.text();
-    const j = JSON.parse(rawResponse);
+    const msg = items.map(p => `• ${p.book}-${p.wc} ${p.wn ? '('+p.wn+')' : ''} → ${p.loc}`).join("\n");
+    const airtableStatus = AIRTABLE_ENABLED ? "有効" : "停止中";
 
-    const ok = r.ok && j && j.ok === true;
-    if (!ok) {
-      throw new Error(JSON.stringify(j));
-    }
+    if (!confirm(`以下の内容を登録しますか？\n\n${msg}\n\n📊 Googleスプレッドシート: 登録\n🗄️ Airtable: ${airtableStatus}\n\n(成功すると画面はクリアされ、カメラは停止します)`)) return;
 
-    const appended = Number(j.appendedRows || 0);
-    const updatedRows = Number(j.updatedRows || 0);
-    const updatedCells = Number(j.updatedCells || 0);
+    const btnLabel = $("#btnUpdateLabel");
+    btnUpdate.disabled = true;
+    btnUpdate.classList.add('loading');
+    btnLabel.textContent = "登録中...";
 
-    if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
-      throw new Error(`APIはokですが、追加・更新ともに0件でした。応答=${rawResponse}`);
-    }
+    let success = false;
+    let message = "";
+    let rawResponseG = "";
+    let rawResponseA = "";
 
-    // Googleスプレッドシート成功
-    success = true;
-    const parts = [];
-    if (appended > 0) parts.push(`追加 ${appended}行`);
-    if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
-    else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
-    
-    message = `Googleスプレッドシート登録完了（${parts.join(' / ') || '変更あり'}）`;
+    // 小ヘルパ：JSONを安全に解釈
+    const parseSafe = (t) => { try { return JSON.parse(t); } catch { return null; } };
+    // 小ヘルパ：Airtable応答の「成功っぽさ」を広く判定
+    const looksLikeSuccess = (resObj) => {
+      if (!resObj) return false;
+      if (resObj.success === true) return true;
+      if (resObj.ok === true) return true;
+      if (typeof resObj.updated === "number" && resObj.updated > 0) return true;
+      if (typeof resObj.count === "number" && resObj.count > 0) return true;
+      if (Array.isArray(resObj.records) && resObj.records.length > 0) return true;
+      return false;
+    };
 
-    // Airtableへの登録（設定が有効な場合のみ）
-    if (AIRTABLE_ENABLED) {
-      try {
-        const airtableResponse = await fetch(AIRTABLE_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items })
-        });
-        
-        const airtableResult = await airtableResponse.json();
-        if (airtableResponse.ok && airtableResult.success) {
-          message += " / Airtable更新完了";
-        } else {
+    try {
+      // 1) Google Sheets 登録
+      const rG = await fetch(SHEET_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ items })
+      });
+
+      rawResponseG = await rG.text();
+      const jG = parseSafe(rawResponseG);
+
+      if (!(rG.ok && jG && jG.ok === true)) {
+        throw new Error(`GoogleSheets 失敗: status=${rG.status} body=${rawResponseG}`);
+      }
+      const appended = Number(jG.appendedRows || 0);
+      const updatedRows = Number(jG.updatedRows || 0);
+      const updatedCells = Number(jG.updatedCells || 0);
+      if (appended === 0 && updatedRows === 0 && updatedCells === 0) {
+        throw new Error(`GoogleSheets 応答は ok だが、追加・更新とも 0 件: body=${rawResponseG}`);
+      }
+
+      const parts = [];
+      if (appended > 0) parts.push(`追加 ${appended}行`);
+      if (updatedRows > 0) parts.push(`更新 ${updatedRows}行`);
+      else if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
+      message = `Googleスプレッドシート登録完了（${parts.join(' / ') || '変更あり'}）`;
+
+      // 2) Airtable 登録（有効な場合のみ）
+      if (AIRTABLE_ENABLED) {
+        try {
+          // サーバの受け口に合わせて items / records 両方載せておく（互換）
+          const payload = { items, records: items };
+
+          const rA = await fetch(AIRTABLE_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          rawResponseA = await rA.text();
+          const jA = parseSafe(rawResponseA);
+
+          if (rA.ok && looksLikeSuccess(jA)) {
+            message += " / Airtable更新完了";
+          } else {
+            console.warn("Airtable 応答が成功形に合致せず:", { status: rA.status, body: rawResponseA });
+            message += " / Airtable更新スキップ";
+          }
+        } catch (airtableError) {
+          console.warn("Airtable 更新エラー:", airtableError);
           message += " / Airtable更新スキップ";
         }
-      } catch (airtableError) {
-        console.warn("Airtable update skipped:", airtableError);
-        message += " / Airtable更新スキップ";
+      } else {
+        message += " / Airtableは停止中";
       }
-    } else {
-      message += " / Airtableは停止中";
-    }
 
-  } catch (e) {
-    console.error("Submit Error:", e, "Raw Response:", rawResponse);
-    alert("登録に失敗しました: " + (e.message || e) + `\n\n[API応答]: ${rawResponse}`);
-  } finally {
-    if (success) {
-      toast(message);
-      playBeep(520, 140);
-      
-      // 状態リセット＆カメラ停止
-      fixedLoc = null;
-      fixedDies.clear();
-      renderDies();
+      success = true;
+
+    } catch (e) {
+      console.error("Submit Error:", e, { rawResponseG, rawResponseA });
+      alert(
+        "登録に失敗しました:\n" +
+        (e && e.message ? e.message : e) +
+        (rawResponseG ? `\n\n[GoogleSheets 応答]: ${rawResponseG}` : "") +
+        (rawResponseA ? `\n\n[Airtable 応答]: ${rawResponseA}` : "")
+      );
+    } finally {
+      if (success) {
+        toast(message);
+        playBeep(520, 140);
+
+        // 状態リセット＆カメラ停止
+        fixedLoc = null;
+        fixedDies.clear();
+        renderDies();
+        updateUIState();
+        stopCam();
+      }
+
+      btnUpdate.disabled = false;
+      btnUpdate.classList.remove('loading');
+      btnLabel.textContent = "データベースに登録";
       updateUIState();
-      stopCam();
     }
-    
-    btnUpdate.disabled = false;
-    btnUpdate.classList.remove('loading');
-    btnLabel.textContent = "データベースに登録";
-    updateUIState();
   }
-}
+
 
 // ========= イベントリスナー (Event Listeners) =========
 $("#btnStart").addEventListener("click", startCam);

@@ -90,9 +90,10 @@ export default async function handler(req, res) {
         updates.push({ range: `${GS_WORKSHEET_NAME}!I${rowNum}:I${rowNum}`, values: [[loc]] });
         updates.push({ range: `${GS_WORKSHEET_NAME}!J${rowNum}:J${rowNum}`, values: [[seen]] });
       } else {
-        // 追加行：A,B,C, (D,E,F,G 空白), I,J
-        appends.push([ wc, wn, book, "", "", "", "", loc, seen ]);
-      }
+        // 追加行：A,B,C, (D,E,F,G,H 空白), I(loc), J(seen)
+        // H列に対応する空の "" を1つ追加し、loc がI列、seen がJ列に来るよう修正
+        appends.push([ wc, wn, book, "", "", "", "", "", loc, seen ]);
+      }
     }
 
     // 反映

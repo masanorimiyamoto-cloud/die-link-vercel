@@ -25,7 +25,17 @@ const FIELD_WC        = process.env.FIELD_WC        || 'WorkCord';
 const FIELD_LOCATION  = process.env.FIELD_LOCATION  || 'Location';
 const FIELD_LASTSEEN  = process.env.FIELD_LASTSEEN  || 'LastSeen';
 
-type Item = { book: string; wc: string; loc: string; lastSeen?: string };
+// ▼▼▼ ここから修正 ▼▼▼
+// captured_at も受け取れるように型定義を修正
+type Item = { 
+  book: string; 
+  wc: string; 
+  wn?: string; // wn も client から送られてくるため
+  loc: string; 
+  captured_at?: string; // client が送るキー
+  lastSeen?: string;    // 既存のキー（フォールバック用）
+};
+// ▲▲▲ ここまで修正 ▲▲▲
 
 // ---- CORS（フロントが別オリジンでも叩けるように） --------------------------
 function setCORS(res: VercelResponse) {
@@ -166,7 +176,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const book = (it.book || '').trim();
       const wc   = (it.wc   || '').trim();
       const loc  = (it.loc  || '').trim();
-      const last = (it.lastSeen || '').trim();
+      // ▼▼▼ ここから修正 ▼▼▼
+      // client が送る captured_at を優先し、なければ lastSeen も見る
+      const last = (it.captured_at || it.lastSeen || '').trim();
+      // ▲▲▲ ここまで修正 ▲▲▲
 
       if (!book || !wc || !loc) continue;
 
@@ -182,7 +195,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await new Promise((r) => setTimeout(r, 140));
     }
 
-    res.status(200).send(JSON.stringify({ ok: true, updatedRecords: totalUpdated, api: API }));
+    // ▼▼▼ ここから修正 ▼▼▼
+    // client(HTML)が 'success: true' を期待しているため、レスポンスに追加
+    res.status(200).send(JSON.stringify({ 
+      ok: true, 
+      success: true, // ← これを追加
+      updatedRecords: totalUpdated, 
+      api: API 
+    }));
+    // ▲▲▲ ここまで修正 ▲▲▲
   } catch (e: any) {
     res.status(500).send(JSON.stringify({
       ok: false,
