@@ -310,58 +310,33 @@ async function fetchSheetRowByBookWc(book, wc) {
 /* ------------------------------
    Google Drive helpers (★★ 追加 ★★)
 -------------------------------- */
-async function fetchDrawingLinkFromDrive(book, wc) {
+async function fetchDrawingFromDrive(book, wc) {
   const folderId = process.env.DRIVE_FOLDER_ID;
-  if (!folderId) {
-    console.warn('環境変数 DRIVE_FOLDER_ID が未設定のため Drive 検索をスキップします');
-    return null;
-  }
-  if (!book || !wc) return null;
-
+  if (!folderId || !book || !wc) return null;
   try {
     const token = await getGoogleAccessToken();
-    
-    // 検索ファイル名 (例: "Ta-2356")
-    // 拡張子は検索に含めません
-    const searchName = `${book}-${wc}`;
-
-    // 検索クエリ:
-    // 1. 指定のフォルダ (die_master) の中にあり
-    // 2. ファイル名に "Ta-2356" を含み
-    // 3. ゴミ箱に入っていない
+    const searchName = `${book}-${wc}`; // 例: Ta-2356
     const q = `'${folderId}' in parents and name contains '${searchName}' and trashed = false`;
-
     const params = new URLSearchParams({
-      q: q,
-      fields: 'files(id, name, webViewLink)', // 閲覧リンク, ファイル名, ID
-      pageSize: 1, // 1件見つかればOK
-      orderBy: 'name', // 安定した結果を得るため
+      q, fields: 'files(id,name,mimeType,webViewLink)', pageSize: '1', orderBy: 'name'
     });
-
-    const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
-
-    const r = await fetch(url, {
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-
-    if (r.status !== 200) {
-      throw new Error(`Google Drive API エラー ${r.status}: ${await r.text()}`);
-    }
-
+    if (!r.ok) throw new Error(`Drive ${r.status} ${await r.text()}`);
     const j = await r.json();
-    if (j.files && j.files.length > 0) {
-      // 見つかったファイルの閲覧リンク (webViewLink) を返す
-      return j.files[0].webViewLink;
-    }
-    
-    // 見つからなかった場合
-    return null;
-
+    if (!j.files || j.files.length === 0) return null;
+    const f = j.files[0];
+    // プロキシURLを生成
+    const self = new URL('/api/drive-proxy', req.url).origin || new URL(req.url).origin; // EdgeでもOK
+    const proxy = `${self}/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name)}`;
+    return { id: f.id, name: f.name, mimeType: f.mimeType, proxyUrl: proxy };
   } catch (e) {
-    console.error('Google Drive 検索エラー:', e.message);
-    return null; // エラー時もメイン処理は続行
+    console.error('Drive search error:', e?.message||e);
+    return null;
   }
 }
+
 
 
 /* ------------------------------

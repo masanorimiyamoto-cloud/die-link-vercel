@@ -825,9 +825,11 @@
   }
 
   function renderResult(payload){
-    const { gs, hits=[], book, workcord, drawingLink } = payload || {};
+    // ✅ サーバーから: { ok:true, gs, hits:[], book, workcord, drawing:{ id, name, mimeType, proxyUrl } }
+    const { gs, hits = [], book, workcord, drawing } = payload || {};
 
-    if(gs){
+    // --- Google Sheets（仕様）
+    if (gs) {
       D.gsBox.innerHTML = `
         <div class="kvs">
           <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
@@ -840,27 +842,31 @@
           <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
         </div>
       `;
-    }else{
+    } else {
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    if(drawingLink){
+    // --- Google Drive（マスター図面）
+    if (drawing && drawing.proxyUrl) {
       D.driveBox.innerHTML = `
-        <a href="${esc(drawingLink)}" target="_blank" rel="noopener noreferrer" 
-           style="display:inline-block; padding: 10px 16px; background:var(--ok); color:#fff; text-decoration:none; border-radius:10px; font-weight:600;">
+        <a href="${esc(drawing.proxyUrl)}" target="_blank" rel="noopener noreferrer"
+          style="display:inline-block; padding:10px 16px; background:var(--ok); color:#fff; text-decoration:none; border-radius:10px; font-weight:600;">
           マスター図面を開く (Drive)
         </a>
+        <div class="muted" style="margin-top:6px">${esc(drawing.name || '')}</div>
       `;
-    }else{
+    } else {
       D.driveBox.innerHTML = `<div class="muted">（マスター図面なし）</div>`;
     }
 
-    if(!FEATURE.AIRTABLE_FETCH){
+    // --- Airtable（受注）ON/OFF
+    if (!FEATURE.AIRTABLE_FETCH) {
       D.atBox.innerHTML = `<div class="muted">（Airtable照会は現在OFF）</div>`;
       D.ordersTableWrap.style.display='none';
       D.ordersEmpty.style.display='block';
       D.ordersEmpty.textContent = '—';
-    }else if(hits.length>0){
+    } else if (hits.length > 0) {
+      // もっとも早い納期のレコードを概要に
       const latest = hits[0];
       const atts = (latest.attachments||[]).slice(0,4);
       const thumbs = atts.map(a=>{
@@ -886,18 +892,19 @@
         ${ (latest.attachments||[]).length>4 ? `<div class="muted" style="margin-top:4px">…他 ${(latest.attachments.length-4)} 件</div>`:'' }
       `;
 
+      // 受注テーブル（納期の早い順でサーバーが返している想定）
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
       D.ordersTbody.innerHTML = hits.map(r => {
         const a = (r.attachments||[])[0];
         let cell = '—';
-        if(a){
+        if (a) {
           const isImg = String(a.type||'').startsWith('image/');
           const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
           cell = isImg
             ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:4px"></a>`
             : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`;
-          if((r.attachments||[]).length>1) cell += ` <span class="muted">(+${r.attachments.length-1})</span>`;
+          if ((r.attachments||[]).length>1) cell += ` <span class="muted">(+${r.attachments.length-1})</span>`;
         }
         return `
           <tr>
@@ -913,17 +920,19 @@
         `;
       }).join('');
 
-    }else{
+    } else {
       D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
       D.ordersTableWrap.style.display='none';
       D.ordersEmpty.style.display='block';
       D.ordersEmpty.textContent = '—';
     }
 
-    D.result.style.display='block';
+    // パネル表示 & 入力欄同期
+    D.result.style.display = 'block';
     D.inBook.value = book || '';
     D.inWc.value   = workcord || '';
   }
+
 
   D.btnOpenHtml.addEventListener('click', async () => {
     if(!FEATURE.AIRTABLE_FETCH){ return; }
@@ -1008,7 +1017,7 @@
           } 
         }
         S.lastQueryKey=''; 
-        querySpec();
+        querySpec(); // ← サーバーから { drawing } を受け取り、renderResult が表示
       }
       ev.target.value="";
     };
