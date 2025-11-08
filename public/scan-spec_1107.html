@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>仕様照会モード｜die / order → Airtable & Google Sheets</title>
+<title>仕様照会モード｜die / order → Airtable & GSheets 219行でon/off</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
@@ -164,7 +164,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会モード｜die / order → Airtable(on/off) + Google Sheets(仕様)</h1>
+  <h1>仕様照会モード｜die / order → Airtable(on%/off) + Google Sheets(仕様)</h1>
 
   <div class="row">
     <!-- 左：カメラ -->
@@ -288,7 +288,8 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
-  const FEATURE = { AIRTABLE_FETCH: false };
+  const FEATURE = { AIRTABLE_FETCH: true };
+  
 
   const D = {
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),

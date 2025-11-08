@@ -167,13 +167,11 @@
   <h1>仕様照会モード｜die / order → Airtable(on%/off) + Google Sheets(仕様)</h1>
 
   <div class="row">
-    <!-- 左：カメラ -->
-    <div class="panel">
+        <div class="panel">
       <div class="card">
         <div class="stack" id="stack">
           <video id="video" playsinline webkit-playsinline muted></video>
-          <!-- ターゲットスコープ -->
-          <div id="targetScope" class="target-scope">
+                    <div id="targetScope" class="target-scope">
             <div class="corner-tl"></div>
             <div class="corner-tr"></div>
             <div class="corner-bl"></div>
@@ -193,8 +191,7 @@
           <span id="atState" class="badge"></span>
         </div>
 
-        <!-- 常設のターゲットスコープバー -->
-        <div class="scopebar" id="scopeBar">
+                <div class="scopebar" id="scopeBar">
           <span class="badge">Scope</span>
           <select id="selScope" class="grow" title="スキャン許可範囲">
             <option value="any">全QR</option>
@@ -210,8 +207,7 @@
         <div id="errCam" class="err" style="margin-top:6px;"></div>
       </div>
 
-      <!-- 手入力クイック照会 -->
-      <div class="card">
+            <div class="card">
         <div class="hdr">
           <div class="rowbar">
             <b>手入力で照会</b>
@@ -238,8 +234,7 @@
       </div>
     </div>
 
-    <!-- 右：結果 -->
-    <div class="panel">
+        <div class="panel">
       <div class="card">
         <div class="hdr">
           <div class="rowbar">
@@ -258,7 +253,10 @@
             <div>
               <h3>Google Sheets（仕様）</h3>
               <div id="gsBox" class="muted">—</div>
-            </div>
+            
+                              <h3 style="margin-top:16px;">Google Drive（マスター図面）</h3>
+              <div id="driveBox" class="muted">（マスター図面なし）</div>
+                          </div>
             <div>
               <h3>Airtable（受注・図面）</h3>
               <div id="atBox" class="muted">—</div>
@@ -298,6 +296,7 @@
     errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
     tBN: q('#tBN'), tWC: q('#tWC'),
     gsBox: q('#gsBox'), atBox: q('#atBox'),
+    driveBox: q('#driveBox'),
     result: q('#result'), ordersBox: q('#ordersBox'), ordersEmpty: q('#ordersEmpty'),
     ordersTableWrap: q('#ordersTableWrap'), ordersTbody: q('#ordersTbody'),
     inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
@@ -628,7 +627,6 @@
     }
     setStatus('ロック完了', 'ok');
     stopCam({keepFrame:true});
-    setStatus('ロック完了', 'ok');
   }
 
   async function detectCombined(){
@@ -827,7 +825,7 @@
   }
 
   function renderResult(payload){
-    const { gs, hits=[], book, workcord } = payload || {};
+    const { gs, hits=[], book, workcord, drawingLink } = payload || {};
 
     if(gs){
       D.gsBox.innerHTML = `
@@ -844,6 +842,17 @@
       `;
     }else{
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
+    }
+
+    if(drawingLink){
+      D.driveBox.innerHTML = `
+        <a href="${esc(drawingLink)}" target="_blank" rel="noopener noreferrer" 
+           style="display:inline-block; padding: 10px 16px; background:var(--ok); color:#fff; text-decoration:none; border-radius:10px; font-weight:600;">
+          マスター図面を開く (Drive)
+        </a>
+      `;
+    }else{
+      D.driveBox.innerHTML = `<div class="muted">（マスター図面なし）</div>`;
     }
 
     if(!FEATURE.AIRTABLE_FETCH){
