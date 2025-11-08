@@ -1,113 +1,114 @@
+// api/drive-proxy.js  ← ルート直下の api/ 配下
 export const config = { runtime: 'edge' };
 
-/* 必須: 環境変数
-   - GOOGLE_SA_JSON     : サービスアカウント JSON 全文
-   - （任意）CSRF/同一オリジン検査を使いたければ die-check の関数を流用してもOK
-*/
+/**
+ * GET /api/drive-proxy?id=<FILE_ID>&name=<download name>[&dev=1]
+ * 必須: GOOGLE_SA_JSON（サービスアカウントJSON全文）
+ * 本番は同一オリジン + CSRF(xcsrf Cookie と X-CSRF ヘッダ一致)を検証
+ * dev=1 や localhost のときは CSRF を緩和
+ */
 
-function parseCookies(req){
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+}
+
+function parseCookies(req) {
   const h = req.headers.get('cookie') || '';
   const out = {};
-  h.split(';').forEach(kv=>{
+  h.split(';').forEach(kv => {
     const [k, ...vs] = kv.split('=');
-    if(!k) return;
-    out[k.trim()] = decodeURIComponent((vs.join('=')||'').trim());
+    if (!k) return;
+    out[k.trim()] = decodeURIComponent((vs.join('=') || '').trim());
   });
   return out;
 }
-function sameOrigin(req){
-  const self = new URL(req.url).origin;
-  const origin  = req.headers.get('origin')  || '';
-  const referer = req.headers.get('referer') || '';
-  return (origin.startsWith(self) || referer.startsWith(self));
-}
-function bytesToBase64Url(bytes){
-  let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
-}
-function utf8ToBase64Url(str){
-  return bytesToBase64Url(new TextEncoder().encode(str));
-}
-function pemToArrayBuffer(pem){
-  const b64 = pem.replace(/-----[^-]+-----/g,'').replace(/\s+/g,'');
-  const raw = atob(b64);
-  const buf = new ArrayBuffer(raw.length);
-  const view = new Uint8Array(buf);
-  for(let i=0;i<raw.length;i++) view[i]=raw.charCodeAt(i);
-  return buf;
-}
-async function getGoogleAccessToken(){
-  const SA = process.env.GOOGLE_SA_JSON;
-  if(!SA) throw new Error('GOOGLE_SA_JSON missing');
-  const svc = JSON.parse(SA);
+
+function bytesToBase64Url(bytes){let b='';for(let i=0;i<bytes.length;i++)b+=String.fromCharCode(bytes[i]);return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'')}
+function utf8ToBase64Url(s){return bytesToBase64Url(new TextEncoder().encode(s))}
+function pemToArrayBuffer(pem){const b64=pem.replace(/-----[^-]+-----/g,'').replace(/\s+/g,'');const raw=atob(b64);const buf=new ArrayBuffer(raw.length);const v=new Uint8Array(buf);for(let i=0;i<raw.length;i++)v[i]=raw.charCodeAt(i);return buf}
+
+async function getGoogleAccessToken() {
+  const SA_JSON = process.env.GOOGLE_SA_JSON || '';
+  if (!SA_JSON) throw new Error('GOOGLE_SA_JSON is missing');
+  const svc = JSON.parse(SA_JSON);
   const email = svc.client_email;
   const keyPem = svc.private_key;
+
   const now = Math.floor(Date.now()/1000);
   const claim = {
     iss: email,
     scope: 'https://www.googleapis.com/auth/drive.readonly',
     aud: 'https://oauth2.googleapis.com/token',
     iat: now,
-    exp: now + 3600
+    exp: now + 3600,
   };
+
   const headerB64 = utf8ToBase64Url('{"alg":"RS256","typ":"JWT"}');
   const payloadB64 = utf8ToBase64Url(JSON.stringify(claim));
   const unsigned = `${headerB64}.${payloadB64}`;
+
   const pkcs8 = pemToArrayBuffer(keyPem);
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8', pkcs8, { name:'RSASSA-PKCS1-v1_5', hash:'SHA-256' }, false, ['sign']
-  );
-  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(unsigned));
+  const key = await crypto.subtle.importKey('pkcs8', pkcs8, { name:'RSASSA-PKCS1-v1_5', hash:'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
   const jwt = `${unsigned}.${bytesToBase64Url(new Uint8Array(sig))}`;
 
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method:'POST',
     headers:{ 'content-type':'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion:jwt })
+    body: new URLSearchParams({ grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
   });
-  if(!r.ok) throw new Error(`token ${r.status} ${await r.text()}`);
+  if (!r.ok) throw new Error(`token ${r.status} ${await r.text()}`);
   const j = await r.json();
   return j.access_token;
 }
 
-export default async function handler(req){
-  try{
-    if(req.method !== 'GET') return new Response('Method Not Allowed', { status:405 });
-    // できれば CSRF/同一オリジンチェック（必要なければ外してOK）
-    if(!sameOrigin(req)) return new Response('Forbidden', { status:403 });
-    const cookies = parseCookies(req);
-    const csrf = cookies['xcsrf'] || '';
-    const hdr = req.headers.get('x-csrf') || '';
-    if(!csrf || !hdr || csrf !== hdr) return new Response('CSRF fail', { status:403 });
+function sameOrigin(req) {
+  const self = new URL(req.url).origin;
+  const origin = req.headers.get('origin') || '';
+  const referer = req.headers.get('referer') || '';
+  return origin.startsWith(self) || referer.startsWith(self);
+}
+
+export default async function handler(req) {
+  try {
+    if (req.method !== 'GET') return json({ ok:false, error:'Method Not Allowed' }, 405);
 
     const u = new URL(req.url);
-    const id   = (u.searchParams.get('id') || '').trim();
-    const name = (u.searchParams.get('name') || 'drawing').replace(/[^\w.\- ()\[\]]/g,'_');
-    if(!id) return new Response('no id', { status:400 });
+    const dev = u.searchParams.get('dev') === '1';
+    const isLocal = u.hostname.match(/localhost|127\.0\.0\.1/);
+
+    // CSRF（dev=1 / localhost なら緩め）
+    if (!isLocal && !dev) {
+      if (!sameOrigin(req)) return json({ ok:false, error:'Origin/Referer mismatch' }, 403);
+      const cookies = parseCookies(req);
+      const csrfCookie = cookies['xcsrf'] || '';
+      const csrfHeader = req.headers.get('x-csrf') || '';
+      if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+        return json({ ok:false, error:'CSRF invalid' }, 403);
+      }
+    }
+
+    const id = (u.searchParams.get('id') || '').trim();
+    const name = (u.searchParams.get('name') || 'download.bin').trim().replace(/"/g,'');
+    if (!id) return json({ ok:false, error:'missing id' }, 400);
 
     const token = await getGoogleAccessToken();
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) {
+      const msg = await r.text().catch(()=> '');
+      return json({ ok:false, error:`drive ${r.status}`, detail: msg.slice(0,500) }, r.status);
+    }
 
-    // メタ情報（Content-Type, size 取得）
-    const metaR = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=id,name,mimeType,size`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if(!metaR.ok) return new Response(`meta ${metaR.status} ${await metaR.text()}`, { status:502 });
-    const meta = await metaR.json();
-    const mime = meta.mimeType || 'application/octet-stream';
+    const headers = new Headers(r.headers);
+    headers.set('content-disposition', `inline; filename="${name}"`);
+    headers.set('cross-origin-resource-policy', 'same-origin');
 
-    // 本体
-    const fileR = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if(!fileR.ok) return new Response(`media ${fileR.status} ${await fileR.text()}`, { status:502 });
-
-    const headers = new Headers({
-      'content-type': mime,
-      'content-disposition': `inline; filename="${encodeURIComponent(name)}"`,
-      'cache-control': 'private, max-age=60'
-    });
-    return new Response(fileR.body, { status:200, headers });
-  }catch(e){
-    return new Response(`proxy error: ${e?.message||e}`, { status:500, headers:{ 'content-type':'text/plain; charset=utf-8' } });
+    return new Response(r.body, { status: 200, headers });
+  } catch (e) {
+    return json({ ok:false, error: String(e?.message || e) }, 500);
   }
 }
