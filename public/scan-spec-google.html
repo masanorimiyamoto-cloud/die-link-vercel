@@ -154,6 +154,18 @@
 
         <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
         <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
+        <!-- === Drive 図面ビュー（追加） === -->
+        <div id="driveBox" class="card" style="margin-top:12px; display:none">
+        <div class="hdr">
+            <div class="rowbar">
+            <span class="chip">Drive</span>
+            <span id="driveStatus" class="muted">—</span>
+            </div>
+            <div class="rowbar" id="driveButtons"></div>
+        </div>
+        <div id="driveView" style="margin-top:8px"></div>
+        </div>
+        <!-- === /Drive 図面ビュー === -->
 
         <div id="result" style="margin-top:10px;display:none">
           <div class="grid">
@@ -336,6 +348,61 @@
     const wcOk   = S.target.wc ? eqi(wc,S.target.wc) : true;
     return bookOk && wcOk;
   }
+  // === Drive 図面表示（追加関数） ===
+    async function openDriveFigure(book, wc){
+    const box = document.getElementById('driveBox');
+    const stat= document.getElementById('driveStatus');
+    const view= document.getElementById('driveView');
+    const btns= document.getElementById('driveButtons');
+    if(!box || !stat || !view || !btns){
+        console.warn('Drive UI elements missing');
+        return;
+    }
+
+    box.style.display = 'block';
+    stat.textContent = '検索中…';
+    view.innerHTML = '';
+    btns.innerHTML = '';
+
+    try{
+        const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
+        const r = await fetch(url, { credentials:'same-origin' });
+        const j = await r.json().catch(()=> ({}));
+        if(!r.ok || j.ok!==true){
+        throw new Error(j?.error || `HTTP ${r.status}`);
+        }
+        if((j.found||0)===0){
+        stat.textContent = '一致ファイルなし';
+        return;
+        }
+
+        const cands = Array.isArray(j.candidates) ? j.candidates : [{ id:j.fileId, name:j.fileName }];
+        const primary = cands[0];
+        const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
+        const src = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name)}`;
+
+        if(isPdf){
+        view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+        }else{
+        view.innerHTML = `<img src="${src}" alt="${primary.name}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+        }
+
+        btns.innerHTML = cands.map((f,i)=>{
+        const isP = i===0;
+        const ext = (f.name||'').split('.').pop()?.toUpperCase() || '';
+        const lab = `${isP?'★ ':''}${f.name} (${ext})`;
+        const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name)}`;
+        return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${lab}</a>`;
+        }).join(' ');
+
+        stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name}）`;
+    }catch(e){
+        stat.textContent = `NG: ${e?.message||e}`;
+        view.innerHTML = '';
+        btns.innerHTML = '';
+    }
+    }
+    // === /Drive 図面表示 ===
 
   // overlay & scope box
   function drawBox(points, color, solid=true){
@@ -499,9 +566,11 @@
     // 手入力欄へ反映
     D.inBook.value = book || '';
     D.inWc.value   = workcord || '';
+    // ★ 追加（Drive 図面表示を起動）
+    openDriveFigure(book, workcord);
   }
 
-  // ====== Google Drive 図面ビュー ======
+  
   // ====== Google Drive 図面ビュー ======
     async function driveOpen(){
     const book = S.current.book, wc = S.current.wc;
