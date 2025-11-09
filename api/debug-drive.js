@@ -1,7 +1,7 @@
 // api/debug-drive.js
-import { google } from 'googleapis';
+const { google } = require('googleapis');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     console.log('=== GOOGLE DRIVE DEBUG START ===');
     

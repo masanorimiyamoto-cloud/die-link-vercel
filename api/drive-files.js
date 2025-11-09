@@ -1,7 +1,7 @@
 // api/drive-files.js
-import driveService from '../lib/google-drive.js';
+const driveService = require('../lib/google-drive');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ 
       success: false, 
