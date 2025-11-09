@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "die-link-vercel",
   "version": "1.0.0",
   "private": true,
@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vercel dev"
   },
-  "engines": { 
-    "node": "20.x" 
+  "engines": {
+    "node": "20.x"
   }
 }
