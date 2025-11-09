@@ -23,114 +23,143 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Google Drive マスター図面ビューア（Drive-only）</h1>
+<!-- ▼ ここからフォーム＆ボタン一式（置き換え） ▼ -->
+<div class="card" style="max-width:720px;margin:0 auto 16px">
+  <h2 style="margin:0 0 10px;">Google Drive 図面ビューア（Airtable不使用）</h2>
+  <form id="driveForm">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <label>Book:
+        <input id="book" type="text" placeholder="例: Ta" required
+               style="padding:8px 10px;border:1px solid #ccc;border-radius:8px">
+      </label>
+      <label>WC:
+        <input id="wc" type="text" placeholder="例: 9892" required
+               style="padding:8px 10px;border:1px solid #ccc;border-radius:8px">
+      </label>
+      <label title="本番でCSRFを避けるための緩和フラグ">
+        <input id="dev" type="checkbox" checked> dev=1
+      </label>
 
-  <div class="card">
-    <div class="row" style="justify-content:space-between">
-      <div class="row">
-        <label>Book: <input type="text" id="inBook" value="Ta" placeholder="例: Ta"></label>
-        <label>WC: <input type="text" id="inWc" value="9892" placeholder="例: 9892"></label>
-      </div>
-      <div class="row">
-        <button id="btnOpen" class="primary">Drive 図面を開く（proxy）</button>
-        <button id="btnJson">die-check(JSON)を表示</button>
-      </div>
+      <button id="btnOpen" type="button"
+              style="padding:10px 16px;border-radius:10px;border:1px solid #1c7ed6;background:#1c7ed6;color:#fff;font-weight:700;cursor:pointer">
+        図面を開く
+      </button>
     </div>
-    <div class="hint" style="margin-top:10px">
-      ※ サーバー側は既存の <code>/api/die-check</code> と <code>/api/drive-proxy</code> を使用します。<br>
-      ※ Vercel 環境変数に <b>GOOGLE_SA_JSON</b> と <b>DRIVE_FOLDER_ID</b> が設定されている前提です。Airtable は参照しません。
-    </div>
-  </div>
-
-  <div class="card" id="boxDrive" style="display:none">
-    <h3 style="margin:0 0 10px">Drive から取得</h3>
-    <div class="kvs" style="margin-bottom:8px">
-      <b>webViewLink</b><div id="drvLink" class="muted">—</div>
-      <b>fileId</b><div id="drvId" class="muted">—</div>
-      <b>proxy URL</b><div id="drvProxy" class="muted">—</div>
-    </div>
-    <div class="row" style="gap:12px;margin:8px 0">
-      <a id="aOpenView" href="#" target="_blank" rel="noopener noreferrer">
-        <button>Google Drive（webView）を開く</button>
-      </a>
-      <a id="aOpenProxy" href="#" target="_blank" rel="noopener noreferrer">
-        <button class="primary">proxy 経由で開く/保存</button>
-      </a>
-    </div>
-    <div id="imgWrap" style="margin-top:10px;display:none">
-      <div class="muted" style="margin-bottom:6px">画像プレビュー（proxy経由）</div>
-      <img id="imgPrev" class="preview" alt="">
-    </div>
-  </div>
-
-  <div class="card">
-    <h3 style="margin:0 0 10px">die-check 応答(JSON)</h3>
-    <pre id="out" class="out">—</pre>
-  </div>
+  </form>
+  <div id="msg" style="margin-top:10px;color:#333;font-weight:600"></div>
 </div>
 
+
+
+
 <script>
-async function go(ev){
-  ev.preventDefault();
-  const book = document.getElementById('book').value.trim();
-  const wc   = document.getElementById('wc').value.trim();
-  const dev  = document.getElementById('dev').checked ? '1':'0';
-  const msg  = document.getElementById('msg');
-  const out  = document.getElementById('out');
-  msg.textContent = '';
-  out.innerHTML = '';
+"use strict";
 
-  if(!book || !wc){
-    alert('BookとWorkCordを入力してください');
-    return;
-  }
+(function(){
+  // まずスクリプトが読めているかを確認
+  console.log("[google-drive-spec] script loaded");
 
-  try {
-    // === Step 1: Driveフォルダ内でファイル検索 ===
-    msg.textContent = '🔍 Google Drive内を検索しています...';
-    const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`);
-    const j = await r.json();
+  // DOM 構築完了後にイベントを張る
+  document.addEventListener("DOMContentLoaded", () => {
+    console.log("[google-drive-spec] DOM ready");
+    const btn = document.getElementById("btnOpen");
+    const form = document.getElementById("driveForm");
 
-    if(!j.ok || !j.fileId){
-      msg.textContent = '❌ Google Driveに該当ファイルが見つかりません';
-      out.innerHTML = `<pre>${JSON.stringify(j, null, 2)}</pre>`;
+    if (btn) {
+      btn.addEventListener("click", go);
+    } else {
+      console.warn("btnOpen が見つかりません。IDのスペルを確認してください。");
+    }
+
+    if (form) {
+      form.addEventListener("submit", (e) => { e.preventDefault(); go(e); });
+    }
+  });
+
+  async function go(ev){
+    ev && ev.preventDefault && ev.preventDefault();
+
+    const bookEl = document.getElementById("book");
+    const wcEl   = document.getElementById("wc");
+    const devEl  = document.getElementById("dev");
+    const msgEl  = document.getElementById("msg");
+    const outEl  = document.getElementById("out");
+
+    if (!bookEl || !wcEl || !devEl || !msgEl || !outEl) {
+      alert("必須要素が見つかりません（ID名のズレを確認）");
       return;
     }
 
-    const fileId = j.fileId;
-    const fileName = j.fileName;
-    msg.textContent = `✅ ファイル見つかりました: ${fileName}`;
+    const book = bookEl.value.trim();
+    const wc   = wcEl.value.trim();
+    const dev  = devEl.checked ? "1" : "0";
 
-    // === Step 2: drive-proxyから実体を取得 ===
-    msg.textContent += '｜画像を取得中...';
-    const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`);
+    msgEl.textContent = "";
+    outEl.innerHTML = "";
 
-    if(!rr.ok){
-      msg.textContent = '❌ Driveからの取得に失敗しました (' + rr.status + ')';
-      out.innerHTML = `<pre>${await rr.text()}</pre>`;
+    if(!book || !wc){
+      alert("Book と WorkCord を入力してください");
       return;
     }
 
-    const blob = await rr.blob();
-    const objUrl = URL.createObjectURL(blob);
+    try {
+      // Step1: Drive 検索
+      msgEl.textContent = "🔍 Google Drive 内を検索しています...";
+      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`, { cache: "no-store" });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`);
+      }
+      const j = await r.json();
+      console.log("[drive-find] response:", j);
 
-    if(blob.type.startsWith('image/')){
-      out.innerHTML = `<img src="${objUrl}" style="max-width:100%;height:auto;border:1px solid #ccc;margin-top:10px;">`;
-    }else if(blob.type === 'application/pdf'){
-      out.innerHTML = `<iframe src="${objUrl}" style="width:100%;height:70vh;border:1px solid #ccc;margin-top:10px;"></iframe>`;
-    }else{
-      out.innerHTML = `<a href="${objUrl}" download="${fileName}">ダウンロード (${blob.type})</a>`;
+      if(!j.ok || !j.fileId){
+        msgEl.textContent = "❌ Google Drive に該当ファイルが見つかりません";
+        outEl.innerHTML = `<pre style="white-space:pre-wrap">${escapeHtml(JSON.stringify(j, null, 2))}</pre>`;
+        return;
+      }
+
+      const fileId   = j.fileId;
+      const fileName = j.fileName || `${book}-${wc}.bin`;
+      msgEl.textContent = `✅ 見つかりました: ${fileName}｜取得中...`;
+
+      // Step2: Drive Proxy で実体取得
+      const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache: "no-store" });
+      if(!rr.ok){
+        const t = await rr.text();
+        throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`);
+      }
+
+      const blob = await rr.blob();
+      const objUrl = URL.createObjectURL(blob);
+      console.log("[drive-proxy] blob:", blob.type, blob.size);
+
+      // 画像 or PDF or その他で表示切替
+      if (blob.type.startsWith("image/")) {
+        outEl.innerHTML = `<img src="${objUrl}" alt="${escapeHtml(fileName)}"
+            style="max-width:100%;height:auto;border:1px solid #ccc;border-radius:8px">`;
+      } else if (blob.type === "application/pdf") {
+        outEl.innerHTML = `<iframe src="${objUrl}" style="width:100%;height:75vh;border:1px solid #ccc;border-radius:8px"></iframe>`;
+      } else {
+        outEl.innerHTML = `<a href="${objUrl}" download="${escapeHtml(fileName)}">ダウンロード (${escapeHtml(blob.type)})</a>`;
+      }
+      msgEl.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
+
+    } catch (e) {
+      console.error(e);
+      const msgEl = document.getElementById("msg");
+      const outEl = document.getElementById("out");
+      if(msgEl) msgEl.textContent = "⚠️ エラー: " + (e.message || e);
+      if(outEl) outEl.innerHTML = "";
     }
-
-    msg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
-
-  } catch (e) {
-    msg.textContent = '⚠️ エラー: ' + e.message;
-    console.error(e);
   }
-}
+
+  function escapeHtml(s){
+    return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+  }
+})();
 </script>
+
 
 
 </body>
