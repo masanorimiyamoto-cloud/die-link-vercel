@@ -554,6 +554,33 @@ async function openDriveFigure(book, wc){
     S.current.book=String(book||'').trim(); S.current.wc=String(wc||'').trim();
     D.tBN.textContent=S.current.book||'-'; D.tWC.textContent=S.current.wc||'-';
   }
+  // 追加ヘルパ: 指定フォルダ配下を幅優先でたどってファイル候補を探す
+    async function findInTree({ token, rootId, baseName, exts = ['png','jpeg','jpg','pdf'], maxFolders = 200 }) {
+    const queue = [rootId];
+    const hits = [];
+    const extQ = exts.map(e => `name='${baseName}.${e}'`).join(' or ');
+
+    while (queue.length && hits.length === 0 && --maxFolders >= 0) {
+        const folderId = queue.shift();
+
+        // 1) 直下の候補ファイル
+        const qFiles = `(${extQ}) and '${folderId}' in parents and trashed=false`;
+        const rf = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qFiles)}&fields=files(id,name,mimeType)`, {
+        headers: { Authorization: `Bearer ${token}` }
+        });
+        const jf = await rf.json();
+        if (jf.files?.length) { hits.push(...jf.files); break; }
+
+        // 2) サブフォルダをキューへ
+        const qFolders = `mimeType='application/vnd.google-apps.folder' and '${folderId}' in parents and trashed=false`;
+        const rd = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qFolders)}&fields=files(id)`, {
+        headers: { Authorization: `Bearer ${token}` }
+        });
+        const jd = await rd.json();
+        jd.files?.forEach(f => queue.push(f.id));
+    }
+    return hits;
+    }
 
   // ====== 仕様照会（GSheetsのみ） ======
   async function querySpec(){
