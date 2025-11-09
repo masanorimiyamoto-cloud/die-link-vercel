@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<style>
+  :root{
+    --ok:#1c7ed6; --ng:#e03131; --info:#0b7285;
+    --tx:#212529; --sub:#6c757d; --bg:#f8f9fa; --bd:#dee2e6; --soft:#ffffff;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px}
+  h1{margin:0 0 20px;font-size:clamp(18px,2.8vw,24px);font-weight:700;color:#111}
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .panel{flex:1 1 420px;min-width:340px}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04);padding:16px 20px;margin-bottom:12px}
+  .card:hover{box-shadow:0 6px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04)}
+  .stack{position:relative;border:1px solid var(--bd);border-radius:14px;overflow:hidden;background:#000}
+  video{display:block;width:100%;max-width:580px;background:#000}
+  canvas{position:absolute;inset:0;pointer-events:none}
+  #freeze{z-index:1; display:none;}
+  #overlay{z-index:2;}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600;transition:.2s}
+  button:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.05)}
+  button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+  button.primary:not(:disabled):hover{filter:brightness(110%);box-shadow:0 4px 10px rgba(28,126,214,.25)}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--bd);background:#fff}
+  .chip.info{background:#e3fafc;color:#0b7285;border-color:#99e9f2}
+  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
+  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
+  .muted{color:#5a636c;font-size:13px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
+  .kvs b{color:#333}
+  .err{padding:10px 14px;border-radius:10px;background:#fff5f5;color:#b00020;border:1px solid #ffc9c9;font-weight:500;white-space:pre-wrap}
+  .hint{padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fcfcff}
+  .badge{display:inline-block;padding:4px 8px;border-radius:8px;border:1px solid var(--bd);background:#f1f3f5;font-size:12px}
+
+  .tbl{width:100%;border-collapse:collapse;font-size:14px}
+  .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
+  .tbl thead th{background:#f8f9fb}
+
+  /* スコープバー */
+  .scopebar{position: sticky; top: 8px; z-index: 5; display:flex; gap:8px; align-items:center; flex-wrap:wrap; background: var(--soft);
+    margin-top:10px; padding:8px 10px; border:1px solid var(--bd); border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.05);}
+  .scopebar .grow{flex:1 1 auto; min-width:180px}
+
+  /* ターゲットスコープ */
+  .target-scope {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; height: 65%;
+    border: 3px solid rgba(28, 126, 214, 0.6); border-radius: 12px; pointer-events: none; z-index: 3;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3); display: none;}
+  .target-scope .corner-tl,.target-scope .corner-tr,.target-scope .corner-bl,.target-scope .corner-br{
+    position: absolute; width: 20px; height: 20px; border: 3px solid rgba(28, 126, 214, 0.8);}
+  .target-scope .corner-tl{top:-3px;left:-3px;border-right:none;border-bottom:none;border-radius:4px 0 0 0}
+  .target-scope .corner-tr{top:-3px;right:-3px;border-left:none;border-bottom:none;border-radius:0 4px 0 0}
+  .target-scope .corner-bl{bottom:-3px;left:-3px;border-right:none;border-top:none;border-radius:0 0 0 4px}
+  .target-scope .corner-br{bottom:-3px;right:-3px;border-left:none;border-top:none;border-radius:0 0 4px 0}
+  .target-scope .scan-line{position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,rgba(28,126,214,.8),transparent);animation:scan 2s linear infinite}
+  @keyframes scan {0%{top:0}100%{top:100%}}
+
+  .swipe-hint{position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: rgba(33,37,41,.92); color: #fff; padding: 10px 14px; border-radius: 999px;
+    font-size: 14px; box-shadow: 0 6px 16px rgba(0,0,0,.25); z-index: 9999; animation: hint-pop 1.6s ease-out forwards;}
+  @keyframes hint-pop{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(6px)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（Airtable不使用）</h1>
+
+  <div class="row">
+    <!-- 左：カメラ -->
+    <div class="panel">
+      <div class="card">
+        <div class="stack" id="stack">
+          <video id="video" playsinline webkit-playsinline muted></video>
+          <div id="targetScope" class="target-scope">
+            <div class="corner-tl"></div><div class="corner-tr"></div>
+            <div class="corner-bl"></div><div class="corner-br"></div>
+            <div class="scan-line"></div>
+          </div>
+          <canvas id="freeze"></canvas>
+          <canvas id="overlay"></canvas>
+        </div>
+
+        <div class="controls">
+          <button id="btnStart" class="primary">カメラ開始</button>
+          <button id="btnStop" disabled>停止</button>
+          <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none"></label>
+          <span id="detectorInfo" class="badge"></span>
+          <span id="scanStatus" class="chip info">待機中</span>
+          <span id="atState" class="badge"></span>
+        </div>
+
+        <!-- 常設のターゲットスコープバー -->
+        <div class="scopebar" id="scopeBar">
+          <span class="badge">Scope</span>
+          <select id="selScope" class="grow" title="スキャン許可範囲">
+            <option value="any">全QR</option>
+            <option value="book">Book限定</option>
+            <option value="exact">Book+WC一致</option>
+          </select>
+          <button id="btnUseCurrent" title="現在のターゲット(BN/WC)を固定">現在値を固定</button>
+          <button id="btnClearTarget" title="ターゲット解除（Scopeは維持）">解除</button>
+          <span id="targetBadge" class="badge" title="現在のターゲット / スコープ状態">🎯 なし / 全QR</span>
+        </div>
+
+        <div id="scanMsg" class="muted" style="margin-top:6px;">order / die どちらでもかざすと自動照会します。</div>
+        <div id="errCam" class="err" style="margin-top:6px;"></div>
+      </div>
+
+      <!-- 手入力クイック照会 -->
+      <div class="card">
+        <div class="hdr" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+          <div class="rowbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <b>手入力で照会</b><span class="muted">（Book と WC を指定）</span>
+          </div>
+          <button id="btnQuery" class="primary">照会</button>
+        </div>
+        <div class="rowbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <label>Book: <input type="text" id="inBook" placeholder="例: Ta"></label>
+          <label>WC: <input type="text" id="inWc" placeholder="例: 2356"></label>
+          <button id="btnFillTarget">スキャン中の値で埋める</button>
+          <button id="btnSetTarget" title="入力値をターゲットに固定（スコープ適用）">入力をターゲット</button>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="csrfStatus" class="badge">CSRF: 検査中…</span>
+          <button id="btnEnableCsrf">CSRFを有効化</button>
+        </div>
+        <div id="csrfWarn" class="hint" style="display:none;margin-top:10px;color:#b07000;">
+          ⚠️ CSRF Cookie (<code>xcsrf</code>) が見つかりません。<br>
+          下の「CSRFを有効化」を押すか、社内ページからセッション開始してください。
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：結果 -->
+    <div class="panel">
+      <div class="card">
+        <div class="hdr" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+          <div class="rowbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span class="chip">ターゲット</span>
+            <span>Book: <b id="tBN">-</b> / WC: <b id="tWC">-</b></span>
+          </div>
+          <div class="rowbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <!-- Airtable連動は使わないのでHTMLボタンは残すだけ -->
+            <button id="btnOpenHtml" title="Airtable未使用のため無効" disabled>詳細を別タブ(HTML)</button>
+          </div>
+        </div>
+
+        <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
+        <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
+
+        <div id="result" style="margin-top:10px;display:none">
+          <div class="grid">
+            <div>
+              <h3>Google Sheets（仕様）</h3>
+              <div id="gsBox" class="muted">—</div>
+            </div>
+            <div>
+              <h3>Google Drive（図面）</h3>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 10px">
+                <label class="badge" title="CSRF検査などを緩和（同一オリジン前提）"><input id="dev" type="checkbox" checked> dev=1</label>
+                <button id="btnDriveOpen" class="primary">Driveで図面を開く</button>
+                <span id="driveState" class="badge">Drive: Ready</span>
+              </div>
+              <div id="driveMsg" class="muted" style="margin:6px 0 10px">Book/WC を指定して「Driveで図面を開く」を押してください。</div>
+              <div id="driveOut"></div>
+            </div>
+          </div>
+
+          <!-- 受注表はAirtable無効なので非表示のまま -->
+          <div id="ordersBox" style="margin-top:12px; display:none">
+            <h3>関連受注（納期の早い順）</h3>
+            <div id="ordersEmpty" class="muted">—</div>
+            <div id="ordersTableWrap" style="display:none">
+              <table class="tbl" id="ordersTbl">
+                <thead>
+                  <tr>
+                    <th>納期</th><th>品名</th><th>数量</th><th>Material</th><th>Paper</th><th>Cut</th><th>画像</th><th>Kname</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div><!-- /result -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+<script>
+(() => {
+  // ★ Airtable は使わない（Google Sheets + Google Drive のみ）
+  const FEATURE = { AIRTABLE_FETCH: false };
+
+  const D = {
+    video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
+    btnStart: q('#btnStart'), btnStop: q('#btnStop'), fileTest: q('#fileTest'),
+    detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'), scanMsg: q('#scanMsg'),
+    errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
+    tBN: q('#tBN'), tWC: q('#tWC'),
+    gsBox: q('#gsBox'),
+    result: q('#result'),
+    // 手入力/CSRF
+    inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
+    btnOpenHtml: q('#btnOpenHtml'),
+    csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
+    atState: q('#atState'),
+    // scope bar
+    selScope: q('#selScope'), btnSetTarget: q('#btnSetTarget'), btnUseCurrent: q('#btnUseCurrent'), btnClearTarget: q('#btnClearTarget'),
+    targetBadge: q('#targetBadge'),
+    // target scope
+    targetScope: q('#targetScope'),
+    // Drive 統合
+    dev: q('#dev'),
+    btnDriveOpen: q('#btnDriveOpen'),
+    driveMsg: q('#driveMsg'),
+    driveOut: q('#driveOut'),
+    driveState: q('#driveState'),
+  };
+
+  const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
+  const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
+
+  // Airtable無効の表示
+  if(D.atState){ D.atState.textContent = 'AT:OFF'; }
+
+  // 検出・状態
+  const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
+  const S = {
+    stream: null, rafId: null,
+    detector: null, useBarcodeDetector: ('BarcodeDetector' in window),
+    current: { book:'', wc:'' }, lastQueryKey: '',
+    csrf: '', locked: false, scope: 'any', target: { book:'', wc:'' }
+  };
+
+  // util
+  function q(s){ return document.querySelector(s); }
+  function readCookie(name){ const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
+  function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
+  function eqi(a,b){ return String(a||'').trim().toLowerCase() === String(b||'').trim().toLowerCase(); }
+  const dieKey = (bn,wc)=> `${(bn||'').toLowerCase()}@@${(wc||'').toLowerCase()}`;
+  function setStatus(text, kind='info'){ D.scanStatus.textContent=text; D.scanStatus.className=`chip ${kind}`; }
+  function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // CSRF（/api/die-check 用：GSheetsは die-check 経由）
+  function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
+  async function requestSession(){ const url = isLocal() ? '/api/session?dev=1' : '/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); }
+  async function ensureCsrf(){
+    let t = readCookie('xcsrf');
+    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
+    if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
+    S.csrf = t;
+    D.csrfStatus.textContent = 'CSRF: 有効';
+    D.csrfStatus.style.background = '#e7f5ff';
+    D.csrfStatus.style.color = '#1c7ed6';
+    D.csrfWarn.style.display = 'none';
+  }
+  document.addEventListener('DOMContentLoaded', async () => {
+    try{ await ensureCsrf(); }
+    catch(e){
+      D.csrfStatus.textContent = 'CSRF: 無効（未取得）';
+      D.csrfStatus.style.background = '#fff5f5';
+      D.csrfStatus.style.color = '#e03131';
+      D.csrfWarn.style.display = 'block';
+    }
+  });
+  D.btnEnableCsrf.addEventListener('click', async () => {
+    try{ await requestSession(); await ensureCsrf(); alert('CSRFを有効化しました'); }
+    catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
+  });
+
+  // QR判定
+  function classify(raw){
+    const t = normHyphen(raw);
+    if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
+    if(/^die-/i.test(t)) return 'die';
+    try{ const u = new URL(t);
+      if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
+      if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
+    }catch{}
+    return 'other';
+  }
+  function parseOrder(raw){
+    const t = normHyphen(raw);
+    try{ const u=new URL(t);
+      if(/order[_-]?plain/i.test(u.pathname+u.search)){
+        const book=(u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
+        const wc  =(u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
+        if(book||wc) return { bn:book, wc:wc };
+      }
+    }catch{}
+    const m=/order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t)||/^order-([^-\n]+)-([^-]+)/i.exec(t);
+    return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
+  }
+  function parseDie(raw){
+    const t = normHyphen(raw);
+    const m = /^die-([^-\n]+)-([^-]+)/i.exec(t);
+    if(m) return { bn:m[1].trim(), wc:m[2].trim() };
+    try{ const u=new URL(t); const book=(u.searchParams.get('book')||'').trim(); const wc=(u.searchParams.get('wc')||'').trim(); if(book||wc) return { bn:book, wc:wc }; }catch{}
+    return null;
+  }
+
+  // scope / target
+  function updateTargetBadge(){
+    const bn = S.target.book || 'なし';
+    const wc = S.target.book ? (S.target.wc || '*') : '—';
+    const scopeLabel = S.scope==='any' ? '全QR' : (S.scope==='book' ? 'Book限定' : 'Book+WC一致');
+    D.targetBadge.textContent = `🎯 ${bn}${S.target.book ? (' / ' + wc) : ''} ｜ ${scopeLabel}`;
+  }
+  function setScope(v){
+    S.scope = v==='book' ? 'book' : (v==='exact' ? 'exact' : 'any');
+    updateTargetBadge(); updateTargetScopeVisibility();
+    setStatus(`スコープ: ${D.selScope.options[D.selScope.selectedIndex].text}`, 'info');
+  }
+  function setTargetScope(book, wc){
+    S.target.book = String(book||'').trim();
+    S.target.wc   = String(wc||'').trim();
+    updateTargetBadge();
+  }
+  function clearTargetScope(){ S.target = { book:'', wc:'' }; updateTargetBadge(); setStatus('ターゲット解除','info'); }
+  function withinScope(kind, parsed){
+    if(S.scope==='any') return true;
+    if(!S.target.book){ setStatus('スコープ有効ですがターゲット未設定','ng'); return false; }
+    const bn=(parsed?.bn||'').trim(); const wc=(parsed?.wc||'').trim();
+    if(!bn && !wc) return false;
+    if(S.scope==='book') return eqi(bn,S.target.book);
+    const bookOk = eqi(bn,S.target.book);
+    const wcOk   = S.target.wc ? eqi(wc,S.target.wc) : true;
+    return bookOk && wcOk;
+  }
+
+  // overlay & scope box
+  function drawBox(points, color, solid=true){
+    if(!points || points.length<4) return;
+    ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+  }
+  function fitOverlay(){
+    if(!D.video.videoWidth) return;
+    D.overlay.width=D.video.videoWidth; D.overlay.height=D.video.videoHeight;
+    D.overlay.style.width=D.video.clientWidth+'px'; D.overlay.style.height=D.video.clientHeight+'px';
+    D.freeze.width=D.video.videoWidth; D.freeze.height=D.video.videoHeight;
+    D.freeze.style.width=D.video.clientWidth+'px'; D.freeze.style.height=D.video.clientHeight+'px';
+  }
+  function updateTargetScopeVisibility() {
+    if (S.scope === 'any') {
+      D.targetScope.style.display = 'none';
+    } else {
+      D.targetScope.style.display = 'block';
+      const color = S.scope === 'book' ? 'rgba(245, 159, 0, 0.6)' : 'rgba(32, 201, 151, 0.6)';
+      D.targetScope.style.borderColor = color;
+      D.targetScope.querySelectorAll('[class*="corner-"]').forEach(c => c.style.borderColor = color);
+    }
+  }
+
+  // camera
+  function reallyStopStreamTracks(){ if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} } S.stream=null; }
+  function stopCam({keepFrame=false}={}){ if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
+    if(!keepFrame){ ctx.clearRect(0,0,D.overlay.width,D.overlay.height); D.freeze.style.display='none'; D.video.style.visibility='visible'; }
+    reallyStopStreamTracks(); D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中','info'); }
+  async function startCam(){
+    D.freeze.style.display='none'; D.video.style.visibility='visible'; S.locked=false; stopCam();
+    D.errCam.textContent=''; try{
+      S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1280,min:640,max:1920}, height:{ideal:720,min:480,max:1080}, advanced:[{focusMode:'continuous'}] }, audio:false });
+      D.video.srcObject=S.stream; await D.video.play(); D.btnStart.disabled=true; D.btnStop.disabled=false;
+      if(S.useBarcodeDetector){ try{ const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[]; if(!fmts || !fmts.includes('qr_code')) throw 0; S.detector=new BarcodeDetector({formats:['qr_code']}); }catch{ S.useBarcodeDetector=false; S.detector=null; } }
+      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
+      setStatus('探索中…','info'); updateTargetScopeVisibility(); fitOverlay(); tick();
+    }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
+  }
+  function freezeFrameAndStopCam(){
+    try{
+      fitOverlay(); freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height); freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
+      D.freeze.style.display='block'; D.video.style.visibility='hidden'; D.targetScope.style.display='none';
+      ctx.save(); ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(0,0,D.overlay.width,D.overlay.height);
+      ctx.font='bold 80px sans-serif'; ctx.fillStyle='rgba(255,255,255,.85)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=10; ctx.fillText('🔒', D.overlay.width/2, D.overlay.height/2); ctx.restore();
+    }catch(e){}
+    setStatus('ロック完了','ok'); stopCam({keepFrame:true}); setStatus('ロック完了','ok');
+  }
+
+  // detection
+  async function detectCombined(){
+    if(!D.video.videoWidth) return [];
+    const scale=Math.max(1,Number(CFG.DOWNSCALE)||1);
+    const srcW=D.video.videoWidth, srcH=D.video.videoHeight; const w=Math.floor(srcW/scale), h=Math.floor(srcH/scale);
+    const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h; const tctx=tmp.getContext('2d',{willReadFrequently:true});
+    tctx.imageSmoothingEnabled=false; tctx.drawImage(D.video,0,0,w,h);
+    const all=new Map();
+    if(S.useBarcodeDetector && S.detector){ try{ const codes=await S.detector.detect(tmp); for(const c of codes){ const raw=(c.rawValue||'').trim();
+      if(raw && !all.has(raw)) all.set(raw,{ rawValue:raw, cornerPoints:c.cornerPoints?.map(p=>({x:p.x*scale,y:p.y*scale}))||null }); }
+    }catch{ S.useBarcodeDetector=false; S.detector=null; } }
+    const img=tctx.getImageData(0,0,w,h); const masked=new Uint8ClampedArray(img.data);
+    for(let k=0;k<CFG.JSQR_MAX_LOOPS;k++){
+      const hit=jsQR(masked,w,h,{inversionAttempts:'attemptBoth'}); if(!hit) break;
+      const raw=(hit.data||'').trim();
+      if(raw && !all.has(raw)){
+        const pts=[hit.location.topLeftCorner,hit.location.topRightCorner,hit.location.bottomRightCorner,hit.location.bottomLeftCorner].map(p=>({x:p.x*scale,y:p.y*scale}));
+        all.set(raw,{rawValue:raw,cornerPoints:pts});
+      }
+      const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+      const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x))); const maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
+      const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y))); const maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
+      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
+    }
+    return Array.from(all.values());
+  }
+  async function tick(){
+    if(!S.stream) return;
+    if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
+      fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      const ds = await detectCombined(); applyDetections(ds);
+    }
+    S.rafId = requestAnimationFrame(tick);
+  }
+
+  function showToastNear(text,pts){ if(!pts || pts.length<2) return;
+    const el=document.createElement('div'); el.className='toast'; el.textContent=text;
+    const x=(pts[0].x+pts[1].x)/2, y=Math.min(pts[0].y,pts[1].y);
+    const rx=x/D.overlay.width*D.video.clientWidth; const ry=y/D.overlay.height*D.video.clientHeight;
+    el.style.left=rx+'px'; el.style.top=ry+'px'; D.stack.appendChild(el); setTimeout(()=>el.remove(),1200);
+  }
+
+  function applyDetections(ds){
+    if(S.locked) return;
+    for(const d of ds){
+      const raw=(d.rawValue||'').trim(); if(!raw) continue;
+      const kind=classify(raw); const pts=d.cornerPoints;
+      if(kind==='order'){
+        const od=parseOrder(raw);
+        if(od && (od.bn||od.wc)){
+          if(!withinScope('order',od)){ drawBox(pts,'#e03131',false); showToastNear(`スコープ外: ${od.bn||'-'}/${od.wc||'-'}`,pts); continue; }
+          drawBox(pts,'#f59f00',true); showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`,pts);
+          setTarget(od.bn||'',od.wc||''); S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); return;
+        }else{ drawBox(pts,'#e03131',false); showToastNear('order(不明形式)',pts); }
+      }else if(kind==='die'){
+        const p=parseDie(raw);
+        if(p && (p.bn||p.wc)){
+          if(!withinScope('die',p)){ drawBox(pts,'#e03131',false); showToastNear(`スコープ外: ${p.bn||'-'}/${p.wc||'-'}`,pts); continue; }
+          drawBox(pts,'#1c7ed6',true); showToastNear('ロック｜ターゲットを設定しました',pts);
+          setTarget(p.bn||'',p.wc||''); if(!S.locked){ S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); }
+          return;
+        }else{ drawBox(pts,'#e03131',false); showToastNear('die(不明形式)',pts); }
+      }else{ drawBox(pts,'#e03131',false); showToastNear('別QR',pts); }
+    }
+  }
+
+  function setTarget(book, wc){
+    S.current.book=String(book||'').trim(); S.current.wc=String(wc||'').trim();
+    D.tBN.textContent=S.current.book||'-'; D.tWC.textContent=S.current.wc||'-';
+  }
+
+  // ====== 仕様照会（GSheetsのみ） ======
+  async function querySpec(){
+    const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
+    const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
+    D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='block'; D.result.style.display='none';
+    try{
+      if(!S.csrf){ await ensureCsrf(); }
+      const r = await fetch('/api/die-check', {
+        method:'POST', credentials:'same-origin',
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
+        body: JSON.stringify({ book, wc, json:true, limit: 0, noAirtable: true, gsOnly: true })
+      });
+      const txt = await r.text(); let j={};
+      try{ j=JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+      if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
+      renderResult(j);
+    }catch(e){
+      D.errApi.style.display='block'; D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
+    }finally{ D.loading.style.display='none'; }
+  }
+
+  function renderResult(payload){
+    const { gs, book, workcord } = payload || {};
+    if(gs){
+      D.gsBox.innerHTML = `
+        <div class="kvs">
+          <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
+          <b>Kname</b><div>${esc(gs.Kname||'')}</div>
+          <b>Material</b><div>${esc(gs.Material||'')}</div>
+          <b>Paper_Size</b><div>${esc(gs.Paper_Size||'')}</div>
+          <b>Cut_Size</b><div>${esc(gs.Cut_Size||'')}</div>
+          <b>Location</b><div>${esc(gs.Location||'')}</div>
+          <b>LastSeen</b><div>${esc(gs.LastSeen||'')}</div>
+          <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
+        </div>`;
+    }else{
+      D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
+    }
+    D.result.style.display='block';
+    // 手入力欄へ反映
+    D.inBook.value = book || '';
+    D.inWc.value   = workcord || '';
+  }
+
+  // ====== Google Drive 図面ビュー ======
+  async function driveOpen(){
+    const book=S.current.book, wc=S.current.wc;
+    if(!book || !wc){ alert('Book / WC を先に指定してください'); return; }
+    const dev = D.dev?.checked ? '1' : '0';
+    D.driveMsg.textContent = '🔍 Google Drive を検索しています…';
+    D.driveOut.innerHTML = '';
+    try{
+      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(w)}&dev=${dev}`, { cache:'no-store' });
+      if(!r.ok){ const t=await r.text(); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+      const j = await r.json();
+      if(!j.ok || !j.fileId){ D.driveMsg.textContent='❌ 該当ファイルが見つかりません'; D.driveOut.innerHTML = `<pre>${esc(JSON.stringify(j,null,2))}</pre>`; return; }
+
+      const fileId   = j.fileId;
+      const fileName = j.fileName || `${book}-${wc}.bin`;
+      D.driveMsg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
+
+      const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache:'no-store' });
+      if(!rr.ok){ const t=await rr.text(); throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`); }
+      const blob = await rr.blob(); const url = URL.createObjectURL(blob);
+
+      if (blob.type.startsWith('image/')) {
+        D.driveOut.innerHTML = `<img src="${url}" alt="${esc(fileName)}" style="max-width:100%;height:auto;border:1px solid #dee2e6;border-radius:8px">`;
+      } else if (blob.type === 'application/pdf') {
+        D.driveOut.innerHTML = `<iframe src="${url}" style="width:100%;height:75vh;border:1px solid #dee2e6;border-radius:8px"></iframe>`;
+      } else {
+        D.driveOut.innerHTML = `<a href="${url}" download="${esc(fileName)}">ダウンロード (${esc(blob.type)} / ${blob.size} bytes)</a>`;
+      }
+      D.driveMsg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
+      D.driveState.textContent = 'Drive: OK';
+    }catch(e){
+      console.error(e);
+      D.driveMsg.textContent = '⚠️ エラー: ' + (e.message||e);
+      D.driveState.textContent = 'Drive: NG';
+      D.driveOut.innerHTML = '';
+    }
+  }
+
+  // クリック結線
+  D.btnDriveOpen.addEventListener('click', driveOpen);
+
+  // 手入力
+  D.btnQuery.addEventListener('click', () => {
+    setTarget(D.inBook.value, D.inWc.value);
+    if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
+    S.lastQueryKey=''; querySpec();
+  });
+  D.btnFillTarget.addEventListener('click', () => { D.inBook.value=S.current.book||''; D.inWc.value=S.current.wc||''; });
+
+  // スコープ操作
+  D.selScope.addEventListener('change', () => setScope(D.selScope.value));
+  q('#btnSetTarget').addEventListener('click', () => setTargetScope(D.inBook.value, D.inWc.value));
+  q('#btnUseCurrent').addEventListener('click', () => setTargetScope(S.current.book, S.current.wc));
+  q('#btnClearTarget').addEventListener('click', () => clearTargetScope());
+  updateTargetBadge();
+
+  // カメラ制御
+  D.btnStart.addEventListener('click', startCam);
+  D.btnStop.addEventListener('click', () => stopCam());
+  window.addEventListener('resize', fitOverlay);
+
+  // 画像静止画テスト（最初のQRでターゲット→GSheets照会）
+  D.fileTest.addEventListener('change', async ev=>{
+    const file=ev.target.files?.[0]; if(!file) return;
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+      const cctx=c.getContext('2d',{willReadFrequently:true}); cctx.imageSmoothingEnabled=false; cctx.drawImage(img,0,0);
+      const data=cctx.getImageData(0,0,c.width,c.height); const hits=jsqrMulti(data);
+      D.overlay.width=c.width; D.overlay.height=c.height; ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      for(const h of hits){ drawBox(h.cornerPoints,'#1c7ed6',true); }
+      if(hits[0]){
+        const raw=hits[0].rawValue; const kind=classify(raw);
+        if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'',od.wc||''); } }
+        else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'',d.wc||''); } }
+        S.lastQueryKey=''; querySpec();
+      }
+      ev.target.value="";
+    };
+    img.src=URL.createObjectURL(file);
+  });
+  function jsqrMulti(imgData){
+    const hits=[]; const w=imgData.width,h=imgData.height; const masked=new Uint8ClampedArray(imgData.data);
+    for(let k=0;k<CFG.JSQR_MAX_LOOPS;k++){
+      const hit=jsQR(masked,w,h,{inversionAttempts:'attemptBoth'}); if(!hit) break;
+      hits.push({ rawValue:hit.data, cornerPoints:[ hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner ] });
+      const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+      const minX=Math.max(0,Math.floor(Math.min(tl.x,br.x))), maxX=Math.min(w,Math.ceil(Math.max(tl.x,br.x)));
+      const minY=Math.max(0,Math.floor(Math.min(tl.y,br.y))), maxY=Math.min(h,Math.ceil(Math.max(tl.y,br.y)));
+      for(let y=minY;y<maxY;y++){ for(let x=minX;x<maxX;x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
+    }
+    return hits;
+  }
+
+  // 起動時パラメータ
+  ;(function initFromParams(){
+    const p=new URLSearchParams(location.search); const book=(p.get('book')||'').trim(); const wc=(p.get('wc')||'').trim();
+    if(book || wc){ setTarget(book,wc); S.lastQueryKey=''; querySpec(); }
+    updateTargetScopeVisibility();
+  })();
+
+  function showSwipeHint(){ const el=document.createElement('div'); el.className='swipe-hint'; el.textContent='下にスワイプして情報を確認'; document.body.appendChild(el); setTimeout(()=>{ try{ el.remove(); }catch{} },1800); }
+})();
+</script>
+</body>
+</html>
