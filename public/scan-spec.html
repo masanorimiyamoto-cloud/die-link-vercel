@@ -164,14 +164,16 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会モード｜die / order → Airtable(on/off%) + Google Sheets(仕様) + gdrive</h1>
+  <h1>仕様照会モード｜die / order → Airtable(on%/off) + Google Sheets(仕様)</h1>
 
   <div class="row">
-        <div class="panel">
+    <!-- 左：カメラ -->
+    <div class="panel">
       <div class="card">
         <div class="stack" id="stack">
           <video id="video" playsinline webkit-playsinline muted></video>
-                    <div id="targetScope" class="target-scope">
+          <!-- ターゲットスコープ -->
+          <div id="targetScope" class="target-scope">
             <div class="corner-tl"></div>
             <div class="corner-tr"></div>
             <div class="corner-bl"></div>
@@ -191,7 +193,8 @@
           <span id="atState" class="badge"></span>
         </div>
 
-                <div class="scopebar" id="scopeBar">
+        <!-- 常設のターゲットスコープバー -->
+        <div class="scopebar" id="scopeBar">
           <span class="badge">Scope</span>
           <select id="selScope" class="grow" title="スキャン許可範囲">
             <option value="any">全QR</option>
@@ -207,7 +210,8 @@
         <div id="errCam" class="err" style="margin-top:6px;"></div>
       </div>
 
-            <div class="card">
+      <!-- 手入力クイック照会 -->
+      <div class="card">
         <div class="hdr">
           <div class="rowbar">
             <b>手入力で照会</b>
@@ -234,7 +238,8 @@
       </div>
     </div>
 
-        <div class="panel">
+    <!-- 右：結果 -->
+    <div class="panel">
       <div class="card">
         <div class="hdr">
           <div class="rowbar">
@@ -253,10 +258,7 @@
             <div>
               <h3>Google Sheets（仕様）</h3>
               <div id="gsBox" class="muted">—</div>
-            
-                              <h3 style="margin-top:16px;">Google Drive（マスター図面）</h3>
-              <div id="driveBox" class="muted">（マスター図面なし）</div>
-                          </div>
+            </div>
             <div>
               <h3>Airtable（受注・図面）</h3>
               <div id="atBox" class="muted">—</div>
@@ -296,7 +298,6 @@
     errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
     tBN: q('#tBN'), tWC: q('#tWC'),
     gsBox: q('#gsBox'), atBox: q('#atBox'),
-    driveBox: q('#driveBox'),
     result: q('#result'), ordersBox: q('#ordersBox'), ordersEmpty: q('#ordersEmpty'),
     ordersTableWrap: q('#ordersTableWrap'), ordersTbody: q('#ordersTbody'),
     inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
@@ -627,6 +628,7 @@
     }
     setStatus('ロック完了', 'ok');
     stopCam({keepFrame:true});
+    setStatus('ロック完了', 'ok');
   }
 
   async function detectCombined(){
@@ -825,11 +827,9 @@
   }
 
   function renderResult(payload){
-    // ✅ サーバーから: { ok:true, gs, hits:[], book, workcord, drawing:{ id, name, mimeType, proxyUrl } }
-    const { gs, hits = [], book, workcord, drawing } = payload || {};
+    const { gs, hits=[], book, workcord } = payload || {};
 
-    // --- Google Sheets（仕様）
-    if (gs) {
+    if(gs){
       D.gsBox.innerHTML = `
         <div class="kvs">
           <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
@@ -842,31 +842,16 @@
           <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
         </div>
       `;
-    } else {
+    }else{
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // --- Google Drive（マスター図面）
-    if (drawing && drawing.proxyUrl) {
-      D.driveBox.innerHTML = `
-        <a href="${esc(drawing.proxyUrl)}" target="_blank" rel="noopener noreferrer"
-          style="display:inline-block; padding:10px 16px; background:var(--ok); color:#fff; text-decoration:none; border-radius:10px; font-weight:600;">
-          マスター図面を開く (Drive)
-        </a>
-        <div class="muted" style="margin-top:6px">${esc(drawing.name || '')}</div>
-      `;
-    } else {
-      D.driveBox.innerHTML = `<div class="muted">（マスター図面なし）</div>`;
-    }
-
-    // --- Airtable（受注）ON/OFF
-    if (!FEATURE.AIRTABLE_FETCH) {
+    if(!FEATURE.AIRTABLE_FETCH){
       D.atBox.innerHTML = `<div class="muted">（Airtable照会は現在OFF）</div>`;
       D.ordersTableWrap.style.display='none';
       D.ordersEmpty.style.display='block';
       D.ordersEmpty.textContent = '—';
-    } else if (hits.length > 0) {
-      // もっとも早い納期のレコードを概要に
+    }else if(hits.length>0){
       const latest = hits[0];
       const atts = (latest.attachments||[]).slice(0,4);
       const thumbs = atts.map(a=>{
@@ -892,19 +877,18 @@
         ${ (latest.attachments||[]).length>4 ? `<div class="muted" style="margin-top:4px">…他 ${(latest.attachments.length-4)} 件</div>`:'' }
       `;
 
-      // 受注テーブル（納期の早い順でサーバーが返している想定）
       D.ordersEmpty.style.display='none';
       D.ordersTableWrap.style.display='block';
       D.ordersTbody.innerHTML = hits.map(r => {
         const a = (r.attachments||[])[0];
         let cell = '—';
-        if (a) {
+        if(a){
           const isImg = String(a.type||'').startsWith('image/');
           const thumb = (a.thumbnails && (a.thumbnails.small?.url || a.thumbnails.large?.url)) || a.url;
           cell = isImg
             ? `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"><img src="${esc(thumb)}" alt="" style="height:40px;max-width:80px;object-fit:contain;border:1px solid #eee;border-radius:4px"></a>`
             : `<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(a.filename||'添付')}</a>`;
-          if ((r.attachments||[]).length>1) cell += ` <span class="muted">(+${r.attachments.length-1})</span>`;
+          if((r.attachments||[]).length>1) cell += ` <span class="muted">(+${r.attachments.length-1})</span>`;
         }
         return `
           <tr>
@@ -920,19 +904,17 @@
         `;
       }).join('');
 
-    } else {
+    }else{
       D.atBox.innerHTML = `<div class="muted">（この抜型に紐づく受注は見つかりませんでした）</div>`;
       D.ordersTableWrap.style.display='none';
       D.ordersEmpty.style.display='block';
       D.ordersEmpty.textContent = '—';
     }
 
-    // パネル表示 & 入力欄同期
-    D.result.style.display = 'block';
+    D.result.style.display='block';
     D.inBook.value = book || '';
     D.inWc.value   = workcord || '';
   }
-
 
   D.btnOpenHtml.addEventListener('click', async () => {
     if(!FEATURE.AIRTABLE_FETCH){ return; }
@@ -1017,7 +999,7 @@
           } 
         }
         S.lastQueryKey=''; 
-        querySpec(); // ← サーバーから { drawing } を受け取り、renderResult が表示
+        querySpec();
       }
       ev.target.value="";
     };
