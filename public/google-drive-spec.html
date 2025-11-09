@@ -71,139 +71,53 @@
 </div>
 
 <script>
-(async () => {
-  const D = {
-    inBook:  document.getElementById('inBook'),
-    inWc:    document.getElementById('inWc'),
-    btnOpen: document.getElementById('btnOpen'),
-    btnJson: document.getElementById('btnJson'),
-    out:     document.getElementById('out'),
-    // Drive box
-    boxDrive:  document.getElementById('boxDrive'),
-    drvLink:   document.getElementById('drvLink'),
-    drvId:     document.getElementById('drvId'),
-    drvProxy:  document.getElementById('drvProxy'),
-    aOpenView: document.getElementById('aOpenView'),
-    aOpenProxy:document.getElementById('aOpenProxy'),
-    imgWrap:   document.getElementById('imgWrap'),
-    imgPrev:   document.getElementById('imgPrev'),
-  };
-
-  // ===== CSRF（dev=1 で取得を緩める） =====
-  const BASE = location.origin;
-  const csrf = await ensureCsrf();
-
-  function readCookie(name){
-    const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
-    return m ? decodeURIComponent(m[1]) : '';
-  }
-  async function ensureCsrf(){
-    try{
-      const r = await fetch('/api/session?dev=1', { method:'GET', credentials:'same-origin', cache:'no-store' });
-      if(!r.ok) throw new Error('session fail');
-    }catch{}
-    const t = readCookie('xcsrf');
-    if(!t) console.warn('CSRF Cookie が見つかりません（dev=1のため緩和動作）');
-    return t || '';
-  }
-
-  function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c])); }
-
-  // die-check を Drive専用で叩く（Airtable無効・GS任意）
-  async function callDieCheck(book, wc){
-    const body = {
-      book, wc,
-      json: true,
-      limit: 0,            // Airtable は読まない
-      noAirtable: true,    // Airtable 無効
-      gsOnly: true         // ついでに GS のみ（なくてもOK）
-    };
-    const r = await fetch('/api/die-check', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type':'application/json', ...(csrf?{'X-CSRF':csrf}:{}) },
-      body: JSON.stringify(body)
-    });
-    const txt = await r.text();
-    let j = {};
-    try{ j = JSON.parse(txt); }catch{ throw new Error('JSON parse error: '+txt.slice(0,200)); }
-    if(!r.ok || j.ok!==true){
-      throw new Error(j?.error || `HTTP ${r.status}`);
-    }
-    return j;
-  }
-
-  // webViewLink から fileId を推定（/d/<ID>/ または ?id=<ID>）
-  function extractFileId(webViewLink){
-    if(!webViewLink) return '';
-    try{
-      const u = new URL(webViewLink);
-      // /file/d/<ID>/view
-      const m = u.pathname.match(/\/d\/([^/]+)/);
-      if(m && m[1]) return m[1];
-      // ?id=<ID>
-      const qid = u.searchParams.get('id');
-      if(qid) return qid;
-    }catch{}
-    // 生文字からのフォールバック
-    const m2 = String(webViewLink).match(/\/d\/([^/]+)/);
-    return (m2 && m2[1]) ? m2[1] : '';
-  }
-
-  async function mainOpen(showJsonOnly=false){
-    const book = (D.inBook.value||'').trim();
-    const wc   = (D.inWc.value||'').trim();
-    if(!book || !wc){ alert('Book と WC を入力してください'); return; }
-
-    D.boxDrive.style.display = 'none';
-    D.imgWrap.style.display  = 'none';
-    D.out.textContent = '照会中…';
+    async function go(ev){
+    ev.preventDefault();
+    const book = document.getElementById('book').value.trim();
+    const wc   = document.getElementById('wc').value.trim();
+    const dev  = document.getElementById('dev').checked ? '1':'0';
+    const msg  = document.getElementById('msg');
+    const out  = document.getElementById('out');
+    msg.textContent = ''; out.innerHTML = '';
+    if(!book || !wc){ alert('BookとWorkCordを入力してください'); return; }
 
     try{
-      const j = await callDieCheck(book, wc);
-      D.out.textContent = JSON.stringify(j, null, 2);
-
-      const link = j?.drawingLink || '';
-      if(!link){
-        if(!showJsonOnly) alert('Drive の図面が見つかりません（drawingLink なし）');
+        // --- Step1: Driveフォルダ内検索 ---
+        const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`);
+        const j = await r.json();
+        if(!j.ok || !j.fileId){
+        msg.textContent = '❌ Google Driveに該当ファイルがありません。';
+        out.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
         return;
-      }
-      const fileId = extractFileId(link);
-      if(!fileId){
-        if(!showJsonOnly) alert('webViewLink から fileId が抽出できません');
+        }
+
+        const fileId = j.fileId;
+        const fileName = j.fileName;
+        msg.textContent = `✅ ファイルID取得成功: ${fileId}`;
+
+        // --- Step2: drive-proxyで実体を取得 ---
+        const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`);
+        if(!rr.ok){
+        msg.textContent = '❌ Drive取得失敗: ' + rr.status;
+        out.innerHTML = '<pre>'+await rr.text()+'</pre>';
         return;
-      }
-      const fileName = `${book}-${wc}.png`; // 拡張子は任意。png/pdf などに適宜変更OK
-      const proxyUrl = `/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=1`;
-
-      // 画面表示
-      D.boxDrive.style.display = 'block';
-      D.drvLink.innerHTML  = `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(link)}</a>`;
-      D.drvId.textContent  = fileId;
-      D.drvProxy.textContent = proxyUrl;
-
-      D.aOpenView.href  = link;
-      D.aOpenProxy.href = proxyUrl;
-
-      // 画像としてプレビュー試行（画像でない場合は表示されないだけ）
-      D.imgPrev.onload = ()=>{ D.imgWrap.style.display = 'block'; };
-      D.imgPrev.onerror= ()=>{ D.imgWrap.style.display = 'none'; };
-      D.imgPrev.src = proxyUrl + `&t=${Date.now()}`; // キャッシュ避け
-
-      if(!showJsonOnly){
-        // すぐ別タブで proxy を開く（保存/表示）
-        window.open(proxyUrl, '_blank', 'noopener');
-      }
+        }
+        const blob = await rr.blob();
+        const objUrl = URL.createObjectURL(blob);
+        if(blob.type.startsWith('image/')){
+        out.innerHTML = `<img src="${objUrl}" style="max-width:100%;border:1px solid #ccc">`;
+        }else if(blob.type === 'application/pdf'){
+        out.innerHTML = `<iframe src="${objUrl}" style="width:100%;height:70vh;border:1px solid #ccc"></iframe>`;
+        }else{
+        out.innerHTML = `<a href="${objUrl}" download="${fileName}">ダウンロード (${blob.type})</a>`;
+        }
+        msg.textContent += ` ｜ファイル取得成功 (${blob.type}, ${blob.size} bytes)`;
     }catch(e){
-      D.out.textContent = `❌ error: ${e?.message || e}`;
-      alert('エラー: ' + (e?.message || e));
+        msg.textContent = '⚠️ エラー: ' + e.message;
+        console.error(e);
     }
-  }
-
-  // イベント
-  D.btnOpen.addEventListener('click', () => mainOpen(false));
-  D.btnJson.addEventListener('click', () => mainOpen(true));
-})();
+    }
 </script>
+
 </body>
 </html>
