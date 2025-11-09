@@ -348,61 +348,92 @@
     const wcOk   = S.target.wc ? eqi(wc,S.target.wc) : true;
     return bookOk && wcOk;
   }
-  // === Drive 図面表示（追加関数） ===
-    async function openDriveFigure(book, wc){
-    const box = document.getElementById('driveBox');
-    const stat= document.getElementById('driveStatus');
-    const view= document.getElementById('driveView');
-    const btns= document.getElementById('driveButtons');
-    if(!box || !stat || !view || !btns){
-        console.warn('Drive UI elements missing');
-        return;
-    }
+  // === Drive 図面表示（差し替え版） ===
+async function openDriveFigure(book, wc){
+  const box  = document.getElementById('driveBox');
+  const stat = document.getElementById('driveStatus');
+  const view = document.getElementById('driveView');
+  const btns = document.getElementById('driveButtons');
 
-    box.style.display = 'block';
-    stat.textContent = '検索中…';
+  // DOMがなければ黙って終了（初期化順のズレ対策）
+  if(!box || !stat || !view || !btns){
+    console.warn('[Drive] UI elements missing');
+    return;
+  }
+
+  // book/wc が空なら一旦非表示化して終了
+  if(!book || !wc){
+    box.style.display = 'none';
+    stat.textContent = '—';
     view.innerHTML = '';
     btns.innerHTML = '';
+    return;
+  }
 
-    try{
-        const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
-        const r = await fetch(url, { credentials:'same-origin' });
-        const j = await r.json().catch(()=> ({}));
-        if(!r.ok || j.ok!==true){
-        throw new Error(j?.error || `HTTP ${r.status}`);
-        }
-        if((j.found||0)===0){
-        stat.textContent = '一致ファイルなし';
-        return;
-        }
+  box.style.display = 'block';
+  stat.textContent = '検索中…';
+  view.innerHTML = '';
+  btns.innerHTML = '';
 
-        const cands = Array.isArray(j.candidates) ? j.candidates : [{ id:j.fileId, name:j.fileName }];
-        const primary = cands[0];
-        const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
-        const src = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name)}`;
-
-        if(isPdf){
-        view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
-        }else{
-        view.innerHTML = `<img src="${src}" alt="${primary.name}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
-        }
-
-        btns.innerHTML = cands.map((f,i)=>{
-        const isP = i===0;
-        const ext = (f.name||'').split('.').pop()?.toUpperCase() || '';
-        const lab = `${isP?'★ ':''}${f.name} (${ext})`;
-        const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name)}`;
-        return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${lab}</a>`;
-        }).join(' ');
-
-        stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name}）`;
-    }catch(e){
-        stat.textContent = `NG: ${e?.message||e}`;
-        view.innerHTML = '';
-        btns.innerHTML = '';
+  try{
+    const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
+    const r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
+    if(!r.ok){
+      const t = await r.text().catch(()=> '');
+      throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`);
     }
+    const j = await r.json().catch(()=> ({}));
+    if(j?.ok !== true){
+      throw new Error(j?.error || 'drive-find: unexpected response');
     }
-    // === /Drive 図面表示 ===
+
+    // candidates 正規化（jpeg/png/pdfが複数あっても配列で来る想定）
+    const cands = Array.isArray(j.candidates) && j.candidates.length
+      ? j.candidates
+      : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
+
+    if(cands.length === 0){
+      stat.textContent = '一致ファイルなし';
+      return;
+    }
+
+    // 優先順: 画像系 > PDF の例（jpeg/jpg/png を優先）
+    const score = fn => {
+      const n = (fn?.name || '').toLowerCase();
+      if(n.endsWith('.jpeg') || n.endsWith('.jpg') || n.endsWith('.png')) return 1;
+      if(n.endsWith('.pdf')) return 2;
+      return 9;
+    };
+    cands.sort((a,b)=> score(a) - score(b));
+    const primary = cands[0];
+
+    const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
+    const src   = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+
+    if(isPdf){
+      view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+    }else{
+      view.innerHTML = `<img src="${src}" alt="${(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+    }
+
+    // 切替用の小さなリンク郡
+    btns.innerHTML = cands.map((f,i)=>{
+      const ext = ((f.name||'').split('.').pop()||'').toUpperCase();
+      const star = (i===0 ? '★ ' : '');
+      const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name||`${book}-${wc}`)}`;
+      return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${star}${(f.name||'file')} (${ext||'BIN'})</a>`;
+    }).join(' ');
+
+    stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name||'-'}）`;
+  }catch(e){
+    console.error(e);
+    stat.textContent = `NG: ${e?.message||e}`;
+    view.innerHTML = '';
+    btns.innerHTML = '';
+  }
+}
+// === /Drive 図面表示 ===
+
 
   // overlay & scope box
   function drawBox(points, color, solid=true){
@@ -564,10 +595,11 @@
     }
     D.result.style.display='block';
     // 手入力欄へ反映
-    D.inBook.value = book || '';
-    D.inWc.value   = workcord || '';
-    // ★ 追加（Drive 図面表示を起動）
-    openDriveFigure(book, workcord);
+    // 既存の末尾をこの3行に置き換え
+    const _book = (book || '').trim();
+    const _wc   = (workcord || '').trim();
+    openDriveFigure(_book, _wc);   // 空なら中で非表示処理、値があればDrive描画
+
   }
 
   
