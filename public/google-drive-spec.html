@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>Google Drive マスター図面ビューア（Drive-only｜die-check経由）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<style>
+  :root{ --bd:#e9ecef; --tx:#212529; --ok:#1c7ed6; --muted:#6c757d; }
+  html,body{margin:0;background:#f7f9fc;color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:16px}
+  h1{margin:0 0 14px;font-size:clamp(18px,2.8vw,24px)}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.05);padding:16px;margin:12px 0}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  label{display:flex;align-items:center;gap:6px}
+  input[type=text]{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch;background:#fff}
+  button{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600}
+  button.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+  .muted{color:var(--muted);font-size:13px}
+  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
+  .out{white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;background:#f8fafc;border:1px solid var(--bd);border-radius:10px;padding:10px}
+  img.preview{max-width:100%;height:auto;border:1px solid var(--bd);border-radius:10px;background:#fff}
+  .hint{padding:8px;border:1px dashed var(--bd);border-radius:10px;background:#fcfcff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Google Drive マスター図面ビューア（Drive-only）</h1>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <label>Book: <input type="text" id="inBook" value="Ta" placeholder="例: Ta"></label>
+        <label>WC: <input type="text" id="inWc" value="9892" placeholder="例: 9892"></label>
+      </div>
+      <div class="row">
+        <button id="btnOpen" class="primary">Drive 図面を開く（proxy）</button>
+        <button id="btnJson">die-check(JSON)を表示</button>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:10px">
+      ※ サーバー側は既存の <code>/api/die-check</code> と <code>/api/drive-proxy</code> を使用します。<br>
+      ※ Vercel 環境変数に <b>GOOGLE_SA_JSON</b> と <b>DRIVE_FOLDER_ID</b> が設定されている前提です。Airtable は参照しません。
+    </div>
+  </div>
+
+  <div class="card" id="boxDrive" style="display:none">
+    <h3 style="margin:0 0 10px">Drive から取得</h3>
+    <div class="kvs" style="margin-bottom:8px">
+      <b>webViewLink</b><div id="drvLink" class="muted">—</div>
+      <b>fileId</b><div id="drvId" class="muted">—</div>
+      <b>proxy URL</b><div id="drvProxy" class="muted">—</div>
+    </div>
+    <div class="row" style="gap:12px;margin:8px 0">
+      <a id="aOpenView" href="#" target="_blank" rel="noopener noreferrer">
+        <button>Google Drive（webView）を開く</button>
+      </a>
+      <a id="aOpenProxy" href="#" target="_blank" rel="noopener noreferrer">
+        <button class="primary">proxy 経由で開く/保存</button>
+      </a>
+    </div>
+    <div id="imgWrap" style="margin-top:10px;display:none">
+      <div class="muted" style="margin-bottom:6px">画像プレビュー（proxy経由）</div>
+      <img id="imgPrev" class="preview" alt="">
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 10px">die-check 応答(JSON)</h3>
+    <pre id="out" class="out">—</pre>
+  </div>
+</div>
+
+<script>
+(async () => {
+  const D = {
+    inBook:  document.getElementById('inBook'),
+    inWc:    document.getElementById('inWc'),
+    btnOpen: document.getElementById('btnOpen'),
+    btnJson: document.getElementById('btnJson'),
+    out:     document.getElementById('out'),
+    // Drive box
+    boxDrive:  document.getElementById('boxDrive'),
+    drvLink:   document.getElementById('drvLink'),
+    drvId:     document.getElementById('drvId'),
+    drvProxy:  document.getElementById('drvProxy'),
+    aOpenView: document.getElementById('aOpenView'),
+    aOpenProxy:document.getElementById('aOpenProxy'),
+    imgWrap:   document.getElementById('imgWrap'),
+    imgPrev:   document.getElementById('imgPrev'),
+  };
+
+  // ===== CSRF（dev=1 で取得を緩める） =====
+  const BASE = location.origin;
+  const csrf = await ensureCsrf();
+
+  function readCookie(name){
+    const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  async function ensureCsrf(){
+    try{
+      const r = await fetch('/api/session?dev=1', { method:'GET', credentials:'same-origin', cache:'no-store' });
+      if(!r.ok) throw new Error('session fail');
+    }catch{}
+    const t = readCookie('xcsrf');
+    if(!t) console.warn('CSRF Cookie が見つかりません（dev=1のため緩和動作）');
+    return t || '';
+  }
+
+  function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c])); }
+
+  // die-check を Drive専用で叩く（Airtable無効・GS任意）
+  async function callDieCheck(book, wc){
+    const body = {
+      book, wc,
+      json: true,
+      limit: 0,            // Airtable は読まない
+      noAirtable: true,    // Airtable 無効
+      gsOnly: true         // ついでに GS のみ（なくてもOK）
+    };
+    const r = await fetch('/api/die-check', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type':'application/json', ...(csrf?{'X-CSRF':csrf}:{}) },
+      body: JSON.stringify(body)
+    });
+    const txt = await r.text();
+    let j = {};
+    try{ j = JSON.parse(txt); }catch{ throw new Error('JSON parse error: '+txt.slice(0,200)); }
+    if(!r.ok || j.ok!==true){
+      throw new Error(j?.error || `HTTP ${r.status}`);
+    }
+    return j;
+  }
+
+  // webViewLink から fileId を推定（/d/<ID>/ または ?id=<ID>）
+  function extractFileId(webViewLink){
+    if(!webViewLink) return '';
+    try{
+      const u = new URL(webViewLink);
+      // /file/d/<ID>/view
+      const m = u.pathname.match(/\/d\/([^/]+)/);
+      if(m && m[1]) return m[1];
+      // ?id=<ID>
+      const qid = u.searchParams.get('id');
+      if(qid) return qid;
+    }catch{}
+    // 生文字からのフォールバック
+    const m2 = String(webViewLink).match(/\/d\/([^/]+)/);
+    return (m2 && m2[1]) ? m2[1] : '';
+  }
+
+  async function mainOpen(showJsonOnly=false){
+    const book = (D.inBook.value||'').trim();
+    const wc   = (D.inWc.value||'').trim();
+    if(!book || !wc){ alert('Book と WC を入力してください'); return; }
+
+    D.boxDrive.style.display = 'none';
+    D.imgWrap.style.display  = 'none';
+    D.out.textContent = '照会中…';
+
+    try{
+      const j = await callDieCheck(book, wc);
+      D.out.textContent = JSON.stringify(j, null, 2);
+
+      const link = j?.drawingLink || '';
+      if(!link){
+        if(!showJsonOnly) alert('Drive の図面が見つかりません（drawingLink なし）');
+        return;
+      }
+      const fileId = extractFileId(link);
+      if(!fileId){
+        if(!showJsonOnly) alert('webViewLink から fileId が抽出できません');
+        return;
+      }
+      const fileName = `${book}-${wc}.png`; // 拡張子は任意。png/pdf などに適宜変更OK
+      const proxyUrl = `/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=1`;
+
+      // 画面表示
+      D.boxDrive.style.display = 'block';
+      D.drvLink.innerHTML  = `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(link)}</a>`;
+      D.drvId.textContent  = fileId;
+      D.drvProxy.textContent = proxyUrl;
+
+      D.aOpenView.href  = link;
+      D.aOpenProxy.href = proxyUrl;
+
+      // 画像としてプレビュー試行（画像でない場合は表示されないだけ）
+      D.imgPrev.onload = ()=>{ D.imgWrap.style.display = 'block'; };
+      D.imgPrev.onerror= ()=>{ D.imgWrap.style.display = 'none'; };
+      D.imgPrev.src = proxyUrl + `&t=${Date.now()}`; // キャッシュ避け
+
+      if(!showJsonOnly){
+        // すぐ別タブで proxy を開く（保存/表示）
+        window.open(proxyUrl, '_blank', 'noopener');
+      }
+    }catch(e){
+      D.out.textContent = `❌ error: ${e?.message || e}`;
+      alert('エラー: ' + (e?.message || e));
+    }
+  }
+
+  // イベント
+  D.btnOpen.addEventListener('click', () => mainOpen(false));
+  D.btnJson.addEventListener('click', () => mainOpen(true));
+})();
+</script>
+</body>
+</html>
