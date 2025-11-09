@@ -1,4 +1,6 @@
 // api/debug-drive.js
+import { google } from 'googleapis';
+
 export default async function handler(req, res) {
   try {
     console.log('=== GOOGLE DRIVE DEBUG START ===');
@@ -21,8 +23,7 @@ export default async function handler(req, res) {
       return res.json({ 
         success: false, 
         error: 'JSONパースエラー',
-        message: parseError.message,
-        envPreview: process.env.GOOGLE_SERVICE_ACCOUNT_JSON.substring(0, 100) + '...'
+        message: parseError.message
       });
     }
     
@@ -35,8 +36,7 @@ export default async function handler(req, res) {
       return res.json({
         success: false,
         error: '必須フィールドが不足しています',
-        missingFields: missingFields,
-        availableFields: Object.keys(serviceAccount)
+        missingFields: missingFields
       });
     }
     
@@ -44,7 +44,6 @@ export default async function handler(req, res) {
     
     // Google Authの初期化テスト
     try {
-      const { google } = require('googleapis');
       const auth = new google.auth.JWT({
         email: serviceAccount.client_email,
         key: serviceAccount.private_key,
@@ -79,8 +78,7 @@ export default async function handler(req, res) {
     res.json({
       success: false,
       error: '予期せぬエラー',
-      message: error.message,
-      stack: error.stack
+      message: error.message
     });
   }
 }

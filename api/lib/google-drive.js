@@ -1,4 +1,5 @@
-const { google } = require('googleapis');
+// lib/google-drive.js
+import { google } from 'googleapis';
 
 class GoogleDriveService {
   constructor() {
@@ -104,5 +105,6 @@ class GoogleDriveService {
   }
 }
 
+// シングルトンインスタンス
 const driveService = new GoogleDriveService();
-module.exports = driveService;
+export default driveService;

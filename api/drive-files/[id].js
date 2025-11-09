@@ -1,4 +1,5 @@
-const driveService = require('../../lib/google-drive');
+// api/drive-files/[id].js
+import driveService from '../../lib/google-drive.js';
 
 export default async function handler(req, res) {
   const { id } = req.query;
