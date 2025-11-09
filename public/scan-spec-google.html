@@ -502,42 +502,50 @@
   }
 
   // ====== Google Drive 図面ビュー ======
-  async function driveOpen(){
-    const book=S.current.book, wc=S.current.wc;
+  // ====== Google Drive 図面ビュー ======
+    async function driveOpen(){
+    const book = S.current.book, wc = S.current.wc;
     if(!book || !wc){ alert('Book / WC を先に指定してください'); return; }
     const dev = D.dev?.checked ? '1' : '0';
     D.driveMsg.textContent = '🔍 Google Drive を検索しています…';
     D.driveOut.innerHTML = '';
     try{
-      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(w)}&dev=${dev}`, { cache:'no-store' });
-      if(!r.ok){ const t=await r.text(); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
-      const j = await r.json();
-      if(!j.ok || !j.fileId){ D.driveMsg.textContent='❌ 該当ファイルが見つかりません'; D.driveOut.innerHTML = `<pre>${esc(JSON.stringify(j,null,2))}</pre>`; return; }
+        // ← ここが修正点: encodeURIComponent(wc)
+        const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`, { cache:'no-store' });
+        if(!r.ok){ const t=await r.text(); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+        const j = await r.json();
+        if(!j.ok || !j.fileId){
+        D.driveMsg.textContent = '❌ 該当ファイルが見つかりません';
+        D.driveOut.innerHTML = `<pre>${esc(JSON.stringify(j,null,2))}</pre>`;
+        return;
+        }
 
-      const fileId   = j.fileId;
-      const fileName = j.fileName || `${book}-${wc}.bin`;
-      D.driveMsg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
+        const fileId   = j.fileId;
+        const fileName = j.fileName || `${book}-${wc}.bin`;
+        D.driveMsg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
 
-      const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache:'no-store' });
-      if(!rr.ok){ const t=await rr.text(); throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`); }
-      const blob = await rr.blob(); const url = URL.createObjectURL(blob);
+        const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache:'no-store' });
+        if(!rr.ok){ const t=await rr.text(); throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`); }
+        const blob = await rr.blob();
+        const url  = URL.createObjectURL(blob);
 
-      if (blob.type.startsWith('image/')) {
+        if (blob.type.startsWith('image/')) {
         D.driveOut.innerHTML = `<img src="${url}" alt="${esc(fileName)}" style="max-width:100%;height:auto;border:1px solid #dee2e6;border-radius:8px">`;
-      } else if (blob.type === 'application/pdf') {
+        } else if (blob.type === 'application/pdf') {
         D.driveOut.innerHTML = `<iframe src="${url}" style="width:100%;height:75vh;border:1px solid #dee2e6;border-radius:8px"></iframe>`;
-      } else {
+        } else {
         D.driveOut.innerHTML = `<a href="${url}" download="${esc(fileName)}">ダウンロード (${esc(blob.type)} / ${blob.size} bytes)</a>`;
-      }
-      D.driveMsg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
-      D.driveState.textContent = 'Drive: OK';
+        }
+        D.driveMsg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
+        D.driveState.textContent = 'Drive: OK';
     }catch(e){
-      console.error(e);
-      D.driveMsg.textContent = '⚠️ エラー: ' + (e.message||e);
-      D.driveState.textContent = 'Drive: NG';
-      D.driveOut.innerHTML = '';
+        console.error(e);
+        D.driveMsg.textContent = '⚠️ エラー: ' + (e.message||e);
+        D.driveState.textContent = 'Drive: NG';
+        D.driveOut.innerHTML = '';
     }
-  }
+    }
+
 
   // クリック結線
   D.btnDriveOpen.addEventListener('click', driveOpen);
