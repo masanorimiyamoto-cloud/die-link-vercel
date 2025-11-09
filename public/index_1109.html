@@ -27,7 +27,7 @@
 </style>
 
 <!-- フォールバック: 事前プリフェッチ（全ブラウザ） -->
-<link rel="prefetch" href="./scan-spec-google.html" as="document">
+<link rel="prefetch" href="./scan-spec.html" as="document">
 <link rel="prefetch" href="./scan-lookup.html" as="document">
 <link rel="prefetch" href="./scan-register.html" as="document">
 
@@ -35,17 +35,17 @@
 <script type="speculationrules">
 {
   "prerender": [
-    { "source": "list", "urls": ["./scan-spec-google.html", "./scan-lookup.html", "./scan-register.html"] }
+    { "source": "list", "urls": ["./scan-spec.html", "./scan-lookup.html", "./scan-register.html"] }
   ],
   "prefetch": [
-    { "source": "list", "urls": ["./scan-spec-google.html", "./scan-lookup.html", "./scan-register.html"] }
+    { "source": "list", "urls": ["./scan-spec.html", "./scan-lookup.html", "./scan-register.html"] }
   ]
 }
 </script>
 </head>
 <body>
   <main class="wrap" role="navigation" aria-label="できること三つ">
-    <a class="btn a" href="./scan-spec-google.html"     aria-label="調べる">しらべる</a>
+    <a class="btn a" href="./scan-spec.html"     aria-label="調べる">しらべる</a>
     <a class="btn b" href="./scan-lookup.html"   aria-label="探す">さがす</a>
     <a class="btn c" href="./scan-register.html" aria-label="登録する">しまう</a>
   </main>
@@ -60,7 +60,7 @@ if ('serviceWorker' in navigator) {
 
 /* iOS/Safari 等: 触れた瞬間に事前fetch（フォールバック強化） */
 const prefetch = url => fetch(url, { mode:'no-cors', cache:'force-cache' }).catch(()=>{});
-['./scan-spec-google.html','./scan-lookup.html','./scan-register.html'].forEach(url=>{
+['./scan-spec.html','./scan-lookup.html','./scan-register.html'].forEach(url=>{
   const link = document.querySelector(`a[href="${url}"]`);
   if(!link) return;
   ['mouseenter','touchstart','pointerdown'].forEach(ev=>{
