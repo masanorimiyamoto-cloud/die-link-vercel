@@ -71,53 +71,67 @@
 </div>
 
 <script>
-    async function go(ev){
-    ev.preventDefault();
-    const book = document.getElementById('book').value.trim();
-    const wc   = document.getElementById('wc').value.trim();
-    const dev  = document.getElementById('dev').checked ? '1':'0';
-    const msg  = document.getElementById('msg');
-    const out  = document.getElementById('out');
-    msg.textContent = ''; out.innerHTML = '';
-    if(!book || !wc){ alert('BookとWorkCordを入力してください'); return; }
+async function go(ev){
+  ev.preventDefault();
+  const book = document.getElementById('book').value.trim();
+  const wc   = document.getElementById('wc').value.trim();
+  const dev  = document.getElementById('dev').checked ? '1':'0';
+  const msg  = document.getElementById('msg');
+  const out  = document.getElementById('out');
+  msg.textContent = '';
+  out.innerHTML = '';
 
-    try{
-        // --- Step1: Driveフォルダ内検索 ---
-        const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`);
-        const j = await r.json();
-        if(!j.ok || !j.fileId){
-        msg.textContent = '❌ Google Driveに該当ファイルがありません。';
-        out.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
-        return;
-        }
+  if(!book || !wc){
+    alert('BookとWorkCordを入力してください');
+    return;
+  }
 
-        const fileId = j.fileId;
-        const fileName = j.fileName;
-        msg.textContent = `✅ ファイルID取得成功: ${fileId}`;
+  try {
+    // === Step 1: Driveフォルダ内でファイル検索 ===
+    msg.textContent = '🔍 Google Drive内を検索しています...';
+    const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`);
+    const j = await r.json();
 
-        // --- Step2: drive-proxyで実体を取得 ---
-        const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`);
-        if(!rr.ok){
-        msg.textContent = '❌ Drive取得失敗: ' + rr.status;
-        out.innerHTML = '<pre>'+await rr.text()+'</pre>';
-        return;
-        }
-        const blob = await rr.blob();
-        const objUrl = URL.createObjectURL(blob);
-        if(blob.type.startsWith('image/')){
-        out.innerHTML = `<img src="${objUrl}" style="max-width:100%;border:1px solid #ccc">`;
-        }else if(blob.type === 'application/pdf'){
-        out.innerHTML = `<iframe src="${objUrl}" style="width:100%;height:70vh;border:1px solid #ccc"></iframe>`;
-        }else{
-        out.innerHTML = `<a href="${objUrl}" download="${fileName}">ダウンロード (${blob.type})</a>`;
-        }
-        msg.textContent += ` ｜ファイル取得成功 (${blob.type}, ${blob.size} bytes)`;
-    }catch(e){
-        msg.textContent = '⚠️ エラー: ' + e.message;
-        console.error(e);
+    if(!j.ok || !j.fileId){
+      msg.textContent = '❌ Google Driveに該当ファイルが見つかりません';
+      out.innerHTML = `<pre>${JSON.stringify(j, null, 2)}</pre>`;
+      return;
     }
+
+    const fileId = j.fileId;
+    const fileName = j.fileName;
+    msg.textContent = `✅ ファイル見つかりました: ${fileName}`;
+
+    // === Step 2: drive-proxyから実体を取得 ===
+    msg.textContent += '｜画像を取得中...';
+    const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`);
+
+    if(!rr.ok){
+      msg.textContent = '❌ Driveからの取得に失敗しました (' + rr.status + ')';
+      out.innerHTML = `<pre>${await rr.text()}</pre>`;
+      return;
     }
+
+    const blob = await rr.blob();
+    const objUrl = URL.createObjectURL(blob);
+
+    if(blob.type.startsWith('image/')){
+      out.innerHTML = `<img src="${objUrl}" style="max-width:100%;height:auto;border:1px solid #ccc;margin-top:10px;">`;
+    }else if(blob.type === 'application/pdf'){
+      out.innerHTML = `<iframe src="${objUrl}" style="width:100%;height:70vh;border:1px solid #ccc;margin-top:10px;"></iframe>`;
+    }else{
+      out.innerHTML = `<a href="${objUrl}" download="${fileName}">ダウンロード (${blob.type})</a>`;
+    }
+
+    msg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
+
+  } catch (e) {
+    msg.textContent = '⚠️ エラー: ' + e.message;
+    console.error(e);
+  }
+}
 </script>
+
 
 </body>
 </html>
