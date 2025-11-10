@@ -1,4 +1,4 @@
-// api/drive-find.js  ← ルート直下の api/ 配下（Edge/NodeどちらでもOKな純JS）
+// api/drive-find.js
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -43,58 +43,72 @@ async function getGoogleAccessToken(){
   return j.access_token;
 }
 
+function normalizeWc(s){
+  const t = String(s||'').trim();
+  if(!t) return '';
+  const num = Number(t);
+  if(Number.isFinite(num) && Math.floor(num) === num) return String(num); // "6521"
+  if(/\.0$/.test(t)){ return t.replace(/\.0$/,''); } // "6521.0" → "6521"
+  return t;
+}
+
 export default async function handler(req){
   try{
     const u = new URL(req.url);
     const book = (u.searchParams.get('book')||'').trim();
-    const wc   = (u.searchParams.get('wc')||'').trim();
-    const folderId = (process.env.GDRIVE_DIE_MASTER_ID || '').trim(); // 例: 1KHoZRxD0vuiwNBJpU5jF0Up9kXxpsLz0
-    if(!book || !wc) return json({ ok:false, error:'missing book/wc' }, 400);
-    if(!folderId) return json({ ok:false, error:'GDRIVE_DIE_MASTER_ID is missing' }, 500);
+    const wcRaw= (u.searchParams.get('wc')  ||'').trim();
+    const wc   = normalizeWc(wcRaw);
+    const folderId = (process.env.GDRIVE_DIE_MASTER_ID || '').trim();
+    if(!book || !wc)   return json({ ok:false, error:'missing book/wc' }, 400);
+    if(!folderId)      return json({ ok:false, error:'GDRIVE_DIE_MASTER_ID is missing' }, 500);
 
-    const base = `${book}-${wc}`;
-    const nameRegex = new RegExp(`^${base}\\.(png|jpg|jpeg|pdf)$`, 'i');
+    // 新・旧 兼用のベース
+    const base = `${book}-${wc}`.trim();
+
+    // 命名規則に対応する判定関数
+    const isNewZu = (name)=> new RegExp(`^${escapeRegex(base)}-zu\\.(?:jpeg|jpg|png)$`, 'i').test(name||'');
+    const isNewSi = (name)=> new RegExp(`^${escapeRegex(base)}-si\\.(?:jpeg|jpg|png)$`, 'i').test(name||'');
+    const isOldImg= (name)=> new RegExp(`^${escapeRegex(base)}\\.(?:jpeg|jpg|png)$`,      'i').test(name||'');
+    const isPdf   = (name)=> new RegExp(`^${escapeRegex(base)}\\.pdf$`,                   'i').test(name||'');
+
+    function escapeRegex(s){ return String(s||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 
     const token = await getGoogleAccessToken();
 
-    // Drive v3: list in folder
-    const q = [
-      `'${folderId}' in parents`,
-      'trashed = false'
-    ].join(' and ');
-
+    const q = [`'${folderId}' in parents`, 'trashed = false'].join(' and ');
     const listUrl = `https://www.googleapis.com/drive/v3/files?` + new URLSearchParams({
       q, pageSize: '1000', fields: 'files(id,name,mimeType,modifiedTime,size)'
     });
-
     const r = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } });
     if(!r.ok) return json({ ok:false, error:`drive list ${r.status}`, detail: (await r.text()).slice(0,300) }, r.status);
     const j = await r.json();
     const all = Array.isArray(j.files) ? j.files : [];
 
-    // 候補抽出
+    // ヒット抽出（新・旧・PDF）
     const candidates = all
-      .filter(f => nameRegex.test(f.name||''))
+      .filter(f => {
+        const name = f.name || '';
+        return isNewZu(name) || isNewSi(name) || isOldImg(name) || isPdf(name);
+      })
       .map(f => ({ id: f.id, name: f.name, mimeType: f.mimeType || '', modifiedTime: f.modifiedTime || '', size: f.size || '' }));
 
     if(candidates.length === 0){
       return json({ ok:true, found:0, candidates:[] });
     }
 
-    // 優先順位: jpeg > jpg > png > pdf
+    // 優先順：-zu画像 → -si画像 → 旧画像 → PDF
     const pri = (name) => {
-      const n = name.toLowerCase();
-      if(n.endsWith('.jpeg')) return 1;
-      if(n.endsWith('.jpg'))  return 2;
-      if(n.endsWith('.png'))  return 3;
-      if(n.endsWith('.pdf'))  return 9;
+      const n = (name||'').toLowerCase();
+      if(isNewZu(n)) return 1;
+      if(isNewSi(n)) return 2;
+      if(isOldImg(n))return 3;
+      if(isPdf(n))   return 9;
       return 99;
     };
-    candidates.sort((a,b)=> pri(a.name)-pri(b.name));
+    candidates.sort((a,b)=> pri(a.name) - pri(b.name));
 
     const primary = candidates[0];
 
-    // 後方互換のため fileId/fileName も返す
     return json({
       ok: true,
       found: candidates.length,

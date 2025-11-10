@@ -43,12 +43,10 @@
   .tbl th,.tbl td{padding:6px 8px;border:1px solid #eee;vertical-align:top}
   .tbl thead th{background:#f8f9fb}
 
-  /* スコープバー */
   .scopebar{position: sticky; top: 8px; z-index: 5; display:flex; gap:8px; align-items:center; flex-wrap:wrap; background: var(--soft);
     margin-top:10px; padding:8px 10px; border:1px solid var(--bd); border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.05);}
   .scopebar .grow{flex:1 1 auto; min-width:180px}
 
-  /* ターゲットスコープ */
   .target-scope {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; height: 65%;
     border: 3px solid rgba(28, 126, 214, 0.6); border-radius: 12px; pointer-events: none; z-index: 3;
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3); display: none;}
@@ -69,7 +67,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc）</h1>
+  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc[-zu|-si]）</h1>
 
   <div class="row">
     <!-- 左：カメラ -->
@@ -147,23 +145,23 @@
             <span>Book: <b id="tBN">-</b> / WC: <b id="tWC">-</b></span>
           </div>
           <div class="rowbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <!-- Airtable連動は使わないのでHTMLボタンは残すだけ -->
             <button id="btnOpenHtml" title="Airtable未使用のため無効" disabled>詳細を別タブ(HTML)</button>
           </div>
         </div>
 
         <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
         <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
-        <!-- === Drive 図面ビュー（追加） === -->
+
+        <!-- === Drive 図面ビュー === -->
         <div id="driveBox" class="card" style="margin-top:12px; display:none">
-        <div class="hdr">
+          <div class="hdr">
             <div class="rowbar">
-            <span class="chip">Drive</span>
-            <span id="driveStatus" class="muted">—</span>
+              <span class="chip">Drive</span>
+              <span id="driveStatus" class="muted">—</span>
             </div>
             <div class="rowbar" id="driveButtons"></div>
-        </div>
-        <div id="driveView" style="margin-top:8px"></div>
+          </div>
+          <div id="driveView" style="margin-top:8px"></div>
         </div>
         <!-- === /Drive 図面ビュー === -->
 
@@ -185,7 +183,6 @@
             </div>
           </div>
 
-          <!-- 受注表はAirtable無効なので非表示のまま -->
           <div id="ordersBox" style="margin-top:12px; display:none">
             <h3>関連受注（納期の早い順）</h3>
             <div id="ordersEmpty" class="muted">—</div>
@@ -209,7 +206,6 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
-  // ★ Airtable は使わない（Google Sheets + Google Drive のみ）
   const FEATURE = { AIRTABLE_FETCH: false };
 
   const D = {
@@ -220,17 +216,13 @@
     tBN: q('#tBN'), tWC: q('#tWC'),
     gsBox: q('#gsBox'),
     result: q('#result'),
-    // 手入力/CSRF
     inBook: q('#inBook'), inWc: q('#inWc'), btnQuery: q('#btnQuery'), btnFillTarget: q('#btnFillTarget'),
     btnOpenHtml: q('#btnOpenHtml'),
     csrfWarn: q('#csrfWarn'), csrfStatus: q('#csrfStatus'), btnEnableCsrf: q('#btnEnableCsrf'),
     atState: q('#atState'),
-    // scope bar
     selScope: q('#selScope'), btnSetTarget: q('#btnSetTarget'), btnUseCurrent: q('#btnUseCurrent'), btnClearTarget: q('#btnClearTarget'),
     targetBadge: q('#targetBadge'),
-    // target scope
     targetScope: q('#targetScope'),
-    // Drive 統合
     dev: q('#dev'),
     btnDriveOpen: q('#btnDriveOpen'),
     driveMsg: q('#driveMsg'),
@@ -241,10 +233,8 @@
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
 
-  // Airtable無効の表示
   if(D.atState){ D.atState.textContent = 'AT:OFF'; }
 
-  // 検出・状態
   const CFG = { JSQR_MAX_LOOPS: 10, DOWNSCALE: 1 };
   const S = {
     stream: null, rafId: null,
@@ -253,7 +243,6 @@
     csrf: '', locked: false, scope: 'any', target: { book:'', wc:'' }
   };
 
-  // util
   function q(s){ return document.querySelector(s); }
   function readCookie(name){ const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
@@ -262,7 +251,6 @@
   function setStatus(text, kind='info'){ D.scanStatus.textContent=text; D.scanStatus.className=`chip ${kind}`; }
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-  // CSRF（/api/die-check 用：GSheetsは die-check 経由）
   function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
   async function requestSession(){ const url = isLocal() ? '/api/session?dev=1' : '/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); }
   async function ensureCsrf(){
@@ -289,7 +277,6 @@
     catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
   });
 
-  // QR判定
   function classify(raw){
     const t = normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
@@ -320,7 +307,6 @@
     return null;
   }
 
-  // scope / target
   function updateTargetBadge(){
     const bn = S.target.book || 'なし';
     const wc = S.target.book ? (S.target.wc || '*') : '—';
@@ -348,94 +334,79 @@
     const wcOk   = S.target.wc ? eqi(wc,S.target.wc) : true;
     return bookOk && wcOk;
   }
-  // === Drive 図面表示（差し替え版） ===
-async function openDriveFigure(book, wc){
-  const box  = document.getElementById('driveBox');
-  const stat = document.getElementById('driveStatus');
-  const view = document.getElementById('driveView');
-  const btns = document.getElementById('driveButtons');
 
-  // DOMがなければ黙って終了（初期化順のズレ対策）
-  if(!box || !stat || !view || !btns){
-    console.warn('[Drive] UI elements missing');
-    return;
-  }
+  // === Google Drive 図面表示（新命名対応） ===
+  async function openDriveFigure(book, wc){
+    const box  = document.getElementById('driveBox');
+    const stat = document.getElementById('driveStatus');
+    const view = document.getElementById('driveView');
+    const btns = document.getElementById('driveButtons');
 
-  // book/wc が空なら一旦非表示化して終了
-  if(!book || !wc){
-    box.style.display = 'none';
-    stat.textContent = '—';
-    view.innerHTML = '';
-    btns.innerHTML = '';
-    return;
-  }
+    if(!box || !stat || !view || !btns){ console.warn('[Drive] UI elements missing'); return; }
 
-  box.style.display = 'block';
-  stat.textContent = '検索中…';
-  view.innerHTML = '';
-  btns.innerHTML = '';
-
-  try{
-    const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
-    const r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
-    if(!r.ok){
-      const t = await r.text().catch(()=> '');
-      throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`);
-    }
-    const j = await r.json().catch(()=> ({}));
-    if(j?.ok !== true){
-      throw new Error(j?.error || 'drive-find: unexpected response');
-    }
-
-    // candidates 正規化（jpeg/png/pdfが複数あっても配列で来る想定）
-    const cands = Array.isArray(j.candidates) && j.candidates.length
-      ? j.candidates
-      : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
-
-    if(cands.length === 0){
-      stat.textContent = '一致ファイルなし';
+    if(!book || !wc){
+      box.style.display = 'none'; stat.textContent = '—'; view.innerHTML = ''; btns.innerHTML = '';
       return;
     }
 
-    // 優先順: 画像系 > PDF の例（jpeg/jpg/png を優先）
-    const score = fn => {
-      const n = (fn?.name || '').toLowerCase();
-      if(n.endsWith('.jpeg') || n.endsWith('.jpg') || n.endsWith('.png')) return 1;
-      if(n.endsWith('.pdf')) return 2;
-      return 9;
-    };
-    cands.sort((a,b)=> score(a) - score(b));
-    const primary = cands[0];
+    box.style.display = 'block'; stat.textContent = '検索中…'; view.innerHTML = ''; btns.innerHTML = '';
 
-    const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
-    const src   = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+    try{
+      const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
+      const r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
+      if(!r.ok){ const t = await r.text().catch(()=> ''); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+      const j = await r.json().catch(()=> ({}));
+      if(j?.ok !== true){ throw new Error(j?.error || 'drive-find: unexpected response'); }
 
-    if(isPdf){
-      view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
-    }else{
-      view.innerHTML = `<img src="${src}" alt="${(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      const cands = Array.isArray(j.candidates) && j.candidates.length
+        ? j.candidates
+        : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
+
+      if(cands.length === 0){ stat.textContent = '一致ファイルなし'; return; }
+
+      // ★ 優先順の改良：-zu 画像 → -si 画像 → その他画像 → PDF
+      const score = fn => {
+        const n = (fn?.name || '').toLowerCase();
+        const isPdf = n.endsWith('.pdf');
+        const isImg = /\.(jpeg|jpg|png)$/.test(n);
+        const hasZu = /-zu\.(jpeg|jpg|png)$/.test(n);
+        const hasSi = /-si\.(jpeg|jpg|png)$/.test(n);
+        if(isImg && hasZu) return 1;
+        if(isImg && hasSi) return 2;
+        if(isImg)          return 3;
+        if(isPdf)          return 9;
+        return 99;
+      };
+      cands.sort((a,b)=> score(a) - score(b));
+
+      const primary = cands[0];
+      const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
+      const src   = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+
+      if(isPdf){
+        view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+      }else{
+        view.innerHTML = `<img src="${src}" alt="${(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      }
+
+      // 候補切替リンク
+      btns.innerHTML = cands.map((f,i)=>{
+        const ext = ((f.name||'').split('.').pop()||'').toUpperCase();
+        const star = (i===0 ? '★ ' : '');
+        const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name||`${book}-${wc}`)}`;
+        return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${star}${(f.name||'file')} (${ext||'BIN'})</a>`;
+      }).join(' ');
+
+      stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name||'-'}）`;
+    }catch(e){
+      console.error(e);
+      stat.textContent = `NG: ${e?.message||e}`;
+      view.innerHTML = '';
+      btns.innerHTML = '';
     }
-
-    // 切替用の小さなリンク郡
-    btns.innerHTML = cands.map((f,i)=>{
-      const ext = ((f.name||'').split('.').pop()||'').toUpperCase();
-      const star = (i===0 ? '★ ' : '');
-      const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name||`${book}-${wc}`)}`;
-      return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${star}${(f.name||'file')} (${ext||'BIN'})</a>`;
-    }).join(' ');
-
-    stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name||'-'}）`;
-  }catch(e){
-    console.error(e);
-    stat.textContent = `NG: ${e?.message||e}`;
-    view.innerHTML = '';
-    btns.innerHTML = '';
   }
-}
-// === /Drive 図面表示 ===
+  // === /Drive 図面表示 ===
 
-
-  // overlay & scope box
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
     ctx.save(); ctx.lineWidth= solid?5:3; ctx.setLineDash(solid?[]:[8,6]); ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
@@ -459,7 +430,6 @@ async function openDriveFigure(book, wc){
     }
   }
 
-  // camera
   function reallyStopStreamTracks(){ if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} } S.stream=null; }
   function stopCam({keepFrame=false}={}){ if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
     if(!keepFrame){ ctx.clearRect(0,0,D.overlay.width,D.overlay.height); D.freeze.style.display='none'; D.video.style.visibility='visible'; }
@@ -484,7 +454,6 @@ async function openDriveFigure(book, wc){
     setStatus('ロック完了','ok'); stopCam({keepFrame:true}); setStatus('ロック完了','ok');
   }
 
-  // detection
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
     const scale=Math.max(1,Number(CFG.DOWNSCALE)||1);
@@ -554,35 +523,7 @@ async function openDriveFigure(book, wc){
     S.current.book=String(book||'').trim(); S.current.wc=String(wc||'').trim();
     D.tBN.textContent=S.current.book||'-'; D.tWC.textContent=S.current.wc||'-';
   }
-  // 追加ヘルパ: 指定フォルダ配下を幅優先でたどってファイル候補を探す
-    async function findInTree({ token, rootId, baseName, exts = ['png','jpeg','jpg','pdf'], maxFolders = 200 }) {
-    const queue = [rootId];
-    const hits = [];
-    const extQ = exts.map(e => `name='${baseName}.${e}'`).join(' or ');
 
-    while (queue.length && hits.length === 0 && --maxFolders >= 0) {
-        const folderId = queue.shift();
-
-        // 1) 直下の候補ファイル
-        const qFiles = `(${extQ}) and '${folderId}' in parents and trashed=false`;
-        const rf = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qFiles)}&fields=files(id,name,mimeType)`, {
-        headers: { Authorization: `Bearer ${token}` }
-        });
-        const jf = await rf.json();
-        if (jf.files?.length) { hits.push(...jf.files); break; }
-
-        // 2) サブフォルダをキューへ
-        const qFolders = `mimeType='application/vnd.google-apps.folder' and '${folderId}' in parents and trashed=false`;
-        const rd = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(qFolders)}&fields=files(id)`, {
-        headers: { Authorization: `Bearer ${token}` }
-        });
-        const jd = await rd.json();
-        jd.files?.forEach(f => queue.push(f.id));
-    }
-    return hits;
-    }
-
-  // ====== 仕様照会（GSheetsのみ） ======
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
     const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
@@ -621,64 +562,56 @@ async function openDriveFigure(book, wc){
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
     D.result.style.display='block';
-    // 手入力欄へ反映
-    // 既存の末尾をこの3行に置き換え
+
     const _book = (book || '').trim();
     const _wc   = (workcord || '').trim();
-    openDriveFigure(_book, _wc);   // 空なら中で非表示処理、値があればDrive描画
-
+    openDriveFigure(_book, _wc);
   }
 
-  
-  // ====== Google Drive 図面ビュー ======
-    async function driveOpen(){
+  async function driveOpen(){
     const book = S.current.book, wc = S.current.wc;
     if(!book || !wc){ alert('Book / WC を先に指定してください'); return; }
     const dev = D.dev?.checked ? '1' : '0';
     D.driveMsg.textContent = '🔍 Google Drive を検索しています…';
     D.driveOut.innerHTML = '';
     try{
-        // ← ここが修正点: encodeURIComponent(wc)
-        const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`, { cache:'no-store' });
-        if(!r.ok){ const t=await r.text(); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
-        const j = await r.json();
-        if(!j.ok || !j.fileId){
+      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`, { cache:'no-store' });
+      if(!r.ok){ const t=await r.text(); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+      const j = await r.json();
+      if(!j.ok || !j.fileId){
         D.driveMsg.textContent = '❌ 該当ファイルが見つかりません';
         D.driveOut.innerHTML = `<pre>${esc(JSON.stringify(j,null,2))}</pre>`;
         return;
-        }
+      }
 
-        const fileId   = j.fileId;
-        const fileName = j.fileName || `${book}-${wc}.bin`;
-        D.driveMsg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
+      const fileId   = j.fileId;
+      const fileName = j.fileName || `${book}-${wc}.bin`;
+      D.driveMsg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
 
-        const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache:'no-store' });
-        if(!rr.ok){ const t=await rr.text(); throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`); }
-        const blob = await rr.blob();
-        const url  = URL.createObjectURL(blob);
+      const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache:'no-store' });
+      if(!rr.ok){ const t=await rr.text(); throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`); }
+      const blob = await rr.blob();
+      const url  = URL.createObjectURL(blob);
 
-        if (blob.type.startsWith('image/')) {
+      if (blob.type.startsWith('image/')) {
         D.driveOut.innerHTML = `<img src="${url}" alt="${esc(fileName)}" style="max-width:100%;height:auto;border:1px solid #dee2e6;border-radius:8px">`;
-        } else if (blob.type === 'application/pdf') {
+      } else if (blob.type === 'application/pdf') {
         D.driveOut.innerHTML = `<iframe src="${url}" style="width:100%;height:75vh;border:1px solid #dee2e6;border-radius:8px"></iframe>`;
-        } else {
+      } else {
         D.driveOut.innerHTML = `<a href="${url}" download="${esc(fileName)}">ダウンロード (${esc(blob.type)} / ${blob.size} bytes)</a>`;
-        }
-        D.driveMsg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
-        D.driveState.textContent = 'Drive: OK';
+      }
+      D.driveMsg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
+      D.driveState.textContent = 'Drive: OK';
     }catch(e){
-        console.error(e);
-        D.driveMsg.textContent = '⚠️ エラー: ' + (e.message||e);
-        D.driveState.textContent = 'Drive: NG';
-        D.driveOut.innerHTML = '';
+      console.error(e);
+      D.driveMsg.textContent = '⚠️ エラー: ' + (e.message||e);
+      D.driveState.textContent = 'Drive: NG';
+      D.driveOut.innerHTML = '';
     }
-    }
+  }
 
-
-  // クリック結線
   D.btnDriveOpen.addEventListener('click', driveOpen);
 
-  // 手入力
   D.btnQuery.addEventListener('click', () => {
     setTarget(D.inBook.value, D.inWc.value);
     if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
@@ -686,19 +619,16 @@ async function openDriveFigure(book, wc){
   });
   D.btnFillTarget.addEventListener('click', () => { D.inBook.value=S.current.book||''; D.inWc.value=S.current.wc||''; });
 
-  // スコープ操作
   D.selScope.addEventListener('change', () => setScope(D.selScope.value));
   q('#btnSetTarget').addEventListener('click', () => setTargetScope(D.inBook.value, D.inWc.value));
   q('#btnUseCurrent').addEventListener('click', () => setTargetScope(S.current.book, S.current.wc));
   q('#btnClearTarget').addEventListener('click', () => clearTargetScope());
   updateTargetBadge();
 
-  // カメラ制御
   D.btnStart.addEventListener('click', startCam);
   D.btnStop.addEventListener('click', () => stopCam());
   window.addEventListener('resize', fitOverlay);
 
-  // 画像静止画テスト（最初のQRでターゲット→GSheets照会）
   D.fileTest.addEventListener('change', async ev=>{
     const file=ev.target.files?.[0]; if(!file) return;
     const img=new Image();
@@ -731,7 +661,6 @@ async function openDriveFigure(book, wc){
     return hits;
   }
 
-  // 起動時パラメータ
   ;(function initFromParams(){
     const p=new URLSearchParams(location.search); const book=(p.get('book')||'').trim(); const wc=(p.get('wc')||'').trim();
     if(book || wc){ setTarget(book,wc); S.lastQueryKey=''; querySpec(); }
