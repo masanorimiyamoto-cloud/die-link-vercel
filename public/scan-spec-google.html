@@ -541,6 +541,8 @@
       renderResult(j);
     }catch(e){
       D.errApi.style.display='block'; D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
+      // ★ GSheetsに該当がなくても Drive は開く（図面だけ見たいケースに対応）
+      openDriveFigure(book, wc);
     }finally{ D.loading.style.display='none'; }
   }
 
