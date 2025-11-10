@@ -66,11 +66,8 @@ export default async function handler(req){
     const base = `${book}-${wc}`.trim();
 
     // 命名規則に対応する判定関数
-    
-   // -zu/-z, -si/-s を許可（単文字エイリアス対応）
-    const isNewZu = (name)=> new RegExp(`^${escapeRegex(base)}-(?:zu|z)\\.(?:jpeg|jpg|png)$`, 'i').test(name||'');
-    const isNewSi = (name)=> new RegExp(`^${escapeRegex(base)}-(?:si|s)\\.(?:jpeg|jpg|png)$`, 'i').test(name||'');
-
+    const isNewZu = (name)=> new RegExp(`^${escapeRegex(base)}-zu\\.(?:jpeg|jpg|png)$`, 'i').test(name||'');
+    const isNewSi = (name)=> new RegExp(`^${escapeRegex(base)}-si\\.(?:jpeg|jpg|png)$`, 'i').test(name||'');
     const isOldImg= (name)=> new RegExp(`^${escapeRegex(base)}\\.(?:jpeg|jpg|png)$`,      'i').test(name||'');
     const isPdf   = (name)=> new RegExp(`^${escapeRegex(base)}\\.pdf$`,                   'i').test(name||'');
 
