@@ -67,7 +67,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc:1110_23）</h1>
+  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc_1111）</h1>
 
   <div class="row">
     <!-- 左：カメラ -->
@@ -152,7 +152,7 @@
         <div id="loading" class="muted" style="display:none;margin-top:6px;">照会中…</div>
         <div id="errApi" class="err" style="display:none;margin-top:6px;"></div>
 
-        <!-- === Drive 図面ビュー === -->
+        <!-- === Drive 図面ビュー（新UI） === -->
         <div id="driveBox" class="card" style="margin-top:12px; display:none">
           <div class="hdr">
             <div class="rowbar">
@@ -183,6 +183,7 @@
             </div>
           </div>
 
+          <!-- 旧：Airtable連動は非表示のまま -->
           <div id="ordersBox" style="margin-top:12px; display:none">
             <h3>関連受注（納期の早い順）</h3>
             <div id="ordersEmpty" class="muted">—</div>
@@ -277,6 +278,100 @@
     catch(e){ alert('CSRFの取得に失敗: ' + (e.message||e)); }
   });
 
+  /* ====== ここが肝心：図面UIを“新旧まとめて”完全初期化 ====== */
+  function resetDriveUI(){
+    const box  = document.getElementById('driveBox');
+    const stat = document.getElementById('driveStatus');
+    const view = document.getElementById('driveView');
+    const btns = document.getElementById('driveButtons');
+    const out  = document.getElementById('driveOut');
+    const msg  = document.getElementById('driveMsg');
+    const state= document.getElementById('driveState');
+    if(box)  box.style.display = 'none';
+    if(stat) stat.textContent  = '—';
+    if(view) view.innerHTML    = '';
+    if(btns) btns.innerHTML    = '';
+    if(out)  out.innerHTML     = '';
+    if(msg)  msg.textContent   = 'Book/WC を指定して「Driveで図面を開く」を押してください。';
+    if(state)state.textContent = 'Drive: Ready';
+  }
+
+  /* === Google Drive 図面表示（新命名対応・新UI） === */
+  async function openDriveFigure(book, wc){
+    const box  = document.getElementById('driveBox');
+    const stat = document.getElementById('driveStatus');
+    const view = document.getElementById('driveView');
+    const btns = document.getElementById('driveButtons');
+
+    if(!box || !stat || !view || !btns){ console.warn('[Drive] UI elements missing'); return; }
+
+    if(!book || !wc){
+      // book/wc 空のときは非表示
+      resetDriveUI();
+      return;
+    }
+
+    // 新しい検索開始時に念のため一度クリア（ちらつきを抑えつつ確実に消す）
+    resetDriveUI();
+
+    box.style.display = 'block';
+    stat.textContent = '検索中…';
+
+    try{
+      const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
+      const r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
+      if(!r.ok){ const t = await r.text().catch(()=> ''); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+      const j = await r.json().catch(()=> ({}));
+      if(j?.ok !== true){ throw new Error(j?.error || 'drive-find: unexpected response'); }
+
+      const cands = Array.isArray(j.candidates) && j.candidates.length
+        ? j.candidates
+        : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
+
+      if(cands.length === 0){ stat.textContent = '一致ファイルなし'; return; }
+
+      // 優先順：-zu画像 → -si画像 → その他画像 → PDF
+      const score = fn => {
+        const n = (fn?.name || '').toLowerCase();
+        const isPdf = n.endsWith('.pdf');
+        const isImg = /\.(jpeg|jpg|png)$/.test(n);
+        const hasZu = /-zu\.(jpeg|jpg|png)$/.test(n);
+        const hasSi = /-si\.(jpeg|jpg|png)$/.test(n);
+        if(isImg && hasZu) return 1;
+        if(isImg && hasSi) return 2;
+        if(isImg)          return 3;
+        if(isPdf)          return 9;
+        return 99;
+      };
+      cands.sort((a,b)=> score(a) - score(b));
+
+      const primary = cands[0];
+      const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
+      const src   = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+
+      if(isPdf){
+        view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+      }else{
+        view.innerHTML = `<img src="${src}" alt="${(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      }
+
+      // 切替リンク
+      btns.innerHTML = cands.map((f,i)=>{
+        const ext = ((f.name||'').split('.').pop()||'').toUpperCase();
+        const star = (i===0 ? '★ ' : '');
+        const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name||`${book}-${wc}`)}`;
+        return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${star}${(f.name||'file')} (${ext||'BIN'})</a>`;
+      }).join(' ');
+
+      stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name||'-'}）`;
+    }catch(e){
+      console.error(e);
+      stat.textContent = `NG: ${e?.message||e}`;
+      // view/btns は reset 済み
+    }
+  }
+  /* === /Drive 図面表示 === */
+
   function classify(raw){
     const t = normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
@@ -334,88 +429,6 @@
     const wcOk   = S.target.wc ? eqi(wc,S.target.wc) : true;
     return bookOk && wcOk;
   }
-  function resetDriveUI(){
-    const box  = document.getElementById('driveBox');
-    const stat = document.getElementById('driveStatus');
-    const view = document.getElementById('driveView');
-    const btns = document.getElementById('driveButtons');
-    if(box)  box.style.display = 'none';
-    if(stat) stat.textContent  = '—';
-    if(view) view.innerHTML    = '';
-    if(btns) btns.innerHTML    = '';
-  }
-
-  // === Google Drive 図面表示（新命名対応） ===
-  async function openDriveFigure(book, wc){
-    const box  = document.getElementById('driveBox');
-    const stat = document.getElementById('driveStatus');
-    const view = document.getElementById('driveView');
-    const btns = document.getElementById('driveButtons');
-
-    if(!box || !stat || !view || !btns){ console.warn('[Drive] UI elements missing'); return; }
-
-    if(!book || !wc){
-      box.style.display = 'none'; stat.textContent = '—'; view.innerHTML = ''; btns.innerHTML = '';
-      return;
-    }
-
-    box.style.display = 'block'; stat.textContent = '検索中…'; view.innerHTML = ''; btns.innerHTML = '';
-
-    try{
-      const url = `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`;
-      const r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
-      if(!r.ok){ const t = await r.text().catch(()=> ''); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
-      const j = await r.json().catch(()=> ({}));
-      if(j?.ok !== true){ throw new Error(j?.error || 'drive-find: unexpected response'); }
-
-      const cands = Array.isArray(j.candidates) && j.candidates.length
-        ? j.candidates
-        : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
-
-      if(cands.length === 0){ stat.textContent = '一致ファイルなし'; return; }
-
-      // ★ 優先順の改良：-zu 画像 → -si 画像 → その他画像 → PDF
-      const score = fn => {
-        const n = (fn?.name || '').toLowerCase();
-        const isPdf = n.endsWith('.pdf');
-        const isImg = /\.(jpeg|jpg|png)$/.test(n);
-        const hasZu = /-zu\.(jpeg|jpg|png)$/.test(n);
-        const hasSi = /-si\.(jpeg|jpg|png)$/.test(n);
-        if(isImg && hasZu) return 1;
-        if(isImg && hasSi) return 2;
-        if(isImg)          return 3;
-        if(isPdf)          return 9;
-        return 99;
-      };
-      cands.sort((a,b)=> score(a) - score(b));
-
-      const primary = cands[0];
-      const isPdf = (primary.name||'').toLowerCase().endsWith('.pdf');
-      const src   = `/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
-
-      if(isPdf){
-        view.innerHTML = `<iframe src="${src}" style="width:100%;height:70vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
-      }else{
-        view.innerHTML = `<img src="${src}" alt="${(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
-      }
-
-      // 候補切替リンク
-      btns.innerHTML = cands.map((f,i)=>{
-        const ext = ((f.name||'').split('.').pop()||'').toUpperCase();
-        const star = (i===0 ? '★ ' : '');
-        const href = `/api/drive-proxy?id=${encodeURIComponent(f.id)}&name=${encodeURIComponent(f.name||`${book}-${wc}`)}`;
-        return `<a class="badge" href="${href}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">${star}${(f.name||'file')} (${ext||'BIN'})</a>`;
-      }).join(' ');
-
-      stat.textContent = `ヒット: ${cands.length} 件（表示: ${primary.name||'-'}）`;
-    }catch(e){
-      console.error(e);
-      stat.textContent = `NG: ${e?.message||e}`;
-      view.innerHTML = '';
-      btns.innerHTML = '';
-    }
-  }
-  // === /Drive 図面表示 ===
 
   function drawBox(points, color, solid=true){
     if(!points || points.length<4) return;
@@ -445,6 +458,9 @@
     if(!keepFrame){ ctx.clearRect(0,0,D.overlay.width,D.overlay.height); D.freeze.style.display='none'; D.video.style.visibility='visible'; }
     reallyStopStreamTracks(); D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中','info'); }
   async function startCam(){
+    // カメラ開始時も既存図面をクリア
+    resetDriveUI();
+
     D.freeze.style.display='none'; D.video.style.visibility='visible'; S.locked=false; stopCam();
     D.errCam.textContent=''; try{
       S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1280,min:640,max:1920}, height:{ideal:720,min:480,max:1080}, advanced:[{focusMode:'continuous'}] }, audio:false });
@@ -515,14 +531,19 @@
         if(od && (od.bn||od.wc)){
           if(!withinScope('order',od)){ drawBox(pts,'#e03131',false); showToastNear(`スコープ外: ${od.bn||'-'}/${od.wc||'-'}`,pts); continue; }
           drawBox(pts,'#f59f00',true); showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`,pts);
-          setTarget(od.bn||'',od.wc||''); S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); return;
+          // 新ターゲットに切替 → 図面は先に消す
+          setTarget(od.bn||'',od.wc||'');
+          resetDriveUI();
+          S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); return;
         }else{ drawBox(pts,'#e03131',false); showToastNear('order(不明形式)',pts); }
       }else if(kind==='die'){
         const p=parseDie(raw);
         if(p && (p.bn||p.wc)){
           if(!withinScope('die',p)){ drawBox(pts,'#e03131',false); showToastNear(`スコープ外: ${p.bn||'-'}/${p.wc||'-'}`,pts); continue; }
           drawBox(pts,'#1c7ed6',true); showToastNear('ロック｜ターゲットを設定しました',pts);
-          setTarget(p.bn||'',p.wc||''); if(!S.locked){ S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); }
+          setTarget(p.bn||'',p.wc||'');
+          resetDriveUI();
+          if(!S.locked){ S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); }
           return;
         }else{ drawBox(pts,'#e03131',false); showToastNear('die(不明形式)',pts); }
       }else{ drawBox(pts,'#e03131',false); showToastNear('別QR',pts); }
@@ -534,10 +555,13 @@
     D.tBN.textContent=S.current.book||'-'; D.tWC.textContent=S.current.wc||'-';
   }
 
+  /* ====== 仕様照会（GSheetsのみ） ====== */
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
-    // ★ 追加：新しい検索開始時に前回の図面を消す
-     resetDriveUI();
+
+    // ★ 新しい検索を開始するたびに、図面（新旧UI）を完全クリア
+    resetDriveUI();
+
     const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
     D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='block'; D.result.style.display='none';
     try{
@@ -553,7 +577,6 @@
       renderResult(j);
     }catch(e){
       D.errApi.style.display='block'; D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
-      
     }finally{ D.loading.style.display='none'; }
   }
 
@@ -578,28 +601,35 @@
 
     const _book = (book || '').trim();
     const _wc   = (workcord || '').trim();
+    // 仕様結果に基づいて Drive を再描画（book/wc が空なら中で非表示）
     openDriveFigure(_book, _wc);
   }
 
+  /* ====== 旧：手動 Drive ボタンの表示領域 ====== */
   async function driveOpen(){
     const book = S.current.book, wc = S.current.wc;
     if(!book || !wc){ alert('Book / WC を先に指定してください'); return; }
     const dev = D.dev?.checked ? '1' : '0';
-    D.driveMsg.textContent = '🔍 Google Drive を検索しています…';
-    D.driveOut.innerHTML = '';
+
+    // 手動オープン時も、まず旧UIをクリアしてから描画
+    const out = document.getElementById('driveOut');
+    const msg = document.getElementById('driveMsg');
+    if(out) out.innerHTML = '';
+    if(msg) msg.textContent = '🔍 Google Drive を検索しています…';
+
     try{
       const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&dev=${dev}`, { cache:'no-store' });
       if(!r.ok){ const t=await r.text(); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
       const j = await r.json();
       if(!j.ok || !j.fileId){
-        D.driveMsg.textContent = '❌ 該当ファイルが見つかりません';
-        D.driveOut.innerHTML = `<pre>${esc(JSON.stringify(j,null,2))}</pre>`;
+        if(msg) msg.textContent = '❌ 該当ファイルが見つかりません';
+        if(out) out.innerHTML = `<pre>${esc(JSON.stringify(j,null,2))}</pre>`;
         return;
       }
 
       const fileId   = j.fileId;
       const fileName = j.fileName || `${book}-${wc}.bin`;
-      D.driveMsg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
+      if(msg) msg.textContent = `✅ 見つかりました: ${fileName}｜取得中…`;
 
       const rr = await fetch(`/api/drive-proxy?id=${encodeURIComponent(fileId)}&name=${encodeURIComponent(fileName)}&dev=${dev}`, { cache:'no-store' });
       if(!rr.ok){ const t=await rr.text(); throw new Error(`drive-proxy HTTP ${rr.status}: ${t.slice(0,200)}`); }
@@ -607,25 +637,30 @@
       const url  = URL.createObjectURL(blob);
 
       if (blob.type.startsWith('image/')) {
-        D.driveOut.innerHTML = `<img src="${url}" alt="${esc(fileName)}" style="max-width:100%;height:auto;border:1px solid #dee2e6;border-radius:8px">`;
+        if(out) out.innerHTML = `<img src="${url}" alt="${esc(fileName)}" style="max-width:100%;height:auto;border:1px solid #dee2e6;border-radius:8px">`;
       } else if (blob.type === 'application/pdf') {
-        D.driveOut.innerHTML = `<iframe src="${url}" style="width:100%;height:75vh;border:1px solid #dee2e6;border-radius:8px"></iframe>`;
+        if(out) out.innerHTML = `<iframe src="${url}" style="width:100%;height:75vh;border:1px solid #dee2e6;border-radius:8px"></iframe>`;
       } else {
-        D.driveOut.innerHTML = `<a href="${url}" download="${esc(fileName)}">ダウンロード (${esc(blob.type)} / ${blob.size} bytes)</a>`;
+        if(out) out.innerHTML = `<a href="${url}" download="${esc(fileName)}">ダウンロード (${esc(blob.type)} / ${blob.size} bytes)</a>`;
       }
-      D.driveMsg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
-      D.driveState.textContent = 'Drive: OK';
+      if(D.driveState) D.driveState.textContent = 'Drive: OK';
+      if(msg) msg.textContent = `✅ 図面を取得しました (${blob.type}, ${blob.size} bytes)`;
     }catch(e){
       console.error(e);
-      D.driveMsg.textContent = '⚠️ エラー: ' + (e.message||e);
-      D.driveState.textContent = 'Drive: NG';
-      D.driveOut.innerHTML = '';
+      if(D.driveState) D.driveState.textContent = 'Drive: NG';
+      const msg = document.getElementById('driveMsg');
+      const out = document.getElementById('driveOut');
+      if(msg) msg.textContent = '⚠️ エラー: ' + (e.message||e);
+      if(out) out.innerHTML = '';
     }
   }
 
+  /* ====== イベント結線 ====== */
   D.btnDriveOpen.addEventListener('click', driveOpen);
 
   D.btnQuery.addEventListener('click', () => {
+    // 手動照会クリック時点で確実に旧新どちらも消す
+    resetDriveUI();
     setTarget(D.inBook.value, D.inWc.value);
     if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
     S.lastQueryKey=''; querySpec();
@@ -653,8 +688,10 @@
       for(const h of hits){ drawBox(h.cornerPoints,'#1c7ed6',true); }
       if(hits[0]){
         const raw=hits[0].rawValue; const kind=classify(raw);
+        // 画像からターゲット切替 → 図面は先に消す
         if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'',od.wc||''); } }
         else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'',d.wc||''); } }
+        resetDriveUI();
         S.lastQueryKey=''; querySpec();
       }
       ev.target.value="";
@@ -676,7 +713,12 @@
 
   ;(function initFromParams(){
     const p=new URLSearchParams(location.search); const book=(p.get('book')||'').trim(); const wc=(p.get('wc')||'').trim();
-    if(book || wc){ setTarget(book,wc); S.lastQueryKey=''; querySpec(); }
+    if(book || wc){
+      // 初期パラメータでターゲット決定 → 先にクリア
+      resetDriveUI();
+      setTarget(book,wc);
+      S.lastQueryKey=''; querySpec();
+    }
     updateTargetScopeVisibility();
   })();
 
