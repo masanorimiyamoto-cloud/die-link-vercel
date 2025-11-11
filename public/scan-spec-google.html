@@ -334,6 +334,16 @@
     const wcOk   = S.target.wc ? eqi(wc,S.target.wc) : true;
     return bookOk && wcOk;
   }
+  function resetDriveUI(){
+    const box  = document.getElementById('driveBox');
+    const stat = document.getElementById('driveStatus');
+    const view = document.getElementById('driveView');
+    const btns = document.getElementById('driveButtons');
+    if(box)  box.style.display = 'none';
+    if(stat) stat.textContent  = '—';
+    if(view) view.innerHTML    = '';
+    if(btns) btns.innerHTML    = '';
+  }
 
   // === Google Drive 図面表示（新命名対応） ===
   async function openDriveFigure(book, wc){
@@ -526,6 +536,8 @@
 
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
+    // ★ 追加：新しい検索開始時に前回の図面を消す
+     resetDriveUI();
     const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
     D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='block'; D.result.style.display='none';
     try{
