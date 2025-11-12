@@ -209,12 +209,19 @@
     .shelf-label{
       font-size:14px; color:var(--sub); margin:0;
     }
+    /* ラベルを約2倍に（デバイス幅で可変） */
+    .shelf-label{
+      margin:0;
+      color:var(--sub);
+      font-weight:700;
+      font-size: clamp(18px, 3.5vw, 28px); /* ← 目安：通常h4の約2倍 */
+    }
     .shelf-value{
       margin-left:auto;            /* 右側へ寄せる */
       text-align:right;            /* テキスト右寄せ */
       font-weight:800;
       /* 約3倍のサイズ（可変にしつつ最大42px程度） */
-      font-size: clamp(28px, 6vw, 42px);
+      font-size: clamp(24px, 5vw, 36px);
       letter-spacing:.02em;
       padding:2px 0;
     }
@@ -270,10 +277,11 @@
         <div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div>
       </div>
 
-      <<div class="card shelf-card">
-        <h4 class="shelf-label">棚 探すべき棚</h4>
+      <div class="card shelf-card">
+        <h4 class="shelf-label">探すべき棚：</h4>
         <div id="currentShelf" class="shelf-value">（URL未指定）</div>
       </div>
+
 
 
       <div class="card">
