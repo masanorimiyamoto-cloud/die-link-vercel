@@ -803,7 +803,8 @@
         if (loc) {
           state.currentShelf = loc;
           DOM.currentShelf.textContent = loc;
-          DOM.currentShelf.className = 'chip loc';
+          DOM.currentShelf.className = 'shelf-value chip loc'; // 大きさ維持＋色チップ
+
           success = true;
           promptScanShelf();
         } else {
