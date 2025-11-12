@@ -202,6 +202,23 @@
       font-size: 11px;
       margin-top: 8px;
     }
+    /* 棚カードのレイアウトと表示 */
+    .shelf-card{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+    }
+    .shelf-label{
+      font-size:14px; color:var(--sub); margin:0;
+    }
+    .shelf-value{
+      margin-left:auto;            /* 右側へ寄せる */
+      text-align:right;            /* テキスト右寄せ */
+      font-weight:800;
+      /* 約3倍のサイズ（可変にしつつ最大42px程度） */
+      font-size: clamp(28px, 6vw, 42px);
+      letter-spacing:.02em;
+      padding:2px 0;
+    }
+
   </style>
 </head>
 <body>
@@ -253,10 +270,11 @@
         <div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div>
       </div>
 
-      <div class="card">
-        <h4>棚 探すべき棚</h4>
-        <div id="currentShelf" class="muted">（URL未指定）</div>
+      <div class="card shelf-card">
+        <h4 class="shelf-label">棚 探すべき棚</h4>
+        <div id="currentShelf" class="shelf-value">（URL未指定）</div>
       </div>
+
 
       <div class="card">
         <h4>⚙️ 操作</h4>
@@ -777,7 +795,8 @@
         if (loc) {
           state.currentShelf = loc;
           DOM.currentShelf.textContent = loc;
-          DOM.currentShelf.className = 'chip loc';
+         // 右寄せ・大き文字のクラスを維持
+          DOM.currentShelf.className = 'shelf-value';
           success = true;
           promptScanShelf();
         } else {
