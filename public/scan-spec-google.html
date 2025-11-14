@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google</title>
+<title>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google_1113</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
@@ -67,7 +67,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc_1111）</h1>
+  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc_1113）</h1>
 
   <div class="row">
     <!-- 左：カメラ -->
@@ -82,6 +82,7 @@
           </div>
           <canvas id="freeze"></canvas>
           <canvas id="overlay"></canvas>
+          <canvas id="scanCanvas" style="display:none"></canvas>
         </div>
 
         <div class="controls">
@@ -208,6 +209,7 @@
 <script>
 (() => {
   const FEATURE = { AIRTABLE_FETCH: false };
+  if (D.btnDriveOpen) D.btnDriveOpen.disabled = true;  // 初期は常に無効
 
   const D = {
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
@@ -229,10 +231,13 @@
     driveMsg: q('#driveMsg'),
     driveOut: q('#driveOut'),
     driveState: q('#driveState'),
+    scanCanvas: q('#scanCanvas'),
   };
 
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
+  // ★ 追加：QR計算用コンテキスト
+  const scanCtx = D.scanCanvas.getContext('2d', { willReadFrequently:true });
 
   if(D.atState){ D.atState.textContent = 'AT:OFF'; }
 
@@ -294,6 +299,47 @@
     if(out)  out.innerHTML     = '';
     if(msg)  msg.textContent   = 'Book/WC を指定して「Driveで図面を開く」を押してください。';
     if(state)state.textContent = 'Drive: Ready';
+    if (D.btnDriveOpen) { D.btnDriveOpen.disabled = true; D.btnDriveOpen.title = 'Book / WC を先に指定してください'; }
+
+  }
+  /* === Driveファイル有無で「Driveで図面を開く」ボタンの有効/無効を切替 === */
+async function updateDriveButtonState(book, wc){
+  const btn = D.btnDriveOpen;
+  if (!btn) return;
+
+  // book/wc 未指定なら無効
+  if (!book || !wc) {
+    btn.disabled = true;
+    btn.title = 'Book / WC を先に指定してください';
+    if (D.driveState) D.driveState.textContent = 'Drive: Ready';
+    return;
+  }
+
+  // 検索中は一時的に無効化
+  btn.disabled = true;
+  btn.title = 'Drive検索中…';
+
+  try {
+    const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const j = await r.json().catch(() => ({}));
+
+    const has =
+      j && j.ok === true &&
+      ( (Array.isArray(j.candidates) && j.candidates.length > 0) || j.fileId );
+
+    btn.disabled = !has;
+    btn.title = has ? 'Driveで図面を開く' : 'Driveに図面ファイルが見つかりません';
+
+    if (D.driveState) D.driveState.textContent = has ? 'Drive: あり' : 'Drive: なし';
+    } catch (e) {
+      // エラー時は安全側で無効
+      btn.disabled = true;
+      btn.title = 'Drive検索エラー';
+      if (D.driveState) D.driveState.textContent = 'Drive: NG';
+    }
   }
 
   /* === Google Drive 図面表示（新命名対応・新UI） === */
@@ -465,6 +511,15 @@
     D.errCam.textContent=''; try{
       S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1280,min:640,max:1920}, height:{ideal:720,min:480,max:1080}, advanced:[{focusMode:'continuous'}] }, audio:false });
       D.video.srcObject=S.stream; await D.video.play(); D.btnStart.disabled=true; D.btnStop.disabled=false;
+      fitOverlay(); // 既存
+      // 動画のアスペクト比に合わせた 600px 幅のキャンバス
+      const vw = D.video.videoWidth || 1280;
+      const vh = D.video.videoHeight || 720;
+      const baseW = 600;
+      const baseH = Math.round(baseW * (vh / vw));
+      D.scanCanvas.width  = baseW;
+      D.scanCanvas.height = baseH;
+      // ★ ここまで追加
       if(S.useBarcodeDetector){ try{ const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[]; if(!fmts || !fmts.includes('qr_code')) throw 0; S.detector=new BarcodeDetector({formats:['qr_code']}); }catch{ S.useBarcodeDetector=false; S.detector=null; } }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
       setStatus('探索中…','info'); updateTargetScopeVisibility(); fitOverlay(); tick();
@@ -478,6 +533,33 @@
       ctx.font='bold 80px sans-serif'; ctx.fillStyle='rgba(255,255,255,.85)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=10; ctx.fillText('🔒', D.overlay.width/2, D.overlay.height/2); ctx.restore();
     }catch(e){}
     setStatus('ロック完了','ok'); stopCam({keepFrame:true}); setStatus('ロック完了','ok');
+  }
+  // ★ 追加：scanCanvas を使った軽量版 QR 検出
+  function scanSimple() {
+    if (D.video.readyState !== D.video.HAVE_ENOUGH_DATA) return null;
+
+    // 小さいキャンバスにフレームを書き込み
+    scanCtx.drawImage(D.video, 0, 0, D.scanCanvas.width, D.scanCanvas.height);
+
+    const img = scanCtx.getImageData(0, 0, D.scanCanvas.width, D.scanCanvas.height);
+    const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
+    if (!hit) return null;
+
+    // scanCanvas → overlay に座標をスケール変換
+    const scaleX = D.overlay.width  / D.scanCanvas.width;
+    const scaleY = D.overlay.height / D.scanCanvas.height;
+
+    const pts = [
+      hit.location.topLeftCorner,
+      hit.location.topRightCorner,
+      hit.location.bottomRightCorner,
+      hit.location.bottomLeftCorner
+    ].map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+
+    return {
+      rawValue: hit.data.trim(),
+      cornerPoints: pts,
+    };
   }
 
   async function detectCombined(){
@@ -507,12 +589,21 @@
   }
   async function tick(){
     if(!S.stream) return;
-    if(D.video.readyState===D.video.HAVE_ENOUGH_DATA){
-      fitOverlay(); ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      const ds = await detectCombined(); applyDetections(ds);
+    if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
+      fitOverlay();
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+
+      // ★ ここを軽量版に変更
+      const hit = scanSimple();
+      if (hit) {
+        applyDetections([hit]);
+      } else {
+        applyDetections([]); // 検出なし → 何もしない
+      }
     }
     S.rafId = requestAnimationFrame(tick);
   }
+
 
   function showToastNear(text,pts){ if(!pts || pts.length<2) return;
     const el=document.createElement('div'); el.className='toast'; el.textContent=text;
@@ -553,6 +644,8 @@
   function setTarget(book, wc){
     S.current.book=String(book||'').trim(); S.current.wc=String(wc||'').trim();
     D.tBN.textContent=S.current.book||'-'; D.tWC.textContent=S.current.wc||'-';
+    updateDriveButtonState(S.current.book, S.current.wc);
+
   }
 
   /* ====== 仕様照会（GSheetsのみ） ====== */
@@ -603,6 +696,8 @@
     const _wc   = (workcord || '').trim();
     // 仕様結果に基づいて Drive を再描画（book/wc が空なら中で非表示）
     openDriveFigure(_book, _wc);
+    updateDriveButtonState(_book, _wc);
+
   }
 
   /* ====== 旧：手動 Drive ボタンの表示領域 ====== */
@@ -662,6 +757,8 @@
     // 手動照会クリック時点で確実に旧新どちらも消す
     resetDriveUI();
     setTarget(D.inBook.value, D.inWc.value);
+    updateDriveButtonState(S.current.book, S.current.wc);
+
     if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
     S.lastQueryKey=''; querySpec();
   });
@@ -717,6 +814,8 @@
       // 初期パラメータでターゲット決定 → 先にクリア
       resetDriveUI();
       setTarget(book,wc);
+      updateDriveButtonState(book, wc);
+
       S.lastQueryKey=''; querySpec();
     }
     updateTargetScopeVisibility();
