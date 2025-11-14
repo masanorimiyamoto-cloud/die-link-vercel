@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google_1113</title>
+<title>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google_1114</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root{
@@ -51,7 +51,7 @@
     border: 3px solid rgba(28, 126, 214, 0.6); border-radius: 12px; pointer-events: none; z-index: 3;
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3); display: none;}
   .target-scope .corner-tl,.target-scope .corner-tr,.target-scope .corner-bl,.target-scope .corner-br{
-    position: absolute; width: 20px; height: 20px; border: 3px solid rgba(28, 126, 214, 0.8);}
+    position: absolute; width: 20px; height: 20px; border: 3px solid rgba(28,126,214,0.8);}
   .target-scope .corner-tl{top:-3px;left:-3px;border-right:none;border-bottom:none;border-radius:4px 0 0 0}
   .target-scope .corner-tr{top:-3px;right:-3px;border-left:none;border-bottom:none;border-radius:0 4px 0 0}
   .target-scope .corner-bl{bottom:-3px;left:-3px;border-right:none;border-top:none;border-radius:0 0 0 4px}
@@ -67,7 +67,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc_1113）</h1>
+  <h1>仕様照会 + GoogleDrive 図面ビュー｜scan-spec-google（die-master book-wc_1114）</h1>
 
   <div class="row">
     <!-- 左：カメラ -->
@@ -209,7 +209,6 @@
 <script>
 (() => {
   const FEATURE = { AIRTABLE_FETCH: false };
-  if (D.btnDriveOpen) D.btnDriveOpen.disabled = true;  // 初期は常に無効
 
   const D = {
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
@@ -234,9 +233,14 @@
     scanCanvas: q('#scanCanvas'),
   };
 
+  // ★ 初期無効化（ここなら D が定義済み）
+  if (D.btnDriveOpen) {
+    D.btnDriveOpen.disabled = true;
+    D.btnDriveOpen.title = 'Book / WC を先に指定してください';
+  }
+
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
-  // ★ 追加：QR計算用コンテキスト
   const scanCtx = D.scanCanvas.getContext('2d', { willReadFrequently:true });
 
   if(D.atState){ D.atState.textContent = 'AT:OFF'; }
@@ -299,46 +303,61 @@
     if(out)  out.innerHTML     = '';
     if(msg)  msg.textContent   = 'Book/WC を指定して「Driveで図面を開く」を押してください。';
     if(state)state.textContent = 'Drive: Ready';
-    if (D.btnDriveOpen) { D.btnDriveOpen.disabled = true; D.btnDriveOpen.title = 'Book / WC を先に指定してください'; }
 
-  }
-  /* === Driveファイル有無で「Driveで図面を開く」ボタンの有効/無効を切替 === */
-async function updateDriveButtonState(book, wc){
-  const btn = D.btnDriveOpen;
-  if (!btn) return;
-
-  // book/wc 未指定なら無効
-  if (!book || !wc) {
-    btn.disabled = true;
-    btn.title = 'Book / WC を先に指定してください';
-    if (D.driveState) D.driveState.textContent = 'Drive: Ready';
-    return;
+    // ★ 旧UIクリア時は必ずボタン無効化（安全側）
+    if (D.btnDriveOpen) {
+      D.btnDriveOpen.disabled = true;
+      D.btnDriveOpen.title = 'Book / WC を先に指定してください';
+    }
   }
 
-  // 検索中は一時的に無効化
-  btn.disabled = true;
-  btn.title = 'Drive検索中…';
+  /* === Driveファイル有無で「Driveで図面を開く」ボタンの有効/無効を切替（安全版） === */
+  function updateDriveButtonState(book, wc){
+    try {
+      const btn = D.btnDriveOpen;
+      if (!btn) return;
 
-  try {
-    const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, {
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-    const j = await r.json().catch(() => ({}));
+      if (!book || !wc) {
+        btn.disabled = true;
+        btn.title = 'Book / WC を先に指定してください';
+        if (D.driveState) D.driveState.textContent = 'Drive: Ready';
+        return;
+      }
 
-    const has =
-      j && j.ok === true &&
-      ( (Array.isArray(j.candidates) && j.candidates.length > 0) || j.fileId );
-
-    btn.disabled = !has;
-    btn.title = has ? 'Driveで図面を開く' : 'Driveに図面ファイルが見つかりません';
-
-    if (D.driveState) D.driveState.textContent = has ? 'Drive: あり' : 'Drive: なし';
-    } catch (e) {
-      // エラー時は安全側で無効
       btn.disabled = true;
-      btn.title = 'Drive検索エラー';
-      if (D.driveState) D.driveState.textContent = 'Drive: NG';
+      btn.title = 'Drive検索中…';
+
+      const ac = new AbortController();
+      const to = setTimeout(() => ac.abort(), 5000);
+
+      fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal: ac.signal
+      })
+        .then(r => r.ok ? r.json() : Promise.resolve({ ok:false }))
+        .then(j => {
+          clearTimeout(to);
+          const has = j && j.ok === true &&
+                      ((Array.isArray(j.candidates) && j.candidates.length > 0) || j.fileId);
+
+          btn.disabled = !has;
+          btn.title = has ? 'Driveで図面を開く' : 'Driveに図面ファイルが見つかりません';
+          if (D.driveState) D.driveState.textContent = has ? 'Drive: あり' : 'Drive: なし';
+        })
+        .catch(() => {
+          clearTimeout(to);
+          btn.disabled = true;
+          btn.title = 'Drive検索エラー';
+          if (D.driveState) D.driveState.textContent = 'Drive: NG';
+        });
+    } catch (e) {
+      console.warn('[updateDriveButtonState] suppressed error:', e);
+      if (D?.btnDriveOpen) {
+        D.btnDriveOpen.disabled = true;
+        D.btnDriveOpen.title = 'Drive検索エラー';
+      }
+      if (D?.driveState) D.driveState.textContent = 'Drive: NG';
     }
   }
 
@@ -352,12 +371,11 @@ async function updateDriveButtonState(book, wc){
     if(!box || !stat || !view || !btns){ console.warn('[Drive] UI elements missing'); return; }
 
     if(!book || !wc){
-      // book/wc 空のときは非表示
       resetDriveUI();
       return;
     }
 
-    // 新しい検索開始時に念のため一度クリア（ちらつきを抑えつつ確実に消す）
+    // 新しい検索開始時に念のため一度クリア（ちらつき抑制）
     resetDriveUI();
 
     box.style.display = 'block';
@@ -376,7 +394,6 @@ async function updateDriveButtonState(book, wc){
 
       if(cands.length === 0){ stat.textContent = '一致ファイルなし'; return; }
 
-      // 優先順：-zu画像 → -si画像 → その他画像 → PDF
       const score = fn => {
         const n = (fn?.name || '').toLowerCase();
         const isPdf = n.endsWith('.pdf');
@@ -401,7 +418,6 @@ async function updateDriveButtonState(book, wc){
         view.innerHTML = `<img src="${src}" alt="${(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
       }
 
-      // 切替リンク
       btns.innerHTML = cands.map((f,i)=>{
         const ext = ((f.name||'').split('.').pop()||'').toUpperCase();
         const star = (i===0 ? '★ ' : '');
@@ -413,7 +429,6 @@ async function updateDriveButtonState(book, wc){
     }catch(e){
       console.error(e);
       stat.textContent = `NG: ${e?.message||e}`;
-      // view/btns は reset 済み
     }
   }
   /* === /Drive 図面表示 === */
@@ -504,23 +519,27 @@ async function updateDriveButtonState(book, wc){
     if(!keepFrame){ ctx.clearRect(0,0,D.overlay.width,D.overlay.height); D.freeze.style.display='none'; D.video.style.visibility='visible'; }
     reallyStopStreamTracks(); D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中','info'); }
   async function startCam(){
-    // カメラ開始時も既存図面をクリア
-    resetDriveUI();
+    resetDriveUI(); // カメラ開始時も既存図面をクリア
 
     D.freeze.style.display='none'; D.video.style.visibility='visible'; S.locked=false; stopCam();
     D.errCam.textContent=''; try{
       S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1280,min:640,max:1920}, height:{ideal:720,min:480,max:1080}, advanced:[{focusMode:'continuous'}] }, audio:false });
       D.video.srcObject=S.stream; await D.video.play(); D.btnStart.disabled=true; D.btnStop.disabled=false;
-      fitOverlay(); // 既存
-      // 動画のアスペクト比に合わせた 600px 幅のキャンバス
+      fitOverlay();
       const vw = D.video.videoWidth || 1280;
       const vh = D.video.videoHeight || 720;
       const baseW = 600;
       const baseH = Math.round(baseW * (vh / vw));
       D.scanCanvas.width  = baseW;
       D.scanCanvas.height = baseH;
-      // ★ ここまで追加
-      if(S.useBarcodeDetector){ try{ const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[]; if(!fmts || !fmts.includes('qr_code')) throw 0; S.detector=new BarcodeDetector({formats:['qr_code']}); }catch{ S.useBarcodeDetector=false; S.detector=null; } }
+
+      if(S.useBarcodeDetector){
+        try{
+          const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[];
+          if(!fmts || !fmts.includes('qr_code')) throw 0;
+          S.detector=new BarcodeDetector({formats:['qr_code']});
+        }catch{ S.useBarcodeDetector=false; S.detector=null; }
+      }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
       setStatus('探索中…','info'); updateTargetScopeVisibility(); fitOverlay(); tick();
     }catch(e){ D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`; setStatus('カメラエラー','ng'); }
@@ -534,32 +553,23 @@ async function updateDriveButtonState(book, wc){
     }catch(e){}
     setStatus('ロック完了','ok'); stopCam({keepFrame:true}); setStatus('ロック完了','ok');
   }
-  // ★ 追加：scanCanvas を使った軽量版 QR 検出
+
+  // 軽量版 QR 検出（scanCanvas 使用）
   function scanSimple() {
     if (D.video.readyState !== D.video.HAVE_ENOUGH_DATA) return null;
-
-    // 小さいキャンバスにフレームを書き込み
     scanCtx.drawImage(D.video, 0, 0, D.scanCanvas.width, D.scanCanvas.height);
-
     const img = scanCtx.getImageData(0, 0, D.scanCanvas.width, D.scanCanvas.height);
     const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
     if (!hit) return null;
-
-    // scanCanvas → overlay に座標をスケール変換
     const scaleX = D.overlay.width  / D.scanCanvas.width;
     const scaleY = D.overlay.height / D.scanCanvas.height;
-
     const pts = [
       hit.location.topLeftCorner,
       hit.location.topRightCorner,
       hit.location.bottomRightCorner,
       hit.location.bottomLeftCorner
     ].map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
-
-    return {
-      rawValue: hit.data.trim(),
-      cornerPoints: pts,
-    };
+    return { rawValue: hit.data.trim(), cornerPoints: pts };
   }
 
   async function detectCombined(){
@@ -587,23 +597,18 @@ async function updateDriveButtonState(book, wc){
     }
     return Array.from(all.values());
   }
+
   async function tick(){
     if(!S.stream) return;
     if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
       fitOverlay();
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-
-      // ★ ここを軽量版に変更
       const hit = scanSimple();
-      if (hit) {
-        applyDetections([hit]);
-      } else {
-        applyDetections([]); // 検出なし → 何もしない
-      }
+      if (hit) applyDetections([hit]);
+      else applyDetections([]);
     }
     S.rafId = requestAnimationFrame(tick);
   }
-
 
   function showToastNear(text,pts){ if(!pts || pts.length<2) return;
     const el=document.createElement('div'); el.className='toast'; el.textContent=text;
@@ -622,10 +627,10 @@ async function updateDriveButtonState(book, wc){
         if(od && (od.bn||od.wc)){
           if(!withinScope('order',od)){ drawBox(pts,'#e03131',false); showToastNear(`スコープ外: ${od.bn||'-'}/${od.wc||'-'}`,pts); continue; }
           drawBox(pts,'#f59f00',true); showToastNear(`ロック(order): ${od.bn||'-'}/${od.wc||'-'}`,pts);
-          // 新ターゲットに切替 → 図面は先に消す
           setTarget(od.bn||'',od.wc||'');
           resetDriveUI();
-          S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec(); return;
+          S.locked=true; freezeFrameAndStopCam(); showSwipeHint(); S.lastQueryKey=''; querySpec();
+          return;
         }else{ drawBox(pts,'#e03131',false); showToastNear('order(不明形式)',pts); }
       }else if(kind==='die'){
         const p=parseDie(raw);
@@ -644,17 +649,15 @@ async function updateDriveButtonState(book, wc){
   function setTarget(book, wc){
     S.current.book=String(book||'').trim(); S.current.wc=String(wc||'').trim();
     D.tBN.textContent=S.current.book||'-'; D.tWC.textContent=S.current.wc||'-';
-    updateDriveButtonState(S.current.book, S.current.wc);
 
+    // ★ ターゲット変更のたびにボタン状態を更新
+    updateDriveButtonState(S.current.book, S.current.wc);
   }
 
   /* ====== 仕様照会（GSheetsのみ） ====== */
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
-
-    // ★ 新しい検索を開始するたびに、図面（新旧UI）を完全クリア
     resetDriveUI();
-
     const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
     D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='block'; D.result.style.display='none';
     try{
@@ -694,10 +697,12 @@ async function updateDriveButtonState(book, wc){
 
     const _book = (book || '').trim();
     const _wc   = (workcord || '').trim();
-    // 仕様結果に基づいて Drive を再描画（book/wc が空なら中で非表示）
-    openDriveFigure(_book, _wc);
+
+    // ★ 仕様結果に基づいて Drive ボタン状態を更新
     updateDriveButtonState(_book, _wc);
 
+    // Drive（新UI）の自動埋め（book/wc が空なら中で非表示）
+    openDriveFigure(_book, _wc);
   }
 
   /* ====== 旧：手動 Drive ボタンの表示領域 ====== */
@@ -706,7 +711,6 @@ async function updateDriveButtonState(book, wc){
     if(!book || !wc){ alert('Book / WC を先に指定してください'); return; }
     const dev = D.dev?.checked ? '1' : '0';
 
-    // 手動オープン時も、まず旧UIをクリアしてから描画
     const out = document.getElementById('driveOut');
     const msg = document.getElementById('driveMsg');
     if(out) out.innerHTML = '';
@@ -751,16 +755,15 @@ async function updateDriveButtonState(book, wc){
   }
 
   /* ====== イベント結線 ====== */
-  D.btnDriveOpen.addEventListener('click', driveOpen);
+  if (D.btnDriveOpen) D.btnDriveOpen.addEventListener('click', driveOpen);
 
   D.btnQuery.addEventListener('click', () => {
-    // 手動照会クリック時点で確実に旧新どちらも消す
     resetDriveUI();
     setTarget(D.inBook.value, D.inWc.value);
-    updateDriveButtonState(S.current.book, S.current.wc);
-
     if(!S.current.book || !S.current.wc){ alert('Book / WC を入力してください'); return; }
     S.lastQueryKey=''; querySpec();
+    // ★ 手動照会のクリック後にもボタン状態を更新
+    updateDriveButtonState(S.current.book, S.current.wc);
   });
   D.btnFillTarget.addEventListener('click', () => { D.inBook.value=S.current.book||''; D.inWc.value=S.current.wc||''; });
 
@@ -785,7 +788,6 @@ async function updateDriveButtonState(book, wc){
       for(const h of hits){ drawBox(h.cornerPoints,'#1c7ed6',true); }
       if(hits[0]){
         const raw=hits[0].rawValue; const kind=classify(raw);
-        // 画像からターゲット切替 → 図面は先に消す
         if(kind==='order'){ const od=parseOrder(raw); if(od){ setTarget(od.bn||'',od.wc||''); } }
         else if(kind==='die'){ const d=parseDie(raw); if(d){ setTarget(d.bn||'',d.wc||''); } }
         resetDriveUI();
@@ -811,12 +813,14 @@ async function updateDriveButtonState(book, wc){
   ;(function initFromParams(){
     const p=new URLSearchParams(location.search); const book=(p.get('book')||'').trim(); const wc=(p.get('wc')||'').trim();
     if(book || wc){
-      // 初期パラメータでターゲット決定 → 先にクリア
       resetDriveUI();
       setTarget(book,wc);
-      updateDriveButtonState(book, wc);
-
       S.lastQueryKey=''; querySpec();
+      // ★ 起動時パラメータでもボタン状態を更新
+      updateDriveButtonState(book, wc);
+    } else {
+      // 初期も一応ボタン状態を整える
+      updateDriveButtonState('', '');
     }
     updateTargetScopeVisibility();
   })();
