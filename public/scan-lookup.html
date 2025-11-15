@@ -2,339 +2,176 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>抜型ファインダー QR_Manual（高解像度対応）</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>抜型ファインダー QR（高解像度/ズームUIなし・トップバー固定）</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <style>
     :root {
-      --ok: #1c7ed6;
-      --ng: #e03131;
-      --loc: #2b8a3e;
-      --info: #f59f00;
-      --bd: #dee2e6; --tx: #212529; --sub: #6c757d;
+      --ok: #1c7ed6; --ng: #e03131; --loc: #2b8a3e; --info:#f59f00;
+      --bd: #dee2e6; --tx: #212529; --sub: #6c757d; --bg: #f8f9fa;
       --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
     }
-    body {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
-      margin: 0; padding: 12px;
-      color: var(--tx);
-      background: #f8f9fa;
-    }
-    h3, h4 { margin: 0 0 8px 0; }
-    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-    .panel { flex: 1 1 360px; min-width: 320px; }
-    .card { background: #fff; border: 1px solid var(--bd); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
-    video { width: 100%; max-width: 520px; border-radius: 12px; background: #000; display: block; }
-    .stack { position: relative; max-width: 520px; border: 1px solid var(--bd); border-radius: 12px; overflow: hidden; }
-    canvas { position: absolute; inset: 0; pointer-events: none; }
-    .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
-    button { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--bd); background: #fff; cursor: pointer; font-size: 14px; transition: background-color 0.2s; }
-    button:disabled { cursor: not-allowed; opacity: 0.6; }
-    button.primary { background: var(--ok); color: #fff; border-color: var(--ok); }
-    button:hover:not(:disabled) { background-color: #f1f3f5; }
-    button.primary:hover:not(:disabled) { background: #339af0; }
-    .badge { display: inline-block; border-radius: 6px; padding: 4px 8px; font-size: 12px; border: 1px solid var(--bd); background: #f1f3f5; }
-    .target-info b { font-size: 1.1em; }
-    .chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 500; }
-    .chip.ok { background: var(--bg-ok); color: var(--ok); border: 1px solid #a5d8ff; }
-    .chip.ng { background: var(--bg-ng); color: var(--ng); border: 1px solid #ffc9c9; }
-    .chip.loc { background: var(--bg-loc); color: var(--loc); border: 1px solid #96f2d7; }
-    .muted { color: var(--sub); font-size: 14px; }
-    .toast { position: absolute; padding: 8px 12px; background: #000c; color: #fff; border-radius: 8px; font-size: 14px; transform: translate(-50%, -150%); pointer-events: none; animation: fade-out 1.2s forwards; }
-    @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
-    .legend { font-size: 12px; color: #555; margin-top: 8px; }
+    html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
 
-    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
-    .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid var(--bd); width: 80%; max-width: 600px; border-radius: 12px; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--bd); padding-bottom: 10px; margin-bottom: 10px; }
-    .close-button { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
-    #historyList li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+    /* ★ 常時表示のトップバー（スクロールしても固定） */
+    .topbar{
+      position: sticky; top: 0; z-index: 1000;
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      padding:10px; background:#fff; border-bottom:1px solid var(--bd);
+      box-shadow: 0 4px 12px rgba(0,0,0,.06);
+    }
+    .chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:700}
+    .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
+    .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
+    .chip.loc{background:var(--bg-loc);color:var(--loc);border-color:#96f2d7}
+    .btn{padding:10px 14px;border:1px solid var(--bd);border-radius:10px;background:#fff;font-weight:600;cursor:pointer}
+    .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
 
-    .bigmsg {
-      position: fixed;
-      left: 50%;
-      top: 18%;
-      transform: translateX(-50%);
-      z-index: 1200;
-      background: rgba(28, 126, 214, 0.95);
-      color: #fff;
-      padding: 16px 22px;
-      border-radius: 12px;
-      font-size: clamp(18px, 3.2vw, 26px);
-      box-shadow: 0 8px 24px rgba(0,0,0,.2);
-      letter-spacing: .02em;
-      text-align: center;
-      pointer-events: none;
-      animation: bigmsg-fade 1.2s ease-out forwards;
-    }
-    .bigmsg .sub { display:block; font-size: .8em; opacity: .9; margin-top: 2px; }
-    @keyframes bigmsg-fade {
-      0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-      10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
-      80%  { opacity: 1; }
-      100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-    }
+    .wrap{max-width:1200px;margin:0 auto;padding:12px}
+    .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+    .panel{flex:1 1 360px;min-width:320px}
+    .card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+    h3,h4{margin:0 0 8px 0}
+    .muted{color:var(--sub);font-size:14px}
+    .legend{font-size:12px;color:#555;margin-top:8px}
+    .stack{position:relative;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:#000}
+    video{display:block;width:100%;max-width:520px;border-radius:12px;background:#000}
+    canvas{position:absolute;inset:0;pointer-events:none}
+    #overlay{z-index:2} #freeze{z-index:1;display:none}
 
-    /* ガイドスコープ */
-    .target-scope {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 200px;
-      height: 200px;
-      border: 2px solid rgba(28, 126, 214, 0.8);
-      border-radius: 12px;
-      pointer-events: none;
-      z-index: 10;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+    /* ガイドスコープ（中心枠） */
+    .target-scope{
+      position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      width:200px;height:200px;border:2px solid rgba(28,126,214,0.8);border-radius:12px;
+      pointer-events:none;z-index:10;box-shadow:0 0 0 9999px rgba(0,0,0,.3);
     }
-    .target-scope .corner-tl,
-    .target-scope .corner-tr,
-    .target-scope .corner-bl,
-    .target-scope .corner-br {
-      position: absolute;
-      width: 20px;
-      height: 20px;
-      border: 3px solid rgba(28, 126, 214, 0.8);
-    }
-    .target-scope .corner-tl {
-      top: -2px;
-      left: -2px;
-      border-right: none;
-      border-bottom: none;
-      border-radius: 4px 0 0 0;
-    }
-    .target-scope .corner-tr {
-      top: -2px;
-      right: -2px;
-      border-left: none;
-      border-bottom: none;
-      border-radius: 0 4px 0 0;
-    }
-    .target-scope .corner-bl {
-      bottom: -2px;
-      left: -2px;
-      border-right: none;
-      border-top: none;
-      border-radius: 0 0 0 4px;
-    }
-    .target-scope .corner-br {
-      bottom: -2px;
-      right: -2px;
-      border-left: none;
-      border-top: none;
-      border-radius: 0 0 4px 0;
-    }
-    .target-scope .scan-line {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, rgba(28, 126, 214, 0.8), transparent);
-      animation: scan 2s linear infinite;
-    }
-    @keyframes scan {
-      0% { top: 0; }
-      100% { top: 100%; }
-    }
+    .target-scope .corner-tl,.target-scope .corner-tr,.target-scope .corner-bl,.target-scope .corner-br{
+      position:absolute;width:20px;height:20px;border:3px solid rgba(28,126,214,0.8)}
+    .target-scope .corner-tl{top:-2px;left:-2px;border-right:none;border-bottom:none;border-radius:4px 0 0 0}
+    .target-scope .corner-tr{top:-2px;right:-2px;border-left:none;border-bottom:none;border-radius:0 4px 0 0}
+    .target-scope .corner-bl{bottom:-2px;left:-2px;border-right:none;border-top:none;border-radius:0 0 0 4px}
+    .target-scope .corner-br{bottom:-2px;right:-2px;border-left:none;border-top:none;border-radius:0 0 4px 0}
+    .target-scope .scan-line{position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,rgba(28,126,214,.8),transparent);animation:scan 2s linear infinite}
+    @keyframes scan{0%{top:0}100%{top:100%}}
 
-    /* 高解像度制御UI */
-    .advanced-controls {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 8px;
-      border: 1px solid var(--bd);
-    }
-    .control-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .control-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--sub);
-    }
-    .zoom-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .zoom-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: 1px solid var(--bd);
-      background: #fff;
-      font-size: 14px;
-      font-weight: bold;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .zoom-level {
-      font-size: 12px;
-      font-weight: 600;
-      min-width: 35px;
-      text-align: center;
-    }
-    .zoom-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-    select.small {
-      padding: 4px 8px;
-      font-size: 12px;
-      border-radius: 6px;
-    }
-    .performance-warning {
-      background: #fff3cd;
-      border: 1px solid #ffeaa7;
-      color: #856404;
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 11px;
-      margin-top: 8px;
-    }
-    /* 棚カードのレイアウトと表示 */
-    .shelf-card{
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-    }
-    .shelf-label{
-      font-size:14px; color:var(--sub); margin:0;
-    }
-    /* ラベルを約2倍に（デバイス幅で可変） */
-    .shelf-label{
-      margin:0;
-      color:var(--sub);
-      font-weight:700;
-      font-size: clamp(18px, 3.5vw, 28px); /* ← 目安：通常h4の約2倍 */
-    }
-    .shelf-value{
-      margin-left:auto;            /* 右側へ寄せる */
-      text-align:right;            /* テキスト右寄せ */
-      font-weight:800;
-      /* 約3倍のサイズ（可変にしつつ最大42px程度） */
-      font-size: clamp(24px, 5vw, 36px);
-      letter-spacing:.02em;
-      padding:2px 0;
-    }
+    .toast{position:absolute;padding:8px 12px;background:#000c;color:#fff;border-radius:8px;font-size:14px;transform:translate(-50%,-150%);pointer-events:none;animation:fade-out 1.2s forwards}
+    @keyframes fade-out{from{opacity:1}to{opacity:0}}
 
+    .bigmsg{
+      position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:1200;
+      background:rgba(28,126,214,.95);color:#fff;padding:16px 22px;border-radius:12px;font-size:clamp(18px,3.2vw,26px);
+      box-shadow:0 8px 24px rgba(0,0,0,.2);letter-spacing:.02em;text-align:center;pointer-events:none;animation:bigmsg-fade 1.2s ease-out forwards
+    }
+    .bigmsg .sub{display:block;font-size:.8em;opacity:.9;margin-top:2px}
+    @keyframes bigmsg-fade{0%{opacity:0;transform:translateX(-50%) translateY(-8px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-8px)}}
+
+    .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
+    .kvs b{color:#333}
+
+    /* 棚カード：大きく右寄せ表示 */
+    .shelf-card{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .shelf-label{font-weight:700;font-size:clamp(18px,3.5vw,28px);color:var(--sub);margin:0}
+    .shelf-value{margin-left:auto;text-align:right;font-weight:800;font-size:clamp(24px,5vw,36px);letter-spacing:.02em;padding:2px 0}
+
+    /* モーダル（履歴） */
+    .modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;overflow:auto;background:rgba(0,0,0,.5)}
+    .modal-content{background:#fff;margin:10% auto;padding:20px;border:1px solid var(--bd);width:90%;max-width:640px;border-radius:12px}
+    .modal-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bd);padding-bottom:10px;margin-bottom:10px}
+    .close-button{color:#aaa;font-size:28px;font-weight:bold;cursor:pointer}
+    #historyList li{padding:6px 0;border-bottom:1px solid #eee;font-size:14px}
   </style>
 </head>
 <body>
-  <div class="row">
-    <div class="panel">
-      <div class="stack" id="stack">
-        <video id="video" playsinline muted></video>
-        <canvas id="overlay"></canvas>
-      </div>
-      
-      <div class="controls">
-        <span id="scanStatus" class="badge">待機中</span>
-        <label class="badge" style="cursor:pointer">画像テスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></label>
-        <span id="detectorInfo" class="badge"></span>
-        <span id="resolutionInfo" class="badge">標準モード</span>
+
+  <!-- ★ 常時表示トップバー -->
+  <div class="topbar">
+    <button id="btnStart" class="btn primary">カメラ開始</button>
+    <button id="btnStop" class="btn" disabled>停止</button>
+    <span id="scanStatus" class="chip">待機中</span>
+    <span id="detectorInfo" class="chip">検出器: —</span>
+    <span id="csrfStatus" class="chip">CSRF: 検査中…</span>
+    <span id="targetNow" class="chip">Target: — / —</span>
+  </div>
+
+  <div class="wrap">
+    <div class="row">
+      <!-- 左：カメラ -->
+      <div class="panel">
+        <div class="card">
+          <h4>📷 スキャン</h4>
+          <div class="stack" id="stack">
+            <video id="video" playsinline muted></video>
+            <canvas id="overlay"></canvas>
+          </div>
+          <div class="legend">
+            <span class="chip ok">一致(型)</span>
+            <span class="chip loc">一致(棚)</span>
+            <span class="chip ng">不一致</span>
+            <span class="chip" style="cursor:pointer">静止画テスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></span>
+          </div>
+          <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
+        </div>
       </div>
 
-      <!-- 高解像度制御パネル -->
-      <div class="advanced-controls" id="advancedControls" style="display: none;">
-        <div class="control-group">
-          <span class="control-label">解像度:</span>
-          <select id="resolutionSelect" class="small">
-            <option value="720p">標準(720p)</option>
-            <option value="1080p">高画質(1080p)</option>
-            <option value="4k">超高画質(4K)</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <span class="control-label">ズーム:</span>
-          <div class="zoom-controls">
-            <button id="btnZoomOut" class="zoom-btn">－</button>
-            <span id="zoomLevel" class="zoom-level">1.0x</span>
-            <button id="btnZoomIn" class="zoom-btn">＋</button>
+      <!-- 右：情報 -->
+      <div class="panel">
+        <div class="card">
+          <h4>🎯 ターゲット</h4>
+          <div class="kvs">
+            <b>Book</b><div id="tgtBN">-</div>
+            <b>WC</b><div id="tgtWC">-</div>
+            <b>WorkName</b><div id="tgtWN" class="muted">—</div>
           </div>
         </div>
-        <button id="btnToggleAdvanced" class="small" style="font-size:11px; padding:4px 8px;">基本モード</button>
-      </div>
 
-      <div id="performanceWarning" class="performance-warning" style="display: none;">
-        ⚠️ 処理が遅いため解像度を自動調整しました
-      </div>
-
-      <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
-    </div>
-
-    <div class="panel">
-      <div class="card">
-        <h4>🎯 ターゲット</h4>
-        <div class="target-info">Book: <b id="tgtBN">-</b> | WC: <b id="tgtWC">-</b><br><span id="tgtWN" class="muted"></span></div>
-      </div>
-
-      <div class="card shelf-card">
-        <h4 class="shelf-label">探すべき棚：</h4>
-        <div id="currentShelf" class="shelf-value">（URL未指定）</div>
-      </div>
-
-
-
-      <div class="card">
-        <h4>⚙️ 操作</h4>
-        <div class="controls">
-          <button id="btnStart" class="primary">カメラ開始</button>
-          <button id="btnStop" disabled>停止</button>
-          <button id="btnHistory">スキャン履歴</button>
-          <button id="btnToggleAdvancedUI" style="font-size:12px; padding:6px 10px;">高画質モード</button>
+        <div class="card shelf-card">
+          <h4 class="shelf-label">探すべき棚：</h4>
+          <div id="currentShelf" class="shelf-value">（URL未指定）</div>
         </div>
-        <div class="legend">
-          <span class="chip ok">一致(型)</span>
-          <span class="chip loc">一致(棚)</span>
-          <span class="chip ng">不一致</span>
-        </div>
-      </div>
 
-      <!-- 手入力ターゲット設定 -->
-      <div class="card">
-        <h4>📝 手入力でターゲット設定</h4>
-        <div class="controls" style="gap:10px;align-items:center;flex-wrap:wrap">
-          <label>Book:
-            <select id="inBook" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px">
-              <option value="" disabled selected>選択してください</option>
-              <option value="Ko">Ko</option>
-              <option value="Ta">Ta</option>
-              <option value="Yo">Yo</option>
-            </select>
-          </label>
-          <label>WC:
-            <input id="inWc" type="text" placeholder="例: 2356" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch">
-          </label>
-          <button id="btnSetTarget" class="primary">ターゲット設定</button>
+        <div class="card">
+          <h4>⚙️ 操作</h4>
+          <div class="legend" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button id="btnHistory">スキャン履歴</button>
+            <!-- 手入力ターゲット設定（従来どおり残す） -->
+            <label>Book:
+              <select id="inBook" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px">
+                <option value="" disabled selected>選択</option>
+                <option value="Ko">Ko</option>
+                <option value="Ta">Ta</option>
+                <option value="Yo">Yo</option>
+              </select>
+            </label>
+            <label>WC:
+              <input id="inWc" type="text" placeholder="例: 2356" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch">
+            </label>
+            <button id="btnSetTarget" class="btn">ターゲット設定</button>
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:6px">
+            ・Order QR（order_plain）を読めば自動でターゲット設定されます。<br>
+            ・Book は Ko / Ta / Yo から選択できます。
+          </div>
         </div>
-        <div class="muted" style="font-size:13px;margin-top:6px">
-          ・Book は Ko / Ta / Yo から選択できます。<br>
-          ・設定後は、該当の棚（Location）も自動取得します。
-        </div>
-      </div>
 
-      <div class="card">
-        <h4>💡 ヒント</h4>
-        <div class="muted" style="font-size:13px;">
-          ・<b>標準モード</b>: 近距離のQRコードに最適（高速）<br>
-          ・<b>高画質モード</b>: 遠距離/小さいQRコードに最適<br>
-          ・URLパラメータ <code>?book=...&wc=...&loc=...</code> で指定<br>
-          ・ターゲット一致: <strong style="color:var(--ok)">青枠</strong> + 音 + 振動<br>
-          ・棚一致: <strong style="color:var(--loc)">緑枠</strong>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h4>Google Sheets（仕様）</h4>
+            <span id="loading" class="muted" style="display:none">照会中…</span>
+          </div>
+          <div id="gsBox" class="kvs"><div class="muted">（未取得）</div></div>
+          <div id="errApi" class="muted" style="display:none;margin-top:6px"></div>
+        </div>
+
+        <div class="card">
+          <h4>Google Drive（図面）</h4>
+          <div id="driveStatus" class="muted">—</div>
+          <div id="driveView" style="margin-top:6px"></div>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- 履歴モーダル -->
   <div id="historyModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -349,355 +186,69 @@
   <script>
   document.addEventListener('DOMContentLoaded', () => {
     const DOM = {
-      video: document.getElementById('video'),
-      overlay: document.getElementById('overlay'),
-      stack: document.getElementById('stack'),
-      btnStart: document.getElementById('btnStart'),
-      btnStop: document.getElementById('btnStop'),
-      btnHistory: document.getElementById('btnHistory'),
-      tgtBN: document.getElementById('tgtBN'),
-      tgtWC: document.getElementById('tgtWC'),
-      tgtWN: document.getElementById('tgtWN'),
-      currentShelf: document.getElementById('currentShelf'),
-      scanStatus: document.getElementById('scanStatus'),
-      detectorInfo: document.getElementById('detectorInfo'),
-      resolutionInfo: document.getElementById('resolutionInfo'),
-      error: document.getElementById('error'),
-      fileTest: document.getElementById('fileTest'),
-      historyModal: document.getElementById('historyModal'),
-      historyList: document.getElementById('historyList'),
-      closeModal: document.getElementById('closeModal'),
-      inBook: document.getElementById('inBook'),
-      inWc: document.getElementById('inWc'),
-      btnSetTarget: document.getElementById('btnSetTarget'),
-      // 高解像度制御
-      advancedControls: document.getElementById('advancedControls'),
-      resolutionSelect: document.getElementById('resolutionSelect'),
-      btnZoomIn: document.getElementById('btnZoomIn'),
-      btnZoomOut: document.getElementById('btnZoomOut'),
-      zoomLevel: document.getElementById('zoomLevel'),
-      btnToggleAdvanced: document.getElementById('btnToggleAdvanced'),
-      btnToggleAdvancedUI: document.getElementById('btnToggleAdvancedUI'),
-      performanceWarning: document.getElementById('performanceWarning')
+      // Topbar
+      btnStart: $('#btnStart'), btnStop: $('#btnStop'),
+      scanStatus: $('#scanStatus'), detectorInfo: $('#detectorInfo'),
+      csrfStatus: $('#csrfStatus'), targetNow: $('#targetNow'),
+      // Camera
+      stack: $('#stack'), video: $('#video'), overlay: $('#overlay'),
+      fileTest: $('#fileTest'), error: $('#error'),
+      // Target
+      tgtBN: $('#tgtBN'), tgtWC: $('#tgtWC'), tgtWN: $('#tgtWN'),
+      currentShelf: $('#currentShelf'),
+      // Ops / history
+      btnHistory: $('#btnHistory'), historyModal: $('#historyModal'),
+      historyList: $('#historyList'), closeModal: $('#closeModal'),
+      inBook: $('#inBook'), inWc: $('#inWc'), btnSetTarget: $('#btnSetTarget'),
+      // Spec / drive
+      loading: $('#loading'), gsBox: $('#gsBox'), errApi: $('#errApi'),
+      driveStatus: $('#driveStatus'), driveView: $('#driveView')
     };
-
-    const overlayCtx = DOM.overlay.getContext('2d', { willReadFrequently: true });
+    const ctx = DOM.overlay.getContext('2d', { willReadFrequently:true });
 
     const state = {
-      stream: null,
-      rafId: null,
-      detector: null,
-      useBarcodeDetector: ('BarcodeDetector' in window),
-      isLocked: false,
-      holdTimer: null,
-      currentTarget: {},
-      targetKey: '',
-      currentShelf: null,
-      scanHistory: new Map(),
-      __lastOrderKey: '',
-      __orderSetAt: 0,
-      csrf: '',
-      // 高解像度設定
-      advancedMode: true,
-      currentResolution: '1080p',
-      zoom: {
-        level: 1.0,
-        maxZoom: 3.0,
-        minZoom: 1.0,
-        step: 0.5
-      },
-      performance: {
-        lastDetectionTime: 0,
-        slowDetectionCount: 0,
-        autoDowngraded: false
-      }
+      stream:null, rafId:null,
+      detector:null, useBarcodeDetector: ('BarcodeDetector' in window),
+      isLocked:false, holdTimer:null,
+      currentTarget:{ book:'', wc:'', wn:'' }, targetKey:'',
+      currentShelf:null,
+      scanHistory:new Map(),
+      __lastOrderKey:'', __orderSetAt:0,
+      csrf:''
     };
 
-    /* ====== 高解像度制御機能 ====== */
-    const RESOLUTIONS = {
-      '1080p': { width: 1920, height: 1080, label: '高画質(1080p)' },  // 最初に表示
-      '720p': { width: 1280, height: 720, label: '標準(720p)' },      // 2番目
-      '4k': { width: 3840, height: 2160, label: '超高画質(4K)' }      // 3番目
-    };
-    // 端末性能検出
-    function detectDeviceCapability() {
-      const cores = navigator.hardwareConcurrency || 4;
-      const memory = performance.memory ? performance.memory.jsHeapSizeLimit : 0;
-      const hasGoodCPU = cores >= 4;
-      const hasEnoughMemory = memory === 0 || memory > 1000000000; // 1GB以上
-      
-      return {
-        capable: hasGoodCPU && hasEnoughMemory,
-        cores: cores,
-        memory: memory
-      };
-    }
+    /* ==== 小ユーティリティ ==== */
+    function $(s){ return document.querySelector(s); }
+    function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    const isLocal = () => location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host);
+    const readCookie = name => { const m=document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&')+'=([^;]*)')); return m?decodeURIComponent(m[1]):''; };
+    const dieKey = (bn,wc)=>`${(bn||'').trim().toLowerCase()}@@${(wc||'').trim().toLowerCase()}`;
+    const normalizeHyphen = s => (s||"").replace(/[‐-‒–—―ー−]/g,"-").trim();
 
-    // 高解像度モード切り替え
-    function toggleAdvancedMode() {
-      state.advancedMode = !state.advancedMode;
-      
-      if (state.advancedMode) {
-        DOM.advancedControls.style.display = 'flex';
-        DOM.btnToggleAdvancedUI.textContent = '標準モード';
-        DOM.btnToggleAdvanced.textContent = '基本モード';
-        showToastNearBox('高画質モード有効', [{x:100, y:100}, {x:150, y:100}]);
-      } else {
-        DOM.advancedControls.style.display = 'none';
-        DOM.btnToggleAdvancedUI.textContent = '高画質モード';
-        // 解像度を標準に戻す
-        if (state.currentResolution !== '720p') {
-          changeResolution('720p');
-        }
-      }
-    }
-
-    // 解像度変更
-    async function changeResolution(resolution) {
-      if (state.currentResolution === resolution) return;
-      
-      const wasRunning = state.stream !== null;
-      if (wasRunning) {
-        stopCam();
-        DOM.scanStatus.textContent = `解像度変更中... (${RESOLUTIONS[resolution].label})`;
-      }
-
-      state.currentResolution = resolution;
-      DOM.resolutionInfo.textContent = RESOLUTIONS[resolution].label;
-
-      if (wasRunning) {
-        await startCam();
-      }
-    }
-
-    // ズーム制御
-    function setupZoomControls() {
-      DOM.btnZoomIn.addEventListener('click', zoomIn);
-      DOM.btnZoomOut.addEventListener('click', zoomOut);
-      updateZoomDisplay();
-    }
-
-    function zoomIn() {
-      if (state.zoom.level < state.zoom.maxZoom) {
-        state.zoom.level += state.zoom.step;
-        applyZoom();
-      }
-    }
-
-    function zoomOut() {
-      if (state.zoom.level > state.zoom.minZoom) {
-        state.zoom.level -= state.zoom.step;
-        applyZoom();
-      }
-    }
-
-    function applyZoom() {
-      if (state.stream && state.advancedMode) {
-        const track = state.stream.getVideoTracks()[0];
-        const capabilities = track.getCapabilities();
-        
-        if (capabilities.zoom) {
-          const zoom = Math.min(state.zoom.level, capabilities.zoom.max);
-          track.applyConstraints({
-            advanced: [{ zoom: zoom }]
-          }).catch(console.warn);
-        }
-      }
-      updateZoomDisplay();
-    }
-
-    function updateZoomDisplay() {
-      DOM.zoomLevel.textContent = state.zoom.level.toFixed(1) + 'x';
-      DOM.btnZoomIn.disabled = state.zoom.level >= state.zoom.maxZoom;
-      DOM.btnZoomOut.disabled = state.zoom.level <= state.zoom.minZoom;
-    }
-
-    // パフォーマンス監視
-    function monitorPerformance(detectionTime) {
-      state.performance.lastDetectionTime = detectionTime;
-      
-      // 処理が遅すぎる場合
-      if (detectionTime > 300) { // 300ms以上
-        state.performance.slowDetectionCount++;
-        
-        if (state.performance.slowDetectionCount >= 3 && !state.performance.autoDowngraded) {
-          // 自動的に解像度を下げる
-          autoDowngradeResolution();
-        }
-      } else {
-        state.performance.slowDetectionCount = Math.max(0, state.performance.slowDetectionCount - 1);
-      }
-    }
-
-    function autoDowngradeResolution() {
-      const resolutions = ['4k', '1080p', '720p'];
-      const currentIndex = resolutions.indexOf(state.currentResolution);
-      
-      if (currentIndex > 0) {
-        const newResolution = resolutions[currentIndex - 1];
-        state.performance.autoDowngraded = true;
-        DOM.performanceWarning.style.display = 'block';
-        DOM.performanceWarning.textContent = `⚠️ 処理が遅いため解像度を${RESOLUTIONS[newResolution].label}に自動調整しました`;
-        
-        setTimeout(() => {
-          DOM.performanceWarning.style.display = 'none';
-        }, 5000);
-        
-        changeResolution(newResolution);
-      }
-    }
-
-    /* ====== 既存の機能（変更なし） ====== */
-    const isLocal = () => location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
-    const readCookie = (name) => {
-      const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\\]{}]/g,'\\$&')+'=([^;]*)'));
-      return m ? decodeURIComponent(m[1]) : '';
-    };
     async function ensureCsrf(){
       let t = readCookie('xcsrf');
-      if (t) { state.csrf = t; return t; }
-      const url = isLocal() ? '/api/session?dev=1' : '/api/session';
-      await fetch(url, { method:'GET', credentials:'same-origin', cache:'no-store' }).catch(()=>{});
-      t = readCookie('xcsrf');
-      if (t) state.csrf = t;
-      return t || '';
+      if(!t){ const url = isLocal()?'/api/session?dev=1':'/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); t = readCookie('xcsrf'); }
+      if(t){ state.csrf=t; DOM.csrfStatus.textContent='CSRF: 有効'; DOM.csrfStatus.className='chip ok'; }
+      else { DOM.csrfStatus.textContent='CSRF: 未取得'; DOM.csrfStatus.className='chip ng'; }
     }
 
-    /* ====== TTS ====== */
-    let __jpVoices = [];
-    let __lastSpeak = 0;
-    let __lastLocSpeak = 0;
-    const __speakCooldownMs = 1500;
-    const __locSpeakCooldownMs = 3000;
-
-    function initTTS() {
-      if (!('speechSynthesis' in window)) return;
-      const synth = window.speechSynthesis;
-      function loadVoices() {
-        const voices = synth.getVoices();
-        __jpVoices = voices
-          .filter(v => /ja|jpn|日本語/i.test(v.lang) || /日本語/i.test(v.name))
-          .sort((a,b) => {
-            const pref = ['Google 日本語', 'Kyoko', 'Otoya'];
-            const ia = pref.findIndex(p => (a.name||'').includes(p));
-            const ib = pref.findIndex(p => (b.name||'').includes(p));
-            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-          });
-      }
-      loadVoices();
-      synth.onvoiceschanged = loadVoices;
+    /* ==== TTS（据え置き） ==== */
+    let __jpVoices=[]; let __lastSpeak=0; let __lastLocSpeak=0; let __lastGenericSpeak=0;
+    const __speakCooldownMs=1500, __locSpeakCooldownMs=3000;
+    function initTTS(){ if(!('speechSynthesis' in window)) return;
+      const synth=window.speechSynthesis;
+      function load(){ const voices=synth.getVoices(); __jpVoices=voices.filter(v => /ja|jpn|日本語/i.test(v.lang)||/日本語/i.test(v.name)); }
+      load(); synth.onvoiceschanged=load;
     }
-    const punct = s => String(s||"").replace(/\s+/g, ' ').trim();
-    function unlockTTS() {
-      if (!('speechSynthesis' in window)) return;
-      const u = new SpeechSynthesisUtterance(' ');
-      u.lang = 'ja-JP'; u.volume = 0; u.rate = 1; u.pitch = 1;
-      try { window.speechSynthesis.speak(u); } catch {}
-    }
-    function speakAfterReady(utterance) {
-      if (!('speechSynthesis' in window)) return;
-      const synth = window.speechSynthesis;
-      const trySpeak = (retries = 2) => {
-        try { synth.cancel(); } catch {}
-        const voices = synth.getVoices();
-        if (voices && voices.length && __jpVoices.length === 0) {
-          __jpVoices = voices.filter(v =>
-            /ja|jpn|日本語/i.test(v.lang) || /日本語|Kyoko|Google 日本語/i.test(v.name)
-          );
-          if (__jpVoices.length) utterance.voice = __jpVoices[0];
-        }
-        try { synth.speak(utterance); }
-        catch (e) { if (retries > 0) setTimeout(() => trySpeak(retries - 1), 200); }
-      };
-      trySpeak();
-    }
-    function speakFoundOnce(workName) {
-      if (!('speechSynthesis' in window)) return;
-      const now = performance.now();
-      if (now - __lastSpeak < __speakCooldownMs) return;
-      __lastSpeak = now;
-      const hasWN = !!workName && String(workName).trim().length > 0;
-      const text = hasWN ? `お探しの型、${workName}、が見つかりました。` : `お探しの型が見つかりました。`;
-      const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=1.0;
-      if (__jpVoices.length > 0) u.voice = __jpVoices[0];
-      speakAfterReady(u);
-    }
-    function speakTargetLocFound() {
-      if (!('speechSynthesis' in window)) return;
-      const now = performance.now();
-      if (now - __lastLocSpeak < __locSpeakCooldownMs) return;
-      __lastLocSpeak = now;
-      const u = new SpeechSynthesisUtterance("目的の棚です");
-      u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=0.8;
-      if (__jpVoices.length > 0) u.voice = __jpVoices[0];
-      speakAfterReady(u);
-    }
-    let __lastGenericSpeak = 0;
-    function speakLineOnce(text, {rate=1.08, pitch=1.4, cooldown=1200} = {}) {
-      if (!('speechSynthesis' in window)) return;
-      const now = performance.now();
-      if (now - __lastGenericSpeak < cooldown) return;
-      __lastGenericSpeak = now;
-      const u = new SpeechSynthesisUtterance(punct(text));
-      u.lang='ja-JP';u.rate=rate;u.pitch=pitch;u.volume=1.0;
-      if (__jpVoices.length>0) u.voice=__jpVoices[0];
-      speakAfterReady(u);
-    }
+    function unlockTTS(){ if(!('speechSynthesis' in window)) return; const u=new SpeechSynthesisUtterance(' '); u.lang='ja-JP'; u.volume=0; try{ speechSynthesis.speak(u);}catch{} }
+    const punct = s => String(s||"").replace(/\s+/g,' ').trim();
+    function speakAfterReady(u){ if(!('speechSynthesis' in window)) return; const synth=window.speechSynthesis; try{ synth.cancel(); }catch{}; if(__jpVoices.length) u.voice=__jpVoices[0]; try{ synth.speak(u);}catch{} }
+    function speakLineOnce(text,{rate=1.08,pitch=1.4,cooldown=1200}={}){ if(!('speechSynthesis' in window)) return; const now=performance.now(); if(now-__lastGenericSpeak<cooldown) return; __lastGenericSpeak=now; const u=new SpeechSynthesisUtterance(punct(text)); u.lang='ja-JP';u.rate=rate;u.pitch=pitch;u.volume=1.0; speakAfterReady(u); }
+    function speakFoundOnce(workName){ if(!('speechSynthesis' in window)) return; const now=performance.now(); if(now-__lastSpeak<__speakCooldownMs) return; __lastSpeak=now; const txt = workName ? `お探しの型、${workName}、が見つかりました。` : `お探しの型が見つかりました。`; const u=new SpeechSynthesisUtterance(punct(txt)); u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=1.0; speakAfterReady(u); }
+    function speakTargetLocFound(){ if(!('speechSynthesis' in window)) return; const now=performance.now(); if(now-__lastLocSpeak<__locSpeakCooldownMs) return; __lastLocSpeak=now; const u=new SpeechSynthesisUtterance('目的の棚です'); u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=0.8; speakAfterReady(u); }
+    function promptScanShelf(){ if(state.currentShelf){ speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`,{cooldown:2500}); } else { speakLineOnce(`棚のQRコードをスキャンしてください。`,{cooldown:2500}); } }
 
-    function promptScanShelf() {
-      if (state.currentShelf) {
-        speakLineOnce(`棚 ${state.currentShelf} の型をスキャンしてください。`, { cooldown: 2500 });
-      } else {
-        speakLineOnce(`棚のQRコードをスキャンしてください。`, { cooldown: 2500 });
-      }
-    }
-
-    const cssVarOr = (name, fallback) => {
-      const v = getComputedStyle(document.documentElement).getPropertyValue(name);
-      const s = (v || '').trim();
-      return s || fallback;
-    };
-
-    const CONFIG = {
-      colors: {
-        ok: cssVarOr('--ok', '#1c7ed6'),
-        ng: cssVarOr('--ng', '#e03131'),
-        loc: cssVarOr('--loc', '#2b8a3e'),
-        info: cssVarOr('--info', '#f59f00'),
-      },
-      holdDuration: 3000,
-      lockCooldown: 700,
-      orderResetCooldownMs: 2000,
-      scopeSize: 200,
-      scopeAllowance: 12
-    };
-
-    const confirmationBeep = (() => {
-      let audioCtx;
-      const play = () => {
-        try {
-          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-          const t0 = audioCtx.currentTime;
-          const osc = audioCtx.createOscillator();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(600, t0);
-          osc.frequency.exponentialRampToValueAtTime(1200, t0 + 0.1);
-          const gain = audioCtx.createGain();
-          gain.gain.setValueAtTime(0.0001, t0);
-          gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
-          osc.connect(gain).connect(audioCtx.destination);
-          osc.start(t0);
-          osc.stop(t0 + 0.25);
-        } catch {}
-      };
-      return play;
-    })();
-
-    const normalizeHyphen = s => (s || "").replace(/[‐-‒–—―ー−]/g, "-");
-
-    /* === 種別判定 === */
+    /* ==== 種別判定/パース ==== */
     const classify = (raw) => {
       const text = normalizeHyphen((raw || "").trim());
       if (/^loc-/i.test(text)) return "loc";
@@ -709,8 +260,6 @@
       try { const url = new URL(text); if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order"; } catch {}
       return "other";
     };
-
-    /* === 各パーサ === */
     const tryExtractWN = (rawUrl) => {
       try {
         const u = new URL(rawUrl);
@@ -724,704 +273,446 @@
       } catch { return ""; }
     };
     const parseDie = (raw) => {
-      const text = normalizeHyphen((raw || "").trim());
-      let match = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
-      if (match) return { bn: match[1].trim(), wc: match[2].trim(), wn: (match[3] || "").trim() };
-      try {
-        const url = new URL(text);
-        const book = url.searchParams.get("book") || "";
-        const wc = url.searchParams.get("wc") || "";
-        if (book || wc) {
-          const wnFromParam = (url.searchParams.get("wn") || "").trim();
-          const wnFromHash = tryExtractWN(text);
-          return { bn: book.trim(), wc: wc.trim(), wn: wnFromParam || wnFromHash };
-        }
-      } catch {}
+      const t = normalizeHyphen((raw || "").trim());
+      let m = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(t);
+      if (m) return { bn: m[1].trim(), wc: m[2].trim(), wn: (m[3] || "").trim() };
+      try { const u=new URL(t); const bn=(u.searchParams.get("book")||"").trim(); const wc=(u.searchParams.get("wc")||"").trim(); if(bn||wc){ const wnParam=(u.searchParams.get("wn")||"").trim(); const wnHash=tryExtractWN(t); return { bn, wc, wn: wnParam||wnHash}; } } catch {}
       return null;
     };
     const parseLoc = (raw) => {
-      const text = normalizeHyphen((raw || "").trim());
-      let match = /^loc-(.+)$/i.exec(text);
-      if (match) return { loc: match[1].trim() };
-      try {
-        const url = new URL(text);
-        const loc = url.searchParams.get("loc") || "";
-        if (loc) return { loc: loc.trim() };
-      } catch {}
+      const t = normalizeHyphen((raw || "").trim());
+      let m = /^loc-(.+)$/i.exec(t);
+      if (m) return { loc: m[1].trim() };
+      try { const u=new URL(t); const loc=(u.searchParams.get("loc")||"").trim(); if(loc) return { loc }; } catch {}
       return null;
     };
     const parseOrderPlain = (raw) => {
-      const text = normalizeHyphen((raw || "").trim());
-      let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(text);
+      const t = normalizeHyphen((raw || "").trim());
+      let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(t);
       if (m) return { bn: m[1].trim(), wc: m[2].trim() };
       try {
-        const url = new URL(text);
+        const url = new URL(t);
         if (/order[_-]?plain/i.test(url.pathname + url.search)) {
           const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
           const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
           if (book || wc) return { bn: book, wc };
         }
       } catch {}
-      m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(text);
-      if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-      return null;
+      m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t);
+      return m ? { bn: m[1].trim(), wc: m[2].trim() } : null;
     };
 
-    const dieKey = (bn, wc) => `${(bn || "").trim().toLowerCase()}@@${(wc || "").trim().toLowerCase()}`;
-
-    /* === GSheetからLocation取得 === */
-    async function fetchShelfFromGSheet(book, wc) {
-      if (!book || !wc) return;
-      if (state.currentShelf && state.currentShelf !== '（URL未指定）') return;
-
-      DOM.currentShelf.textContent = '（棚情報を取得中…）';
-      DOM.currentShelf.className = 'muted';
-
-      let success = false;
-      try {
-        const csrf = await ensureCsrf();
-        const r = await fetch('/api/die-check', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type':'application/json',
-            ...(csrf ? {'X-CSRF': csrf} : {})
-          },
-          body: JSON.stringify({ book, wc, json:true, limit:1 })
-        });
-        const txt = await r.text();
-        let j = {};
-        try { j = JSON.parse(txt); }
-        catch (e) { console.warn('JSON parse失敗(POST):', txt.slice(0,200)); throw e; }
-
-        if (!r.ok || j.ok !== true) {
-          throw new Error(j?.error || `HTTP ${r.status}`);
-        }
-
-        const gs = j.gs || j.GS || j.sheet || {};
-        const loc = (gs.Location ?? gs.location ?? gs.Loc ?? gs.loc ?? '').toString().trim();
-        if (loc) {
-          state.currentShelf = loc;
-          DOM.currentShelf.textContent = loc;
-          // 右寄せ・大き文字のクラスを維持
-          DOM.currentShelf.className = 'shelf-value';
-          success = true;
-          promptScanShelf();
-        } else {
-          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
-          DOM.currentShelf.className = 'muted';
-        }
-      } catch (e) {
-        console.warn('POSTで棚情報取得失敗 → GETにフォールバックします', e);
-      }
-      if (success) return;
-
-      try {
-        const qs = new URLSearchParams({ book, wc, json:'1', limit:'1' }).toString();
-        const r2 = await fetch('/api/die-check?'+qs, { credentials:'same-origin' });
-        const txt2 = await r2.text();
-        let j2 = {};
-        try { j2 = JSON.parse(txt2); }
-        catch (e) { console.warn('JSON parse失敗(GET):', txt2.slice(0,200)); throw e; }
-
-        if (!r2.ok || j2.ok !== true) {
-          throw new Error(j2?.error || `HTTP ${r2.status}`);
-        }
-
-        const gs2 = j2.gs || j2.GS || j2.sheet || {};
-        const loc2 = (gs2.Location ?? gs2.location ?? gs2.Loc ?? gs2.loc ?? '').toString().trim();
-        if (loc2) {
-          state.currentShelf = loc2;
-          DOM.currentShelf.textContent = loc2;
-          DOM.currentShelf.className = 'chip loc';
-          promptScanShelf();
-        } else {
-          DOM.currentShelf.textContent = '（GSheetに棚情報なし）';
-          DOM.currentShelf.className = 'muted';
-        }
-      } catch (e) {
-        console.warn('GETでも棚情報取得できませんでした', e);
-        DOM.currentShelf.textContent = '（棚情報の取得に失敗）';
-        DOM.currentShelf.className = 'muted';
-      }
-    }
-
-    /* === 描画/UI === */
-    function drawBox(points, color, label, style = 'solid', alpha=1) {
-      if (!points || points.length < 4) return;
-      overlayCtx.save();
-      overlayCtx.globalAlpha = alpha;
-      const isNG = (color === CONFIG.colors.ng);
-      overlayCtx.lineWidth = isNG ? 4 : (color === CONFIG.colors.ok ? 5 : 3);
-      overlayCtx.setLineDash(style === 'dashed' ? [8, 6] : []);
-      overlayCtx.shadowColor = color;
-      overlayCtx.shadowBlur = 4;
-      overlayCtx.strokeStyle = color;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) overlayCtx.lineTo(points[i].x, points[i].y);
-      overlayCtx.closePath();
-      overlayCtx.stroke();
-      overlayCtx.restore();
-    }
-    function showToastNearBox(text, points) {
-      if(!points || points.length < 2) return;
-      const el = document.createElement("div");
-      el.className = "toast";
-      el.textContent = text;
-      const x = (points[0].x + points[1].x) / 2;
-      const y = Math.min(points[0].y, points[1].y);
-      const rx = x / DOM.overlay.width * DOM.video.clientWidth;
-      const ry = y / DOM.overlay.height * DOM.video.clientHeight;
-      el.style.left = rx + "px";
-      el.style.top = ry + "px";
-      DOM.stack.appendChild(el);
-      setTimeout(() => el.remove(), 1200);
-    }
-    function showBigMessage(text, sub = "") {
-      document.querySelectorAll(".bigmsg").forEach(el => el.remove());
-      const el = document.createElement("div");
-      el.className = "bigmsg";
-      el.textContent = text;
-      if (sub) {
-        const s = document.createElement("span");
-        s.className = "sub";
-        s.textContent = sub;
-        el.appendChild(s);
-      }
-      document.body.appendChild(el);
-      setTimeout(() => el.remove(), 1500);
-    }
-    function fitOverlay() {
-      if (DOM.video.videoWidth === 0) return;
+    /* ==== UI描画 ==== */
+    function fitOverlay(){
+      if(DOM.video.videoWidth===0) return;
       DOM.overlay.width = DOM.video.videoWidth;
-      DOM.overlay.height = DOM.video.videoHeight;
-      DOM.overlay.style.width = DOM.video.clientWidth + "px";
-      DOM.overlay.style.height = DOM.video.clientHeight + "px";
+      DOM.overlay.height= DOM.video.videoHeight;
+      DOM.overlay.style.width  = DOM.video.clientWidth + 'px';
+      DOM.overlay.style.height = DOM.video.clientHeight + 'px';
     }
-    function stopCam() {
-      if (state.rafId) cancelAnimationFrame(state.rafId);
-      state.rafId = null;
-      if (state.stream) state.stream.getTracks().forEach(t => t.stop());
-      state.stream = null;
-      DOM.btnStart.disabled = false;
-      DOM.btnStop.disabled = true;
-      updateStatus("停止中");
+    function updateStatus(text,type=''){ DOM.scanStatus.textContent=text; DOM.scanStatus.className='chip '+(type?type:''); }
+    function drawBox(points,color,label,style='solid',alpha=1){
+      if(!points||points.length<4) return;
+      ctx.save(); ctx.globalAlpha=alpha;
+      const isNG = (color === '#e03131');
+      ctx.lineWidth = isNG ? 4 : (color === '#1c7ed6' ? 5 : 3);
+      ctx.setLineDash(style==='dashed'?[8,6]:[]);
+      ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
+      ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
     }
-    function showError(e) {
-      console.error(e);
-      DOM.error.textContent = `❌ ${e?.name || ""} ${e?.message || e}`;
+    function showToastNearBox(text,pts){
+      if(!pts||pts.length<2) return;
+      const el=document.createElement('div'); el.className='toast'; el.textContent=text;
+      const x=(pts[0].x+pts[1].x)/2, y=Math.min(pts[0].y,pts[1].y);
+      const rx=x/DOM.overlay.width*DOM.video.clientWidth; const ry=y/DOM.overlay.height*DOM.video.clientHeight;
+      el.style.left=rx+'px'; el.style.top=ry+'px'; DOM.stack.appendChild(el); setTimeout(()=>el.remove(),1200);
+    }
+    function showBigMessage(text,sub=""){
+      document.querySelectorAll('.bigmsg').forEach(el=>el.remove());
+      const el=document.createElement('div'); el.className='bigmsg'; el.textContent=text;
+      if(sub){ const s=document.createElement('span'); s.className='sub'; s.textContent=sub; el.appendChild(s); }
+      document.body.appendChild(el); setTimeout(()=>el.remove(),1500);
+    }
+    function addTargetScope(){
+      const exist=document.querySelector('.target-scope'); if(exist) exist.remove();
+      const scope=document.createElement('div'); scope.className='target-scope';
+      ['tl','tr','bl','br'].forEach(k=>{ const d=document.createElement('div'); d.className='corner-'+k; scope.appendChild(d); });
+      const line=document.createElement('div'); line.className='scan-line'; scope.appendChild(line);
+      DOM.stack.appendChild(scope);
     }
 
-    /* === カメラ起動（高解像度対応） === */
-    async function startCam() {
+    /* ==== カメラ ==== */
+    async function startCam(){
       stopCam();
-      DOM.error.textContent = "";
-      
-      try {
-        const resolution = RESOLUTIONS[state.currentResolution];
-        const constraints = {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: resolution.width },
-            height: { ideal: resolution.height },
-            frameRate: { ideal: 30 }
-          },
-          audio: false
-        };
-
-        // 高解像度が利用可能かチェック
-        const deviceCapability = detectDeviceCapability();
-        if (!deviceCapability.capable && state.currentResolution !== '720p') {
-          console.warn('端末性能不足のため標準解像度にフォールバック');
-          state.currentResolution = '720p';
-          DOM.resolutionInfo.textContent = '標準モード(自動)';
-        }
-
-        state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      DOM.error.textContent='';
+      try{
+        // 標準 1280x720（高解像度/ズームのUIは撤去したため固定運用）
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} },
+          audio:false
+        });
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
-        
-        // 解像度情報表示
-        const settings = state.stream.getVideoTracks()[0].getSettings();
-        console.log(`カメラ解像度: ${settings.width}x${settings.height}`);
-        
-        DOM.btnStart.disabled = true;
-        DOM.btnStop.disabled = false;
-        
-        if (state.useBarcodeDetector) {
-          try { state.detector = new BarcodeDetector({ formats: ["qr_code"] }); }
-          catch { state.useBarcodeDetector = false; state.detector = null; }
+        DOM.btnStart.disabled=true; DOM.btnStop.disabled=false;
+
+        // 検出器表示
+        if(state.useBarcodeDetector){
+          try{ state.detector=new BarcodeDetector({formats:['qr_code']}); }
+          catch{ state.useBarcodeDetector=false; state.detector=null; }
         }
-        
-        DOM.detectorInfo.textContent = state.useBarcodeDetector ? 
-          `BarcodeDetector (${settings.width}x${settings.height})` : 
-          `jsQR (${settings.width}x${settings.height})`;
-        
-        fitOverlay();
-        addTargetScope();
-        
-        // 高解像度モードの場合はズームを有効化
-        if (state.advancedMode) {
-          applyZoom();
-        }
-        
-        tick();
-        
-      } catch (e) {
-        console.error('カメラ起動失敗:', e);
-        // フォールバック: 標準解像度で再試行
-        if (state.currentResolution !== '720p') {
-          console.log('標準解像度で再試行します');
-          state.currentResolution = '720p';
-          DOM.resolutionInfo.textContent = '標準モード(自動)';
-          await startCam();
-        } else {
-          showError(e);
-          updateStatus("カメラエラー", "ng");
-        }
+        DOM.detectorInfo.textContent = state.useBarcodeDetector ? '検出器: BarcodeDetector' : '検出器: jsQR';
+
+        fitOverlay(); addTargetScope(); tick();
+        updateStatus('探索中…');
+      }catch(e){
+        console.error(e);
+        DOM.error.textContent = `❌ ${e.name||''} ${e.message||e}`;
+        updateStatus('カメラエラー','ng');
       }
     }
+    function stopCam(){
+      if(state.rafId) cancelAnimationFrame(state.rafId); state.rafId=null;
+      if(state.stream){ try{ state.stream.getTracks().forEach(t=>t.stop()); }catch{} }
+      state.stream=null;
+      DOM.btnStart.disabled=false; DOM.btnStop.disabled=true; updateStatus('停止中');
+    }
+    function holdScan(ms){
+      if(state.holdTimer) clearTimeout(state.holdTimer);
+      if(state.rafId) cancelAnimationFrame(state.rafId); state.rafId=null;
+      updateStatus('ロック中','ok');
+      state.holdTimer=setTimeout(()=>{ if(!state.rafId) tick(); state.holdTimer=null; }, ms);
+    }
 
-    /* === 検出 === */
-    async function detectCombined() {
-      if (!DOM.video.videoWidth) return [];
-      const tmpCanvas = document.createElement("canvas");
-      tmpCanvas.width = DOM.video.videoWidth;
-      tmpCanvas.height = DOM.video.videoHeight;
-      const tctx = tmpCanvas.getContext("2d", { willReadFrequently: true });
-      tctx.drawImage(DOM.video, 0, 0, tmpCanvas.width, tmpCanvas.height);
+    /* ==== 検出 ==== */
+    async function detectCombined(){
+      if(!DOM.video.videoWidth) return [];
+      // 動画フル解像度で1枚スナップ
+      const c=document.createElement('canvas'); c.width=DOM.video.videoWidth; c.height=DOM.video.videoHeight;
+      const tctx=c.getContext('2d',{willReadFrequently:true}); tctx.drawImage(DOM.video,0,0,c.width,c.height);
+      const all=new Map();
 
-      const allDetections = new Map();
-
-      if (state.useBarcodeDetector && state.detector) {
-        try {
-          const codes = await state.detector.detect(tmpCanvas);
-          codes.forEach(code => allDetections.set(code.rawValue, code));
-        } catch (e) { console.warn("BarcodeDetector failed.", e); }
+      if(state.useBarcodeDetector && state.detector){
+        try{ const codes=await state.detector.detect(c); for(const cd of codes){ const raw=(cd.rawValue||'').trim(); if(raw && !all.has(raw)) all.set(raw, {rawValue:raw, cornerPoints:cd.cornerPoints}); } }
+        catch(e){ console.warn('BarcodeDetector失敗',e); }
       }
 
-      const imgData = tctx.getImageData(0, 0, tmpCanvas.width, tmpCanvas.height);
-      const maskedData = new Uint8ClampedArray(imgData.data);
-
-      for (let k = 0; k < 10; k++) {
-        const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
-        if (!hit) break;
-
-        const raw = hit.data;
-        if (!allDetections.has(raw)) {
-          allDetections.set(raw, {
-            rawValue: raw,
-            cornerPoints: [
-              hit.location.topLeftCorner,
-              hit.location.topRightCorner,
-              hit.location.bottomRightCorner,
-              hit.location.bottomLeftCorner
-            ]
-          });
+      const img=tctx.getImageData(0,0,c.width,c.height);
+      const masked=new Uint8ClampedArray(img.data);
+      for(let k=0;k<10;k++){
+        const hit=jsQR(masked,img.width,img.height,{ inversionAttempts:'dontInvert' });
+        if(!hit) break;
+        const raw=(hit.data||'').trim();
+        if(raw && !all.has(raw)){
+          all.set(raw,{ rawValue:raw, cornerPoints:[
+            hit.location.topLeftCorner, hit.location.topRightCorner,
+            hit.location.bottomRightCorner, hit.location.bottomLeftCorner
+          ]});
         }
-        const { topLeftCorner, bottomRightCorner } = hit.location;
-        for (let y = Math.floor(topLeftCorner.y); y < Math.ceil(bottomRightCorner.y); y++) {
-          for (let x = Math.floor(topLeftCorner.x); x < Math.ceil(bottomRightCorner.x); x++) {
-            const i = (y * imgData.width + x) * 4;
-            maskedData[i] = maskedData[i + 1] = maskedData[i + 2] = 255;
+        const {topLeftCorner, bottomRightCorner}=hit.location;
+        for(let y=Math.floor(topLeftCorner.y); y<Math.ceil(bottomRightCorner.y); y++){
+          for(let x=Math.floor(topLeftCorner.x); x<Math.ceil(bottomRightCorner.x); x++){
+            const i=(y*img.width+x)*4; masked[i]=masked[i+1]=masked[i+2]=255;
           }
         }
       }
-      return Array.from(allDetections.values());
+      return Array.from(all.values());
     }
 
-    function isDetectionInScope(cornerPoints) {
-      if (!cornerPoints || cornerPoints.length < 4) return false;
-      const stackW = DOM.stack.clientWidth;
-      const stackH = DOM.stack.clientHeight;
-      if (!stackW || !stackH) return true;
-
-      const scopeCssSize = CONFIG.scopeSize;
-      const scopeCssX = (stackW / 2) - (scopeCssSize / 2);
-      const scopeCssY = (stackH / 2) - (scopeCssSize / 2);
-
-      const scaleX = DOM.overlay.width / stackW;
-      const scaleY = DOM.overlay.height / stackH;
-
-      const scopeX = scopeCssX * scaleX;
-      const scopeY = scopeCssY * scaleY;
-      const scopeW = scopeCssSize * scaleX;
-      const scopeH = scopeCssSize * scaleY;
-
-      const marginX = CONFIG.scopeAllowance * scaleX;
-      const marginY = CONFIG.scopeAllowance * scaleY;
-
-      for (const pt of cornerPoints) {
-        if (pt.x < scopeX - marginX) return false;
-        if (pt.x > scopeX + scopeW + marginX) return false;
-        if (pt.y < scopeY - marginY) return false;
-        if (pt.y > scopeY + scopeH + marginY) return false;
+    function isDetectionInScope(cornerPoints){
+      if(!cornerPoints||cornerPoints.length<4) return false;
+      const stackW=DOM.stack.clientWidth, stackH=DOM.stack.clientHeight; if(!stackW||!stackH) return true;
+      const scopeCssSize=200, scopeCssX=(stackW/2)-(scopeCssSize/2), scopeCssY=(stackH/2)-(scopeCssSize/2);
+      const scaleX=DOM.overlay.width/stackW, scaleY=DOM.overlay.height/stackH;
+      const scopeX=scopeCssX*scaleX, scopeY=scopeCssY*scaleY, scopeW=scopeCssSize*scaleX, scopeH=scopeCssSize*scaleY;
+      const marginX=12*scaleX, marginY=12*scaleY;
+      for(const pt of cornerPoints){
+        if(pt.x<scopeX-marginX) return false;
+        if(pt.x>scopeX+scopeW+marginX) return false;
+        if(pt.y<scopeY-marginY) return false;
+        if(pt.y>scopeY+scopeH+marginY) return false;
       }
       return true;
     }
 
-    function holdScan(ms) {
-      if (state.holdTimer) clearTimeout(state.holdTimer);
-      if (state.rafId) cancelAnimationFrame(state.rafId);
-      state.rafId = null;
-      updateStatus("ロック中", "ok");
-      state.holdTimer = setTimeout(() => {
-        if (!state.rafId) tick();
-        state.holdTimer = null;
-      }, ms);
+    function updateHistory(raw,kind,isMatch){
+      if(state.scanHistory.has(raw)) return;
+      state.scanHistory.set(raw,{kind,isMatch,time:new Date()});
     }
 
-    function updateHistory(raw, kind, isMatch) {
-      if (state.scanHistory.has(raw)) return;
-      state.scanHistory.set(raw, { kind, isMatch, time: new Date() });
-    }
+    function applyDetections(detections){
+      let anyMatch=false, anyLocMatch=false;
+      ctx.clearRect(0,0,DOM.overlay.width,DOM.overlay.height);
 
-    /* === 検出結果適用 === */
-    function applyDetections(detections) {
-      let anyMatch = false;
-      let anyLocMatch = false;
-      overlayCtx.clearRect(0, 0, DOM.overlay.width, DOM.overlay.height);
+      for(const d of (detections||[])){
+        const raw=(d.rawValue||'').trim(); if(!raw) continue;
+        const pts=d.cornerPoints;
+        if(!isDetectionInScope(pts)){ drawBox(pts,'#e03131','ガイド外','dashed',0.3); continue; }
 
-      for (const d of (detections || [])) {
-        const raw = (d.rawValue || "").trim();
-        if (!raw) continue;
-
-        const pts = d.cornerPoints;
-
-        // ガイド外なら「見えてるけど無視」
-        const inScope = isDetectionInScope(pts);
-        if (!inScope) {
-          drawBox(pts, CONFIG.colors.ng, "ガイド外", 'dashed', 0.3);
-          continue;
-        }
-
-        const kind = classify(raw);
-
-        if (kind === 'die') {
-          const p = parseDie(raw);
-          const key = p ? dieKey(p.bn, p.wc) : "";
-          const isMatch = key && key === state.targetKey;
-          anyMatch = anyMatch || isMatch;
-
-          if (isMatch) {
-            drawBox(pts, CONFIG.colors.ok, "一致", 'solid');
-          } else {
-            drawBox(pts, CONFIG.colors.ng, (p ? `不一致 [${p.bn}/${p.wc}]` : "不一致"), 'dashed');
+        const kind=classify(raw);
+        if(kind==='die'){
+          const p=parseDie(raw);
+          const key=p?dieKey(p.bn,p.wc):'';
+          const isMatch= key && key===state.targetKey; anyMatch = anyMatch || isMatch;
+          drawBox(pts, isMatch?'#1c7ed6':'#e03131', isMatch?'一致':'不一致', isMatch?'solid':'dashed');
+          updateHistory(raw,'die',isMatch);
+          if(isMatch && !state.isLocked){
+            state.isLocked=true;
+            if(navigator.vibrate) navigator.vibrate(150);
+            showBigMessage('ターゲットが見つかりました。','一致したQRを青枠で強調表示しています');
+            showToastNearBox('ロック',pts);
+            speakFoundOnce(state.currentTarget.wn || (p&&p.wn) || '');
+            holdScan(3000);
+            setTimeout(()=>{ state.isLocked=false; },700);
           }
-
-          updateHistory(raw, 'die', isMatch);
-
-          if (isMatch && !state.isLocked) {
-            state.isLocked = true;
-            confirmationBeep();
-            if (navigator.vibrate) { navigator.vibrate(150); }
-            showBigMessage("ターゲットが見つかりました。", "一致したQRを青枠で強調表示しています");
-            showToastNearBox("ロック", pts);
-
-            speakFoundOnce(state.currentTarget.wn || (p && p.wn) || "");
-
-            holdScan(CONFIG.holdDuration);
-            setTimeout(() => { state.isLocked = false; }, CONFIG.lockCooldown);
-          }
-
-        } else if (kind === 'loc') {
-          const locData = parseLoc(raw);
-          const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase() === state.currentShelf.toLowerCase();
+        }else if(kind==='loc'){
+          const locData=parseLoc(raw);
+          const isLocMatch = state.currentShelf && locData && locData.loc.toLowerCase()===state.currentShelf.toLowerCase();
           anyLocMatch = anyLocMatch || isLocMatch;
+          drawBox(pts, isLocMatch?'#2b8a3e':'#e03131', isLocMatch?`棚 一致 [${locData?.loc}]`:`棚 違い [${locData?.loc||'?'}]`, isLocMatch?'solid':'dashed');
+          updateHistory(raw,'loc',!!isLocMatch);
+          if(isLocMatch) { showToastNearBox('目的の棚です',pts); speakTargetLocFound(); }
+          else if(state.currentShelf){ showToastNearBox(`棚が違います (→ ${state.currentShelf})`,pts); }
+        }else if(kind==='order'){
+          const od=parseOrderPlain(raw);
+          if(od && (od.bn||od.wc)){
+            const newKey=dieKey(od.bn, od.wc);
+            const now=performance.now();
+            const same=(newKey===state.__lastOrderKey);
+            const cooling=(now - state.__orderSetAt) < 2000;
 
-          if (isLocMatch) {
-            drawBox(pts, CONFIG.colors.loc, `棚 一致 [${locData.loc}]`, 'solid');
-            updateHistory(raw, 'loc', true);
-            if (!state.isLocked) showToastNearBox("目的の棚です", pts);
-            speakTargetLocFound();
-          } else {
-            const label = `棚 違い [${locData?.loc || '?'}]`;
-            drawBox(pts, CONFIG.colors.ng, label, 'dashed');
-            updateHistory(raw, 'loc', false);
-            if (!state.isLocked && state.currentShelf) {
-              showToastNearBox(`棚が違います (→ ${state.currentShelf})`, pts);
-            }
-          }
+            drawBox(pts,'#f59f00',`作業指示 [${od.bn||'-'}/${od.wc||'-'}]`,'solid');
+            updateHistory(raw,'order',true);
 
-        } else if (kind === 'order') {
-          const od = parseOrderPlain(raw);
-          if (od && (od.bn || od.wc)) {
-            const newKey = dieKey(od.bn, od.wc);
-            const now = performance.now();
-            const sameAsBefore = (newKey === state.__lastOrderKey);
-            const stillCooling = (now - state.__orderSetAt) < CONFIG.orderResetCooldownMs;
-
-            drawBox(pts, CONFIG.colors.info, `作業指示 [${od.bn||'-'}/${od.wc||'-'}]`, 'solid');
-            updateHistory(raw, 'order', true);
-
-            if (!sameAsBefore || !stillCooling || newKey !== state.targetKey) {
-              state.currentTarget = { book: od.bn || "", wc: od.wc || "", wn: "" };
-              state.targetKey = newKey;
-              state.__lastOrderKey = newKey;
-              state.__orderSetAt = now;
-
-              DOM.tgtBN.textContent = state.currentTarget.book || "-";
-              DOM.tgtWC.textContent = state.currentTarget.wc || "-";
-              DOM.tgtWN.textContent = "";
-
-              showBigMessage("作業指示QRを読み取りました", "ターゲットを設定しました　抜型のQRをスキャンしてください");
-              showToastNearBox("ターゲット更新", pts);
-              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。抜型のQRをスキャンして下さい`, { cooldown: 2500 });
-
-              if (!state.currentShelf) {
-                fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
-              } else {
-                promptScanShelf();
-              }
-
+            if(!same || !cooling || newKey!==state.targetKey){
+              setTarget(od.bn||'', od.wc||'', '');
+              state.__lastOrderKey=newKey; state.__orderSetAt=now;
+              showBigMessage('作業指示QRを読み取りました','ターゲットを設定しました　抜型のQRをスキャンしてください');
+              showToastNearBox('ターゲット更新',pts);
+              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。　抜型のQRをスキャンしてください`,{cooldown:2500});
+              if(!state.currentShelf){ fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc); } else { promptScanShelf(); }
               holdScan(800);
             }
-          } else {
-            drawBox(pts, CONFIG.colors.ng, "作業指示（形式不明）", 'dashed');
-            updateHistory(raw, 'order', false);
+          }else{
+            drawBox(pts,'#e03131','作業指示（形式不明）','dashed'); updateHistory(raw,'order',false);
           }
-
-        } else {
-          drawBox(pts, CONFIG.colors.ng, "別QR", 'dashed');
-          updateHistory(raw, 'other', false);
+        }else{
+          drawBox(pts,'#e03131','別QR','dashed'); updateHistory(raw,'other',false);
         }
       }
 
-      if (!state.holdTimer) {
-        let msg = "探索中...";
-        let statusType = "info";
-
-        if (detections.length > 0) {
-          if (anyMatch) {
-            msg = "ターゲット発見";
-            statusType = "ok";
-          } else if (anyLocMatch) {
-            msg = "目的の棚を検知";
-            statusType = "loc";
-          } else {
-            msg = `${detections.length}件検知`;
-            statusType = "ng";
-          }
+      if(!state.holdTimer){
+        let msg='探索中...'; let type='';
+        if(detections.length>0){
+          if(anyMatch){ msg='ターゲット発見'; type='ok'; }
+          else if(anyLocMatch){ msg='目的の棚を検知'; type='loc'; }
+          else { msg=`${detections.length}件検知`; type='ng'; }
         }
-        updateStatus(msg, statusType);
+        updateStatus(msg,type);
       }
     }
 
-    async function tick() {
-      if (!state.stream) return;
-      if (DOM.video.readyState === DOM.video.HAVE_ENOUGH_DATA) {
+    async function tick(){
+      if(!state.stream) return;
+      if(DOM.video.readyState===DOM.video.HAVE_ENOUGH_DATA){
         fitOverlay();
-        const startTime = performance.now();
         const detections = await detectCombined();
-        const detectionTime = performance.now() - startTime;
-        
-        // パフォーマンス監視
-        monitorPerformance(detectionTime);
-        
         applyDetections(detections);
       }
       state.rafId = requestAnimationFrame(tick);
     }
 
-    function updateStatus(text, type = 'info') {
-      DOM.scanStatus.textContent = text;
-      DOM.scanStatus.className = `badge chip ${type}`;
+    /* ==== ターゲット/棚 ==== */
+    function setTarget(book,wc,wn=''){
+      state.currentTarget = { book:(book||'').trim(), wc:(wc||'').trim(), wn:(wn||'').trim() };
+      state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
+      DOM.tgtBN.textContent = state.currentTarget.book || '-';
+      DOM.tgtWC.textContent = state.currentTarget.wc || '-';
+      DOM.tgtWN.textContent = state.currentTarget.wn || '—';
+      DOM.targetNow.textContent = `Target: ${DOM.tgtBN.textContent} / ${DOM.tgtWC.textContent}`;
     }
 
-    function showHistoryModal() {
-      DOM.historyList.innerHTML = '';
-      if (state.scanHistory.size === 0) {
-        DOM.historyList.innerHTML = '<li>スキャン履歴はありません。</li>';
-      } else {
-        const sortedHistory = Array.from(state.scanHistory.entries()).reverse();
-        for (const [raw, data] of sortedHistory) {
-          const li = document.createElement('li');
-          let status = '';
-          if (data.kind === 'die') {
-            status = data.isMatch ? '✔️ 一致 (型)' : '❌ 不一致 (型)';
-          } else if (data.kind === 'loc') {
-            status = data.isMatch ? '✔️ 一致 (棚)' : '❌ 不一致 (棚)';
-          } else if (data.kind === 'order') {
-            status = data.isMatch ? '🧾 作業指示 読み取り' : '🧾 作業指示 形式不明';
-          } else {
-            status = '❓ その他';
-          }
-          li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0, 60)}${raw.length > 60 ? '...' : ''}`;
+    async function fetchShelfFromGSheet(book,wc){
+      if(!book||!wc) return;
+      if(state.currentShelf && state.currentShelf!=='（URL未指定）') return;
+
+      DOM.currentShelf.textContent='（棚情報を取得中…）'; DOM.currentShelf.className='shelf-value';
+      let ok=false;
+      try{
+        const csrf=await ensureCsrf();
+        const r=await fetch('/api/die-check',{ method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json', ...(csrf?{'X-CSRF':csrf}:{})},
+          body:JSON.stringify({ book, wc, json:true, limit:1 })
+        });
+        const txt=await r.text(); let j={}; try{ j=JSON.parse(txt);}catch{ throw new Error('JSON parse error'); }
+        if(!r.ok || j.ok!==true) throw new Error(j?.error||`HTTP ${r.status}`);
+        const gs=j.gs||j.GS||j.sheet||{};
+        const loc=(gs.Location??gs.location??gs.Loc??gs.loc??'').toString().trim();
+        if(loc){ state.currentShelf=loc; DOM.currentShelf.textContent=loc; DOM.currentShelf.className='shelf-value'; ok=true; promptScanShelf(); }
+        else { DOM.currentShelf.textContent='（GSheetに棚情報なし）'; DOM.currentShelf.className='shelf-value'; }
+      }catch(e){ console.warn('棚情報POST失敗',e); }
+      if(ok) return;
+
+      try{
+        const qs=new URLSearchParams({book,wc,json:'1',limit:'1'}).toString();
+        const r2=await fetch('/api/die-check?'+qs,{credentials:'same-origin'});
+        const t2=await r2.text(); let j2={}; try{ j2=JSON.parse(t2);}catch{ throw new Error('JSON parse error'); }
+        if(!r2.ok || j2.ok!==true) throw new Error(j2?.error||`HTTP ${r2.status}`);
+        const gs2=j2.gs||j2.GS||j2.sheet||{};
+        const loc2=(gs2.Location??gs2.location??gs2.Loc??gs2.loc??'').toString().trim();
+        if(loc2){ state.currentShelf=loc2; DOM.currentShelf.textContent=loc2; DOM.currentShelf.className='shelf-value'; promptScanShelf(); }
+        else { DOM.currentShelf.textContent='（GSheetに棚情報なし）'; DOM.currentShelf.className='shelf-value'; }
+      }catch(e){
+        console.warn('棚情報GET失敗',e);
+        DOM.currentShelf.textContent='（棚情報の取得に失敗）'; DOM.currentShelf.className='shelf-value';
+      }
+    }
+
+    /* ==== 仕様＋図面 ==== */
+    async function querySpec(){
+      const {book,wc}=state.currentTarget; if(!book||!wc) return;
+      DOM.errApi.style.display='none'; DOM.errApi.textContent=''; DOM.loading.style.display='inline';
+      DOM.gsBox.innerHTML='<div class="muted">取得中…</div>'; DOM.driveStatus.textContent='—'; DOM.driveView.innerHTML='';
+      try{
+        if(!state.csrf) await ensureCsrf();
+        const r=await fetch('/api/die-check',{ method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json', ...(state.csrf?{'X-CSRF':state.csrf}:{})},
+          body:JSON.stringify({ book, wc, json:true, limit:0, noAirtable:true, gsOnly:true })
+        });
+        const txt=await r.text(); let j={}; try{ j=JSON.parse(txt);}catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+        if(!r.ok || j.ok!==true) throw new Error(j?.error||`HTTP ${r.status}`);
+        renderSpec(j);
+        openDriveFigure((j.book||book),(j.workcord||wc));
+      }catch(e){
+        DOM.errApi.style.display='block'; DOM.errApi.textContent='❌ APIエラー: '+(e.message||e);
+        DOM.gsBox.innerHTML='<div class="muted">（Google Sheets を取得できませんでした）</div>';
+      }finally{ DOM.loading.style.display='none'; }
+    }
+
+    function renderSpec(payload){
+      const gs = payload?.gs || {};
+      if(gs && (gs.ItemName||gs.Kname||gs.Material)){
+        DOM.gsBox.innerHTML=`
+          <div class="kvs">
+            <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
+            <b>Kname</b><div>${esc(gs.Kname||'')}</div>
+            <b>Material</b><div>${esc(gs.Material||'')}</div>
+            <b>Paper_Size</b><div>${esc(gs.Paper_Size||'')}</div>
+            <b>Cut_Size</b><div>${esc(gs.Cut_Size||'')}</div>
+            <b>Location</b><div>${esc(gs.Location||'')}</div>
+            <b>LastSeen</b><div>${esc(gs.LastSeen||'')}</div>
+            <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
+          </div>`;
+      }else{
+        DOM.gsBox.innerHTML='<div class="muted">（一致行なし）</div>';
+      }
+      const loc=(gs?.Location??gs?.Loc??'').toString().trim();
+      if(loc){ state.currentShelf=loc; DOM.currentShelf.textContent=loc; DOM.currentShelf.className='shelf-value'; }
+    }
+
+    async function openDriveFigure(book,wc){
+      if(!book||!wc){ DOM.driveStatus.textContent='Book/WC 未指定'; DOM.driveView.innerHTML=''; return; }
+      DOM.driveStatus.textContent='検索中…'; DOM.driveView.innerHTML='';
+      try{
+        const r=await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,{ credentials:'same-origin', cache:'no-store' });
+        if(!r.ok){ const t=await r.text().catch(()=> ''); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+        const j=await r.json().catch(()=> ({}));
+        if(j?.ok!==true){ DOM.driveStatus.textContent='NG: 応答不正'; return; }
+        const cands = Array.isArray(j.candidates)&&j.candidates.length ? j.candidates : (j.fileId ? [{id:j.fileId,name:j.fileName||`${book}-${wc}`}]:[]);
+        if(cands.length===0){ DOM.driveStatus.textContent='一致ファイルなし'; DOM.driveView.innerHTML=''; return; }
+
+        const score = f => { const n=(f?.name||'').toLowerCase(); const isPdf=n.endsWith('.pdf'); const isImg=/\.(jpeg|jpg|png)$/.test(n);
+          const hasZu=/-zu\.(jpeg|jpg|png)$/.test(n); const hasSi=/-si\.(jpeg|jpg|png)$/.test(n);
+          if(isImg&&hasZu) return 1; if(isImg&&hasSi) return 2; if(isImg) return 3; if(isPdf) return 9; return 99; };
+        cands.sort((a,b)=>score(a)-score(b));
+        const primary=cands[0];
+        const isPdf=(primary.name||'').toLowerCase().endsWith('.pdf');
+        const src=`/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+        DOM.driveView.innerHTML = isPdf
+          ? `<iframe src="${src}" style="width:100%;height:60vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`
+          : `<img src="${src}" alt="${esc(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+        DOM.driveStatus.textContent = `ヒット: ${cands.length}（表示: ${primary.name||'-'}）`;
+      }catch(e){ DOM.driveStatus.textContent='NG: '+(e.message||e); DOM.driveView.innerHTML=''; }
+    }
+
+    /* ==== 履歴モーダル ==== */
+    function showHistoryModal(){
+      DOM.historyList.innerHTML='';
+      if(state.scanHistory.size===0){ DOM.historyList.innerHTML='<li>スキャン履歴はありません。</li>'; }
+      else{
+        const items=Array.from(state.scanHistory.entries()).reverse();
+        for(const [raw,data] of items){
+          const li=document.createElement('li');
+          let status=''; if(data.kind==='die'){ status=data.isMatch?'✔️ 一致 (型)':'❌ 不一致 (型)'; }
+          else if(data.kind==='loc'){ status=data.isMatch?'✔️ 一致 (棚)':'❌ 不一致 (棚)'; }
+          else if(data.kind==='order'){ status='🧾 作業指示 読み取り'; }
+          else{ status='❓ その他'; }
+          li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0,60)}${raw.length>60?'...':''}`;
           DOM.historyList.appendChild(li);
         }
       }
-      DOM.historyModal.style.display = 'block';
+      DOM.historyModal.style.display='block';
     }
 
-    // 手入力ターゲット設定
-    function setTargetByManual(book, wc) {
-      book = (book || '').trim();
-      wc   = (wc   || '').trim();
-      if (!book || !wc) {
-        alert('book と wc を入力（選択）してください');
-        return;
-      }
+    /* ==== イベント ==== */
+    DOM.btnStart.addEventListener('click', ()=>{ initTTS(); unlockTTS(); startCam(); });
+    DOM.btnStop.addEventListener('click', stopCam);
+    window.addEventListener('resize', fitOverlay);
+    DOM.btnHistory.addEventListener('click', showHistoryModal);
+    DOM.closeModal.addEventListener('click', ()=> DOM.historyModal.style.display='none');
+    window.addEventListener('click', (ev)=>{ if(ev.target===DOM.historyModal) DOM.historyModal.style.display='none'; });
 
-      state.currentTarget = { book, wc, wn: '' };
-      state.targetKey = dieKey(book, wc);
-
-      DOM.tgtBN.textContent = book;
-      DOM.tgtWC.textContent = wc;
-      DOM.tgtWN.textContent = '';
-
-      updateStatus('ターゲット設定', 'ok');
-      showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
-      speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　抜型のQRをスキャンしてください`);
-
-      if (!state.currentShelf) {
-        fetchShelfFromGSheet(book, wc);
-      } else {
-        promptScanShelf();
-      }
-    }
-
-    // ガイドスコープ追加
-    function addTargetScope() {
-      const existingScope = document.querySelector('.target-scope');
-      if (existingScope) existingScope.remove();
-
-      const scope = document.createElement('div');
-      scope.className = 'target-scope';
-
-      const cornerTL = document.createElement('div'); cornerTL.className = 'corner-tl'; scope.appendChild(cornerTL);
-      const cornerTR = document.createElement('div'); cornerTR.className = 'corner-tr'; scope.appendChild(cornerTR);
-      const cornerBL = document.createElement('div'); cornerBL.className = 'corner-bl'; scope.appendChild(cornerBL);
-      const cornerBR = document.createElement('div'); cornerBR.className = 'corner-br'; scope.appendChild(cornerBR);
-
-      const scanLine = document.createElement('div');
-      scanLine.className = 'scan-line';
-      scope.appendChild(scanLine);
-
-      DOM.stack.appendChild(scope);
-    }
-
-    function initialize() {
-      const params = new URLSearchParams(location.search);
-      state.currentTarget = {
-        book: (params.get("book") || "").trim(),
-        wc: (params.get("wc") || "").trim(),
-        wn: (params.get("wn") || "").trim()
-      };
-
-      if (!state.currentTarget.book || !state.currentTarget.wc) {
-        updateStatus("ターゲット未指定（作業指示QRを読み取るか、手入力で指定）", "ng");
-        DOM.error.textContent = "URLに ?book=...&wc=... を指定、または作業指示QR（order_plain）/手入力で指定してください。";
-        DOM.btnStart.disabled = false;
-      } else {
-        DOM.tgtBN.textContent = state.currentTarget.book;
-        DOM.tgtWC.textContent = state.currentTarget.wc;
-        DOM.tgtWN.textContent = state.currentTarget.wn;
-        state.targetKey = dieKey(state.currentTarget.book, state.currentTarget.wc);
-        updateStatus("準備完了");
-      }
-
-      const locParam = (params.get("loc") || "").trim();
-      if (locParam) {
-        state.currentShelf = locParam;
-        DOM.currentShelf.textContent = state.currentShelf;
-        DOM.currentShelf.className = "chip loc";
-        promptScanShelf();
-      } else {
-        if (state.currentTarget.book && state.currentTarget.wc) {
-          fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc);
-        }
-      }
-
-      // 手入力側に初期値反映
-      if (DOM.inBook && state.currentTarget.book) {
-        const opt = Array.from(DOM.inBook.options).find(o => (o.value || '').toLowerCase() === state.currentTarget.book.toLowerCase());
-        if (opt) DOM.inBook.value = opt.value;
-      }
-      if (DOM.inWc && state.currentTarget.wc) {
-        DOM.inWc.value = state.currentTarget.wc;
-      }
-
-      // ★修正: 高解像度制御のUIを初期表示
-      DOM.advancedControls.style.display = 'flex';  // 追加
-      DOM.btnToggleAdvancedUI.textContent = '標準モード';  // 追加
-      DOM.btnToggleAdvanced.textContent = '基本モード';  // 追加
-      DOM.resolutionSelect.value = '1080p';  // 追加
-
-      // 高解像度制御の初期化
-      setupZoomControls();
-      DOM.resolutionSelect.addEventListener('change', (e) => {
-        changeResolution(e.target.value);
+    // 手入力ターゲット設定（従来どおり）
+    if(DOM.btnSetTarget){
+      DOM.btnSetTarget.addEventListener('click', ()=>{
+        const book=DOM.inBook?.value||''; const wc=DOM.inWc?.value||'';
+        if(!book||!wc){ alert('book と wc を入力（選択）してください'); return; }
+        setTarget(book,wc,''); updateStatus('ターゲット設定','ok');
+        showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
+        speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　抜型のQRをスキャンしてください`);
+        if(!state.currentShelf){ fetchShelfFromGSheet(book,wc); } else { promptScanShelf(); }
+        // 仕様と図面
+        querySpec();
       });
-      DOM.btnToggleAdvanced.addEventListener('click', toggleAdvancedMode);
-      DOM.btnToggleAdvancedUI.addEventListener('click', toggleAdvancedMode);
-
-      addTargetScope();
     }
 
-    // イベント
-    DOM.btnStart.addEventListener("click", () => {
-      initTTS();
-      unlockTTS();
-      startCam();
-    });
-    DOM.btnStop.addEventListener("click", stopCam);
-    DOM.btnHistory.addEventListener("click", showHistoryModal);
-    DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
-    window.addEventListener("click", (event) => { if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none"; });
-    DOM.fileTest.addEventListener("change", async (ev) => {
-      const file = ev.target.files?.[0];
-      if (!file) return;
-      const img = new Image();
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width; canvas.height = img.height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const hits = jsqrMulti(imgData).map(h => ({ rawValue: h.rawValue, cornerPoints: h.cornerPoints }));
-        DOM.overlay.width = img.width; DOM.overlay.height = img.height;
+    // 静止画テスト（据え置き）
+    DOM.fileTest.addEventListener('change', async (ev)=>{
+      const file=ev.target.files?.[0]; if(!file) return;
+      const img=new Image();
+      img.onload=async ()=>{
+        const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+        const ictx=c.getContext('2d',{willReadFrequently:true}); ictx.drawImage(img,0,0);
+        const imgData=ictx.getImageData(0,0,c.width,c.height);
+        const hits=jsqrMulti(imgData).map(h=>({ rawValue:h.rawValue, cornerPoints:h.cornerPoints }));
+        DOM.overlay.width=img.width; DOM.overlay.height=img.height;
         applyDetections(hits);
         updateStatus(`静止画テスト: ${hits.length}件検知`);
-        ev.target.value = "";
+        ev.target.value="";
       };
-      img.src = URL.createObjectURL(file);
+      img.src=URL.createObjectURL(file);
     });
-    if (DOM.btnSetTarget) {
-      DOM.btnSetTarget.addEventListener('click', () => {
-        const book = DOM.inBook?.value || '';
-        const wc   = DOM.inWc?.value   || '';
-        setTargetByManual(book, wc);
-      });
-    }
-
-    function jsqrMulti(imgData) {
-      const hits = [];
-      const maskedData = new Uint8ClampedArray(imgData.data);
-      for (let k = 0; k < 10; k++) {
-        const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
-        if (!hit) break;
-        hits.push({
-          rawValue: hit.data,
-          cornerPoints: [
-            hit.location.topLeftCorner,
-            hit.location.topRightCorner,
-            hit.location.bottomRightCorner,
-            hit.location.bottomLeftCorner
-          ]
-        });
-        const { topLeftCorner, bottomRightCorner } = hit.location;
-        for (let y = Math.floor(topLeftCorner.y); y < Math.ceil(bottomRightCorner.y); y++) {
-          for (let x = Math.floor(topLeftCorner.x); x < Math.ceil(bottomRightCorner.x); x++) {
-            const i = (y * imgData.width + x) * 4;
-            maskedData[i] = maskedData[i + 1] = maskedData[i + 2] = 255;
-          }
-        }
+    function jsqrMulti(imgData){
+      const hits=[]; const w=imgData.width,h=imgData.height; const masked=new Uint8ClampedArray(imgData.data);
+      for(let k=0;k<10;k++){
+        const hit=jsQR(masked,w,h,{inversionAttempts:'dontInvert'}); if(!hit) break;
+        hits.push({ rawValue:hit.data, cornerPoints:[ hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner ] });
+        const tl=hit.location.topLeftCorner, br=hit.location.bottomRightCorner;
+        for(let y=Math.floor(tl.y); y<Math.ceil(br.y); y++){ for(let x=Math.floor(tl.x); x<Math.ceil(br.x); x++){ const i=(y*w+x)*4; masked[i]=masked[i+1]=masked[i+2]=255; } }
       }
       return hits;
     }
 
-    initialize();
+    // 初期化：URLパラメータでターゲット、CSRF取得
+    (function initialize(){
+      ensureCsrf();
+      const params=new URLSearchParams(location.search);
+      const book=(params.get('book')||'').trim(); const wc=(params.get('wc')||'').trim(); const wn=(params.get('wn')||'').trim();
+      if(book||wc){ setTarget(book,wc,wn); updateStatus('準備完了'); querySpec(); }
+      const locParam=(params.get('loc')||'').trim();
+      if(locParam){ state.currentShelf=locParam; DOM.currentShelf.textContent=state.currentShelf; DOM.currentShelf.className='shelf-value'; promptScanShelf(); }
+      else if(book&&wc){ fetchShelfFromGSheet(book,wc); }
+      addTargetScope();
+    })();
   });
   </script>
 </body>
