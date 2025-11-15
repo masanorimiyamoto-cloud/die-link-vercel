@@ -2,22 +2,22 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>抜型ファインダー QR（高解像度/ズームUIなし・トップバー固定）</title>
+  <title>抜型ファインダー QR（GS/Drive 即フェッチ・トップバー固定）</title>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <style>
     :root {
-      --ok: #1c7ed6; --ng: #e03131; --loc: #2b8a3e; --info:#f59f00;
-      --bd: #dee2e6; --tx: #212529; --sub: #6c757d; --bg: #f8f9fa;
-      --bg-ok: #e7f5ff; --bg-ng: #fff5f5; --bg-loc: #e6fcf5;
+      --ok:#1c7ed6; --ng:#e03131; --loc:#2b8a3e; --info:#f59f00;
+      --bd:#dee2e6; --tx:#212529; --sub:#6c757d; --bg:#f8f9fa;
+      --bg-ok:#e7f5ff; --bg-ng:#fff5f5; --bg-loc:#e6fcf5;
     }
     html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
 
-    /* ★ 常時表示のトップバー（スクロールしても固定） */
+    /* ★ 常時表示トップバー */
     .topbar{
       position: sticky; top: 0; z-index: 1000;
       display:flex; gap:10px; align-items:center; flex-wrap:wrap;
       padding:10px; background:#fff; border-bottom:1px solid var(--bd);
-      box-shadow: 0 4px 12px rgba(0,0,0,.06);
+      box-shadow:0 4px 12px rgba(0,0,0,.06);
     }
     .chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:700}
     .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
@@ -37,9 +37,9 @@
     .stack{position:relative;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:#000}
     video{display:block;width:100%;max-width:520px;border-radius:12px;background:#000}
     canvas{position:absolute;inset:0;pointer-events:none}
-    #overlay{z-index:2} #freeze{z-index:1;display:none}
+    #overlay{z-index:2}
 
-    /* ガイドスコープ（中心枠） */
+    /* ガイドスコープ */
     .target-scope{
       position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
       width:200px;height:200px;border:2px solid rgba(28,126,214,0.8);border-radius:12px;
@@ -68,7 +68,7 @@
     .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
     .kvs b{color:#333}
 
-    /* 棚カード：大きく右寄せ表示 */
+    /* 棚カード */
     .shelf-card{display:flex;align-items:center;justify-content:space-between;gap:12px}
     .shelf-label{font-weight:700;font-size:clamp(18px,3.5vw,28px);color:var(--sub);margin:0}
     .shelf-value{margin-left:auto;text-align:right;font-weight:800;font-size:clamp(24px,5vw,36px);letter-spacing:.02em;padding:2px 0}
@@ -107,7 +107,7 @@
             <span class="chip ok">一致(型)</span>
             <span class="chip loc">一致(棚)</span>
             <span class="chip ng">不一致</span>
-            <span class="chip" style="cursor:pointer">静止画テスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></span>
+            <label class="chip" style="cursor:pointer">静止画テスト<input id="fileTest" type="file" accept="image/*" style="display:none" /></label>
           </div>
           <div id="error" class="muted" style="color:#b00;white-space:pre-wrap;margin-top:8px;"></div>
         </div>
@@ -133,7 +133,7 @@
           <h4>⚙️ 操作</h4>
           <div class="legend" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button id="btnHistory">スキャン履歴</button>
-            <!-- 手入力ターゲット設定（従来どおり残す） -->
+            <!-- 手入力ターゲット設定（任意） -->
             <label>Book:
               <select id="inBook" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px">
                 <option value="" disabled selected>選択</option>
@@ -146,10 +146,6 @@
               <input id="inWc" type="text" placeholder="例: 2356" style="padding:8px 10px;border:1px solid var(--bd);border-radius:10px;font-size:14px;min-width:10ch">
             </label>
             <button id="btnSetTarget" class="btn">ターゲット設定</button>
-          </div>
-          <div class="muted" style="font-size:12px;margin-top:6px">
-            ・Order QR（order_plain）を読めば自動でターゲット設定されます。<br>
-            ・Book は Ko / Ta / Yo から選択できます。
           </div>
         </div>
 
@@ -214,10 +210,11 @@
       currentShelf:null,
       scanHistory:new Map(),
       __lastOrderKey:'', __orderSetAt:0,
-      csrf:''
+      csrf:'',
+      lastQueryKey:''   // ★ 同一ターゲットの重複フェッチ抑止
     };
 
-    /* ==== 小ユーティリティ ==== */
+    /* ==== utils ==== */
     function $(s){ return document.querySelector(s); }
     function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
     const isLocal = () => location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host);
@@ -227,22 +224,23 @@
 
     async function ensureCsrf(){
       let t = readCookie('xcsrf');
-      if(!t){ const url = isLocal()?'/api/session?dev=1':'/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); t = readCookie('xcsrf'); }
+      if(!t){
+        const url = isLocal()?'/api/session?dev=1':'/api/session';
+        await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{});
+        t = readCookie('xcsrf');
+      }
       if(t){ state.csrf=t; DOM.csrfStatus.textContent='CSRF: 有効'; DOM.csrfStatus.className='chip ok'; }
       else { DOM.csrfStatus.textContent='CSRF: 未取得'; DOM.csrfStatus.className='chip ng'; }
+      return t||'';
     }
 
-    /* ==== TTS（据え置き） ==== */
+    /* ==== TTS（省略せず据え置き） ==== */
     let __jpVoices=[]; let __lastSpeak=0; let __lastLocSpeak=0; let __lastGenericSpeak=0;
     const __speakCooldownMs=1500, __locSpeakCooldownMs=3000;
-    function initTTS(){ if(!('speechSynthesis' in window)) return;
-      const synth=window.speechSynthesis;
-      function load(){ const voices=synth.getVoices(); __jpVoices=voices.filter(v => /ja|jpn|日本語/i.test(v.lang)||/日本語/i.test(v.name)); }
-      load(); synth.onvoiceschanged=load;
-    }
+    function initTTS(){ if(!('speechSynthesis' in window)) return; const synth=window.speechSynthesis; const load=()=>{ const voices=synth.getVoices(); __jpVoices=voices.filter(v=>/ja|jpn|日本語/i.test(v.lang)||/日本語/i.test(v.name)); }; load(); synth.onvoiceschanged=load; }
     function unlockTTS(){ if(!('speechSynthesis' in window)) return; const u=new SpeechSynthesisUtterance(' '); u.lang='ja-JP'; u.volume=0; try{ speechSynthesis.speak(u);}catch{} }
     const punct = s => String(s||"").replace(/\s+/g,' ').trim();
-    function speakAfterReady(u){ if(!('speechSynthesis' in window)) return; const synth=window.speechSynthesis; try{ synth.cancel(); }catch{}; if(__jpVoices.length) u.voice=__jpVoices[0]; try{ synth.speak(u);}catch{} }
+    function speakAfterReady(u){ if(!('speechSynthesis' in window)) return; try{ speechSynthesis.cancel(); }catch{}; if(__jpVoices.length) u.voice=__jpVoices[0]; try{ speechSynthesis.speak(u);}catch{} }
     function speakLineOnce(text,{rate=1.08,pitch=1.4,cooldown=1200}={}){ if(!('speechSynthesis' in window)) return; const now=performance.now(); if(now-__lastGenericSpeak<cooldown) return; __lastGenericSpeak=now; const u=new SpeechSynthesisUtterance(punct(text)); u.lang='ja-JP';u.rate=rate;u.pitch=pitch;u.volume=1.0; speakAfterReady(u); }
     function speakFoundOnce(workName){ if(!('speechSynthesis' in window)) return; const now=performance.now(); if(now-__lastSpeak<__speakCooldownMs) return; __lastSpeak=now; const txt = workName ? `お探しの型、${workName}、が見つかりました。` : `お探しの型が見つかりました。`; const u=new SpeechSynthesisUtterance(punct(txt)); u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=1.0; speakAfterReady(u); }
     function speakTargetLocFound(){ if(!('speechSynthesis' in window)) return; const now=performance.now(); if(now-__lastLocSpeak<__locSpeakCooldownMs) return; __lastLocSpeak=now; const u=new SpeechSynthesisUtterance('目的の棚です'); u.lang='ja-JP'; u.rate=1.0; u.pitch=1.1; u.volume=0.8; speakAfterReady(u); }
@@ -346,7 +344,6 @@
       stopCam();
       DOM.error.textContent='';
       try{
-        // 標準 1280x720（高解像度/ズームのUIは撤去したため固定運用）
         state.stream = await navigator.mediaDevices.getUserMedia({
           video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} },
           audio:false
@@ -355,7 +352,6 @@
         await DOM.video.play();
         DOM.btnStart.disabled=true; DOM.btnStop.disabled=false;
 
-        // 検出器表示
         if(state.useBarcodeDetector){
           try{ state.detector=new BarcodeDetector({formats:['qr_code']}); }
           catch{ state.useBarcodeDetector=false; state.detector=null; }
@@ -386,7 +382,6 @@
     /* ==== 検出 ==== */
     async function detectCombined(){
       if(!DOM.video.videoWidth) return [];
-      // 動画フル解像度で1枚スナップ
       const c=document.createElement('canvas'); c.width=DOM.video.videoWidth; c.height=DOM.video.videoHeight;
       const tctx=c.getContext('2d',{willReadFrequently:true}); tctx.drawImage(DOM.video,0,0,c.width,c.height);
       const all=new Map();
@@ -439,6 +434,7 @@
       state.scanHistory.set(raw,{kind,isMatch,time:new Date()});
     }
 
+    /* ==== 検出結果適用（ターゲット設定時に必ず GS/Drive を取りにいく） ==== */
     function applyDetections(detections){
       let anyMatch=false, anyLocMatch=false;
       ctx.clearRect(0,0,DOM.overlay.width,DOM.overlay.height);
@@ -463,6 +459,8 @@
             speakFoundOnce(state.currentTarget.wn || (p&&p.wn) || '');
             holdScan(3000);
             setTimeout(()=>{ state.isLocked=false; },700);
+            // ★ 型が一致した瞬間にも仕様/図面を確実取得（同一キーは抑止）
+            querySpec();
           }
         }else if(kind==='loc'){
           const locData=parseLoc(raw);
@@ -486,11 +484,13 @@
             if(!same || !cooling || newKey!==state.targetKey){
               setTarget(od.bn||'', od.wc||'', '');
               state.__lastOrderKey=newKey; state.__orderSetAt=now;
+
               showBigMessage('作業指示QRを読み取りました','ターゲットを設定しました　抜型のQRをスキャンしてください');
               showToastNearBox('ターゲット更新',pts);
               speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。　抜型のQRをスキャンしてください`,{cooldown:2500});
-              if(!state.currentShelf){ fetchShelfFromGSheet(state.currentTarget.book, state.currentTarget.wc); } else { promptScanShelf(); }
-              holdScan(800);
+
+              // ★ ターゲット設定直後に GS/Drive を必ず取得
+              querySpec();
             }
           }else{
             drawBox(pts,'#e03131','作業指示（形式不明）','dashed'); updateHistory(raw,'order',false);
@@ -531,47 +531,18 @@
       DOM.targetNow.textContent = `Target: ${DOM.tgtBN.textContent} / ${DOM.tgtWC.textContent}`;
     }
 
-    async function fetchShelfFromGSheet(book,wc){
-      if(!book||!wc) return;
-      if(state.currentShelf && state.currentShelf!=='（URL未指定）') return;
-
-      DOM.currentShelf.textContent='（棚情報を取得中…）'; DOM.currentShelf.className='shelf-value';
-      let ok=false;
-      try{
-        const csrf=await ensureCsrf();
-        const r=await fetch('/api/die-check',{ method:'POST', credentials:'same-origin',
-          headers:{'Content-Type':'application/json', ...(csrf?{'X-CSRF':csrf}:{})},
-          body:JSON.stringify({ book, wc, json:true, limit:1 })
-        });
-        const txt=await r.text(); let j={}; try{ j=JSON.parse(txt);}catch{ throw new Error('JSON parse error'); }
-        if(!r.ok || j.ok!==true) throw new Error(j?.error||`HTTP ${r.status}`);
-        const gs=j.gs||j.GS||j.sheet||{};
-        const loc=(gs.Location??gs.location??gs.Loc??gs.loc??'').toString().trim();
-        if(loc){ state.currentShelf=loc; DOM.currentShelf.textContent=loc; DOM.currentShelf.className='shelf-value'; ok=true; promptScanShelf(); }
-        else { DOM.currentShelf.textContent='（GSheetに棚情報なし）'; DOM.currentShelf.className='shelf-value'; }
-      }catch(e){ console.warn('棚情報POST失敗',e); }
-      if(ok) return;
-
-      try{
-        const qs=new URLSearchParams({book,wc,json:'1',limit:'1'}).toString();
-        const r2=await fetch('/api/die-check?'+qs,{credentials:'same-origin'});
-        const t2=await r2.text(); let j2={}; try{ j2=JSON.parse(t2);}catch{ throw new Error('JSON parse error'); }
-        if(!r2.ok || j2.ok!==true) throw new Error(j2?.error||`HTTP ${r2.status}`);
-        const gs2=j2.gs||j2.GS||j2.sheet||{};
-        const loc2=(gs2.Location??gs2.location??gs2.Loc??gs2.loc??'').toString().trim();
-        if(loc2){ state.currentShelf=loc2; DOM.currentShelf.textContent=loc2; DOM.currentShelf.className='shelf-value'; promptScanShelf(); }
-        else { DOM.currentShelf.textContent='（GSheetに棚情報なし）'; DOM.currentShelf.className='shelf-value'; }
-      }catch(e){
-        console.warn('棚情報GET失敗',e);
-        DOM.currentShelf.textContent='（棚情報の取得に失敗）'; DOM.currentShelf.className='shelf-value';
-      }
-    }
-
-    /* ==== 仕様＋図面 ==== */
+    /* ==== Google Sheets + Drive ==== */
     async function querySpec(){
       const {book,wc}=state.currentTarget; if(!book||!wc) return;
-      DOM.errApi.style.display='none'; DOM.errApi.textContent=''; DOM.loading.style.display='inline';
-      DOM.gsBox.innerHTML='<div class="muted">取得中…</div>'; DOM.driveStatus.textContent='—'; DOM.driveView.innerHTML='';
+      const key = dieKey(book, wc);
+      if (key === state.lastQueryKey) return;            // ★ 同一キーなら二度目以降スキップ
+      state.lastQueryKey = key;
+
+      DOM.errApi.style.display='none'; DOM.errApi.textContent='';
+      DOM.loading.style.display='inline';
+      DOM.gsBox.innerHTML='<div class="muted">取得中…</div>';
+      DOM.driveStatus.textContent='—'; DOM.driveView.innerHTML='';
+
       try{
         if(!state.csrf) await ensureCsrf();
         const r=await fetch('/api/die-check',{ method:'POST', credentials:'same-origin',
@@ -585,11 +556,20 @@
       }catch(e){
         DOM.errApi.style.display='block'; DOM.errApi.textContent='❌ APIエラー: '+(e.message||e);
         DOM.gsBox.innerHTML='<div class="muted">（Google Sheets を取得できませんでした）</div>';
-      }finally{ DOM.loading.style.display='none'; }
+        // POSTがダメでも GETで救済（既存フォールバック）
+        try{
+          const qs=new URLSearchParams({book,wc,json:'1',limit:'1'}).toString();
+          const r2=await fetch('/api/die-check?'+qs,{credentials:'same-origin'});
+          const t2=await r2.text(); let j2={}; try{ j2=JSON.parse(t2);}catch{ throw new Error('JSON parse error'); }
+          if(r2.ok && j2.ok===true){ renderSpec(j2); openDriveFigure((j2.book||book),(j2.workcord||wc)); }
+        }catch{}
+      }finally{
+        DOM.loading.style.display='none';
+      }
     }
 
     function renderSpec(payload){
-      const gs = payload?.gs || {};
+      const gs = payload?.gs || payload?.GS || payload?.sheet || {};
       if(gs && (gs.ItemName||gs.Kname||gs.Material)){
         DOM.gsBox.innerHTML=`
           <div class="kvs">
@@ -605,8 +585,13 @@
       }else{
         DOM.gsBox.innerHTML='<div class="muted">（一致行なし）</div>';
       }
-      const loc=(gs?.Location??gs?.Loc??'').toString().trim();
-      if(loc){ state.currentShelf=loc; DOM.currentShelf.textContent=loc; DOM.currentShelf.className='shelf-value'; }
+      // ★ GSに Location があれば必ず反映
+      const loc=(gs.Location ?? gs.location ?? gs.Loc ?? gs.loc ?? '').toString().trim();
+      if(loc){
+        state.currentShelf=loc;
+        DOM.currentShelf.textContent=loc;
+        DOM.currentShelf.className='shelf-value';
+      }
     }
 
     async function openDriveFigure(book,wc){
@@ -661,21 +646,20 @@
     DOM.closeModal.addEventListener('click', ()=> DOM.historyModal.style.display='none');
     window.addEventListener('click', (ev)=>{ if(ev.target===DOM.historyModal) DOM.historyModal.style.display='none'; });
 
-    // 手入力ターゲット設定（従来どおり）
+    // 手入力ターゲット設定 → ★ ここでも必ず querySpec()
     if(DOM.btnSetTarget){
       DOM.btnSetTarget.addEventListener('click', ()=>{
         const book=DOM.inBook?.value||''; const wc=DOM.inWc?.value||'';
         if(!book||!wc){ alert('book と wc を入力（選択）してください'); return; }
-        setTarget(book,wc,''); updateStatus('ターゲット設定','ok');
+        setTarget(book,wc,'');
+        updateStatus('ターゲット設定','ok');
         showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
         speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　抜型のQRをスキャンしてください`);
-        if(!state.currentShelf){ fetchShelfFromGSheet(book,wc); } else { promptScanShelf(); }
-        // 仕様と図面
-        querySpec();
+        querySpec();  // ← 追加
       });
     }
 
-    // 静止画テスト（据え置き）
+    // 静止画テスト
     DOM.fileTest.addEventListener('change', async (ev)=>{
       const file=ev.target.files?.[0]; if(!file) return;
       const img=new Image();
@@ -702,15 +686,17 @@
       return hits;
     }
 
-    // 初期化：URLパラメータでターゲット、CSRF取得
-    (function initialize(){
-      ensureCsrf();
+    // 初期化：URL指定あれば即フェッチ
+    (async function initialize(){
+      await ensureCsrf();
+
       const params=new URLSearchParams(location.search);
       const book=(params.get('book')||'').trim(); const wc=(params.get('wc')||'').trim(); const wn=(params.get('wn')||'').trim();
-      if(book||wc){ setTarget(book,wc,wn); updateStatus('準備完了'); querySpec(); }
       const locParam=(params.get('loc')||'').trim();
-      if(locParam){ state.currentShelf=locParam; DOM.currentShelf.textContent=state.currentShelf; DOM.currentShelf.className='shelf-value'; promptScanShelf(); }
-      else if(book&&wc){ fetchShelfFromGSheet(book,wc); }
+
+      if(book||wc){ setTarget(book,wc,wn); updateStatus('準備完了'); querySpec(); }
+      if(locParam){ state.currentShelf=locParam; DOM.currentShelf.textContent=state.currentShelf; DOM.currentShelf.className='shelf-value'; }
+
       addTargetScope();
     })();
   });
