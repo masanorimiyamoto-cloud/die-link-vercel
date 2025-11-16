@@ -180,7 +180,7 @@
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    // Drive 情報: { srcProxy, isPdf, name, id }
+    // Drive 情報: { previewUrl, viewUrl, isPdf, name, id }
     drive: null,
   };
 
@@ -417,6 +417,7 @@
     openDriveFigure(b, w);
   }
 
+  // === /api/drive-proxy は使わず、Google Drive 直リンクで表示 ===
   async function openDriveFigure(book, wc){
     if(!book || !wc){
       D.driveStatus.textContent = 'Book/WC 未指定';
@@ -465,23 +466,25 @@
       cands.sort((a,b)=> score(a)-score(b));
       const primary=cands[0];
       const isPdf=(primary.name||'').toLowerCase().endsWith('.pdf');
-      const srcProxy=`/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+      const id = primary.id;
+      const name = primary.name || `${book}-${wc}`;
 
-      // inline 表示（右下パネル）
+      // Google Drive の URL
+      const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
+      const viewUrl    = isPdf
+        ? previewUrl
+        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}`;
+
+      // inline 表示
       if(isPdf){
-        D.driveView.innerHTML = `<iframe src="${srcProxy}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+        D.driveView.innerHTML = `<iframe src="${previewUrl}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
       }else{
-        D.driveView.innerHTML = `<img src="${srcProxy}" alt="${esc(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+        D.driveView.innerHTML = `<img src="${viewUrl}" alt="${esc(name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
       }
-      D.driveStatus.textContent = `ヒット: ${cands.length}（表示: ${primary.name||'-'}）`;
+      D.driveStatus.textContent = `ヒット: ${cands.length}（表示: ${name}）`;
 
-      // 別ウィンドウ用に info 保持
-      S.drive = {
-        srcProxy,
-        isPdf,
-        name: primary.name || `${book}-${wc}`,
-        id: primary.id
-      };
+      // ボタン用に保存
+      S.drive = { previewUrl, viewUrl, isPdf, name, id };
 
       if(D.btnShowFigure){
         D.btnShowFigure.style.display='inline-block';
@@ -499,15 +502,8 @@
   if(D.btnShowFigure){
     D.btnShowFigure.addEventListener('click', () => {
       if(!S.drive) return;
-      const { id, srcProxy, name } = S.drive;
-
-      // Drive のプレビュー URL が使えるならそちらを優先
-      let url = srcProxy;
-      if(id){
-        url = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
-      }
-
-      window.open(url, '_blank', 'noopener');
+      const { previewUrl, name } = S.drive;
+      window.open(previewUrl, '_blank', 'noopener');
       D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
     });
   }
