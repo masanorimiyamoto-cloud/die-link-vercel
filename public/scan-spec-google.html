@@ -71,6 +71,16 @@
     min-width:70px;
     background:#fff;
   }
+
+  /* 図面を複数並べる用 */
+  .fig-block{
+    margin-bottom:10px;
+  }
+  .fig-block-title{
+    font-size:12px;
+    color:var(--sub);
+    margin-bottom:4px;
+  }
 </style>
 </head>
 <body>
@@ -180,7 +190,7 @@
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    // Drive 情報: { previewUrl, viewUrl, isPdf, name, id }
+    // Drive 情報: 代表（たいてい -zu）をここに
     drive: null,
   };
 
@@ -417,7 +427,7 @@
     openDriveFigure(b, w);
   }
 
-  // === /api/drive-proxy は使わず、Google Drive 直リンクで表示 ===
+  // === Google Drive 直リンクで図面を複数表示（zu も si も） ===
   async function openDriveFigure(book, wc){
     if(!book || !wc){
       D.driveStatus.textContent = 'Book/WC 未指定';
@@ -451,6 +461,7 @@
         return;
       }
 
+      // 優先：-zu画像 > -si画像 > 他画像 > PDF
       const score = fn => {
         const n = (fn?.name||'').toLowerCase();
         const isPdf = n.endsWith('.pdf');
@@ -464,27 +475,62 @@
         return 99;
       };
       cands.sort((a,b)=> score(a)-score(b));
-      const primary=cands[0];
-      const isPdf=(primary.name||'').toLowerCase().endsWith('.pdf');
-      const id = primary.id;
-      const name = primary.name || `${book}-${wc}`;
 
-      // Google Drive の URL
-      const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
-      const viewUrl    = isPdf
-        ? previewUrl
-        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}`;
+      // 代表（ボタンから開く用）は最優先の1つ
+      const primary = cands[0];
+      const primaryName = primary.name || `${book}-${wc}`;
+      const primaryId = primary.id;
+      const primaryIsPdf = (primaryName||'').toLowerCase().endsWith('.pdf');
 
-      // inline 表示
-      if(isPdf){
-        D.driveView.innerHTML = `<iframe src="${previewUrl}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
-      }else{
-        D.driveView.innerHTML = `<img src="${viewUrl}" alt="${esc(name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      const primaryPreviewUrl = `https://drive.google.com/file/d/${encodeURIComponent(primaryId)}/preview`;
+      const primaryViewUrl    = primaryIsPdf
+        ? primaryPreviewUrl
+        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(primaryId)}`;
+
+      S.drive = {
+        previewUrl: primaryPreviewUrl,
+        viewUrl: primaryViewUrl,
+        isPdf: primaryIsPdf,
+        name: primaryName,
+        id: primaryId
+      };
+
+      // 右下パネルには、候補を全部並べる（zu と si の両方があれば両方）
+      let html = '';
+      for(const fn of cands){
+        const name = fn.name || `${book}-${wc}`;
+        const id = fn.id;
+        const isPdf = (name||'').toLowerCase().endsWith('.pdf');
+        const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
+        const viewUrl    = isPdf
+          ? previewUrl
+          : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}`;
+
+        const label =
+          /-zu\./i.test(name) ? '図面(zu)'
+          : /-si\./i.test(name) ? 'シール(si)'
+          : isPdf ? 'PDF'
+          : '画像';
+
+        if(isPdf){
+          html += `
+            <div class="fig-block">
+              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
+              <iframe src="${previewUrl}" style="width:100%;height:50vh;border:1px solid #e9ecef;border-radius:10px"></iframe>
+            </div>`;
+        }else{
+          html += `
+            <div class="fig-block">
+              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
+              <a href="${previewUrl}" target="_blank" rel="noopener">
+                <img src="${viewUrl}" alt="${esc(name)}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />
+              </a>
+            </div>`;
+        }
       }
-      D.driveStatus.textContent = `ヒット: ${cands.length}（表示: ${name}）`;
 
-      // ボタン用に保存
-      S.drive = { previewUrl, viewUrl, isPdf, name, id };
+      D.driveView.innerHTML = html;
+      D.driveStatus.textContent = `ヒット: ${cands.length}件`;
 
       if(D.btnShowFigure){
         D.btnShowFigure.style.display='inline-block';
@@ -498,7 +544,7 @@
     }
   }
 
-  // --- 図面表示ボタン：Google Drive プレビューを別タブで開く
+  // --- 図面表示ボタン：代表（たいてい -zu）を別タブでプレビュー
   if(D.btnShowFigure){
     D.btnShowFigure.addEventListener('click', () => {
       if(!S.drive) return;
