@@ -24,6 +24,8 @@
   .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
   .btn:disabled{opacity:.6;cursor:not-allowed}
   .btn.sm{padding:6px 10px;font-size:12px}
+  /* ★ 図面ボタン用：ほぼ2倍サイズ */
+  .btn.lg{padding:12px 22px;font-size:14px;}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
 
@@ -98,7 +100,7 @@
       <div id="errCam" class="muted" style="margin-top:6px;"></div>
       <div class="muted" id="nowTarget" style="margin-top:6px;">ターゲット: — / —</div>
 
-      <!-- ★ 追加：Book / wc 手入力エリア -->
+      <!-- Book / wc 手入力エリア -->
       <div class="manual-inputs">
         <label for="inpBook">Book</label>
         <select id="inpBook">
@@ -132,8 +134,8 @@
       <div class="section" style="margin-top:14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
           <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
-          <!-- ★ 復活：図面表示ボタン（ヒット時のみ表示） -->
-          <button id="btnShowFigure" class="btn sm" style="display:none;">図面表示</button>
+          <!-- ★ 大きめの図面表示ボタン -->
+          <button id="btnShowFigure" class="btn lg" style="display:none;">図面表示</button>
         </div>
         <div id="driveStatus" class="muted">—</div>
         <div id="driveView" style="margin-top:6px;"></div>
@@ -178,7 +180,7 @@
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    drive: null,   // ★ Drive 図面情報を保持 {src,isPdf,name}
+    drive: null,   // Drive 図面情報を保持 {src,isPdf,name}
   };
 
   function readCookie(name){
@@ -189,7 +191,7 @@
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
 
-  // --- CSRF（UIは最小だが、/api を叩くのでバックグラウンドで有効化）
+  // --- CSRF
   function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
   async function requestSession(){ const url=isLocal()?'/api/session?dev=1':'/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); }
   async function ensureCsrf(){
@@ -231,7 +233,6 @@
     D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中');
   }
   async function startCam(){
-    // 結果パネルは維持（必要な情報だけ上に常に見せる）
     D.freeze.style.display='none'; D.video.style.visibility='visible'; D.lockEmoji.style.display='none';
     S.locked=false; stopCam();
     D.errCam.textContent='';
@@ -243,7 +244,6 @@
       D.video.srcObject=S.stream; await D.video.play();
       D.btnStart.disabled=true; D.btnStop.disabled=false;
       fitOverlay();
-      // 軽量スキャン用の基準サイズ
       const vw=D.video.videoWidth||1280, vh=D.video.videoHeight||720;
       const baseW=600, baseH=Math.round(baseW*(vh/vw));
       D.scanCanvas.width=baseW; D.scanCanvas.height=baseH;
@@ -275,14 +275,13 @@
     stopCam({keepFrame:true});
   }
 
-  // --- スキャン（軽量）
+  // --- スキャン
   function scanSimple(){
     if (D.video.readyState !== D.video.HAVE_ENOUGH_DATA) return null;
     scanCtx.drawImage(D.video, 0, 0, D.scanCanvas.width, D.scanCanvas.height);
     const img = scanCtx.getImageData(0, 0, D.scanCanvas.width, D.scanCanvas.height);
     const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
     if (!hit) return null;
-    // overlay座標へ変換
     const sx = D.overlay.width / D.scanCanvas.width;
     const sy = D.overlay.height/ D.scanCanvas.height;
     const pts = [
@@ -359,23 +358,16 @@
     S.current.book=(book||'').trim();
     S.current.wc=(wc||'').trim();
     D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
-
-    // フォーム側にも反映
-    if(D.inpBook){
-      D.inpBook.value = S.current.book || '';
-    }
-    if(D.inpWc){
-      D.inpWc.value = S.current.wc || '';
-    }
+    if(D.inpBook){ D.inpBook.value = S.current.book || ''; }
+    if(D.inpWc){ D.inpWc.value = S.current.wc || ''; }
   }
 
-  // --- API: GSheets 仕様を取得 → 表示 → Drive 図面も続けて描画
+  // --- API: GSheets → Drive
   async function querySpec(){
     const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
     const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
 
     D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='inline';
-    // 先に既存の表示をクリア
     D.gsBox.innerHTML = `<div class="muted">取得中…</div>`;
     D.driveStatus.textContent = '—';
     D.driveView.innerHTML = '';
@@ -403,7 +395,6 @@
 
   function renderSpecAndDrive(payload){
     const { gs, book, workcord } = payload || {};
-    // 仕様
     if(gs){
       D.gsBox.innerHTML = `
         <div class="kvs">
@@ -420,7 +411,6 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // 図面（Drive）は「図面表示」ボタンから開く
     const b = (book||'').trim();
     const w = (workcord||'').trim();
     openDriveFigure(b, w);
@@ -459,7 +449,6 @@
         return;
       }
 
-      // 優先：-zu画像 > -si画像 > 画像 > PDF
       const score = fn => {
         const n = (fn?.name||'').toLowerCase();
         const isPdf = n.endsWith('.pdf');
@@ -477,7 +466,6 @@
       const isPdf=(primary.name||'').toLowerCase().endsWith('.pdf');
       const src=`/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
 
-      // ★ 自動表示せず、情報だけ保持 → ボタンで表示
       S.drive = { src, isPdf, name: primary.name || `${book}-${wc}` };
       D.driveStatus.textContent = `ヒット: ${cands.length}（図面あり）`;
       D.driveView.innerHTML = '';
@@ -494,18 +482,14 @@
     }
   }
 
-  // --- 図面表示ボタンクリック
+  // --- 図面表示ボタン：別ウィンドウ（別タブ）で開く
   if(D.btnShowFigure){
     D.btnShowFigure.addEventListener('click', () => {
       if(!S.drive) return;
-      const { src, isPdf, name } = S.drive;
-
-      if(isPdf){
-        D.driveView.innerHTML = `<iframe src="${src}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
-      }else{
-        D.driveView.innerHTML = `<img src="${src}" alt="${esc(name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
-      }
-      D.driveStatus.textContent = `表示中: ${name||'-'}`;
+      const { src, name } = S.drive;
+      // 別タブで大きく表示
+      window.open(src, '_blank', 'noopener');
+      D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
     });
   }
 
@@ -514,7 +498,7 @@
   D.btnStop.addEventListener('click', () => stopCam());
   window.addEventListener('resize', fitOverlay);
 
-  // ★ 手入力からの照会イベント
+  // 手入力からの照会
   if(D.btnManual){
     D.btnManual.addEventListener('click', () => {
       const b = (D.inpBook?.value||'').trim();
@@ -527,8 +511,8 @@
       D.errApi.style.display='none';
       D.errApi.textContent='';
       setTarget(b,w);
-      S.locked=false;       // 手入力なのでロックは特に使わない
-      S.lastQueryKey='';    // 同じ組み合わせでも再照会できるようにリセット
+      S.locked=false;
+      S.lastQueryKey='';
       querySpec();
     });
 
