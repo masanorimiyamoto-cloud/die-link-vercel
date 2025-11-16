@@ -24,7 +24,7 @@
   .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
   .btn:disabled{opacity:.6;cursor:not-allowed}
   .btn.sm{padding:6px 10px;font-size:12px}
-  /* ★ 図面ボタン用：ほぼ2倍サイズ */
+  /* 図面ボタン用：少し大きめ */
   .btn.lg{padding:12px 22px;font-size:14px;}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
@@ -134,7 +134,7 @@
       <div class="section" style="margin-top:14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
           <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
-          <!-- ★ 大きめの図面表示ボタン -->
+          <!-- 図面表示ボタン -->
           <button id="btnShowFigure" class="btn lg" style="display:none;">図面表示</button>
         </div>
         <div id="driveStatus" class="muted">—</div>
@@ -180,7 +180,8 @@
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    drive: null,   // Drive 図面情報を保持 {src,isPdf,name}
+    // Drive 情報: { srcProxy, isPdf, name, id }
+    drive: null,
   };
 
   function readCookie(name){
@@ -464,11 +465,23 @@
       cands.sort((a,b)=> score(a)-score(b));
       const primary=cands[0];
       const isPdf=(primary.name||'').toLowerCase().endsWith('.pdf');
-      const src=`/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
+      const srcProxy=`/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
 
-      S.drive = { src, isPdf, name: primary.name || `${book}-${wc}` };
-      D.driveStatus.textContent = `ヒット: ${cands.length}（図面あり）`;
-      D.driveView.innerHTML = '';
+      // inline 表示（右下パネル）
+      if(isPdf){
+        D.driveView.innerHTML = `<iframe src="${srcProxy}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+      }else{
+        D.driveView.innerHTML = `<img src="${srcProxy}" alt="${esc(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      }
+      D.driveStatus.textContent = `ヒット: ${cands.length}（表示: ${primary.name||'-'}）`;
+
+      // 別ウィンドウ用に info 保持
+      S.drive = {
+        srcProxy,
+        isPdf,
+        name: primary.name || `${book}-${wc}`,
+        id: primary.id
+      };
 
       if(D.btnShowFigure){
         D.btnShowFigure.style.display='inline-block';
@@ -482,13 +495,19 @@
     }
   }
 
-  // --- 図面表示ボタン：別ウィンドウ（別タブ）で開く
+  // --- 図面表示ボタン：Google Drive プレビューを別タブで開く
   if(D.btnShowFigure){
     D.btnShowFigure.addEventListener('click', () => {
       if(!S.drive) return;
-      const { src, name } = S.drive;
-      // 別タブで大きく表示
-      window.open(src, '_blank', 'noopener');
+      const { id, srcProxy, name } = S.drive;
+
+      // Drive のプレビュー URL が使えるならそちらを優先
+      let url = srcProxy;
+      if(id){
+        url = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
+      }
+
+      window.open(url, '_blank', 'noopener');
       D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
     });
   }
