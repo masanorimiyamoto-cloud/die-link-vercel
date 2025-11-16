@@ -144,8 +144,8 @@
       <div class="section" style="margin-top:14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
           <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
-          <!-- 図面拡大ボタン -->
-          <button id="btnShowFigure" class="btn lg" style="display:none;">図面拡大</button>
+          <!-- 図面表示ボタン -->
+          <button id="btnShowFigure" class="btn lg" style="display:none;">図面表示</button>
         </div>
         <div id="driveStatus" class="muted">—</div>
         <div id="driveView" style="margin-top:6px;"></div>
@@ -168,7 +168,7 @@
     scanCanvas: q('#scanCanvas'),
     // 手入力
     inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
-    // 図面拡大ボタン
+    // 図面表示ボタン
     btnShowFigure: q('#btnShowFigure'),
     // 結果表示
     gsBox: q('#gsBox'),
@@ -190,7 +190,7 @@
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    // Drive 情報: 図面拡大ボタン用の代表ファイル
+    // Drive 情報: 代表（たいてい -zu）をここに
     drive: null,
   };
 
@@ -427,7 +427,7 @@
     openDriveFigure(b, w);
   }
 
-  // === Google Drive → drive-proxy 経由で図面を複数表示 ===
+  // === Google Drive 直リンクで図面を複数表示（zu も si も） ===
   async function openDriveFigure(book, wc){
     if(!book || !wc){
       D.driveStatus.textContent = 'Book/WC 未指定';
@@ -480,12 +480,17 @@
       const primary = cands[0];
       const primaryName = primary.name || `${book}-${wc}`;
       const primaryId = primary.id;
+      const primaryIsPdf = (primaryName||'').toLowerCase().endsWith('.pdf');
 
-      // proxy 経由 URL（dev=1 付き）
-      const primaryProxyUrl = `/api/drive-proxy?id=${encodeURIComponent(primaryId)}&name=${encodeURIComponent(primaryName)}&dev=1`;
+      const primaryPreviewUrl = `https://drive.google.com/file/d/${encodeURIComponent(primaryId)}/preview`;
+      const primaryViewUrl    = primaryIsPdf
+        ? primaryPreviewUrl
+        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(primaryId)}`;
 
       S.drive = {
-        proxyUrl: primaryProxyUrl,
+        previewUrl: primaryPreviewUrl,
+        viewUrl: primaryViewUrl,
+        isPdf: primaryIsPdf,
         name: primaryName,
         id: primaryId
       };
@@ -496,8 +501,10 @@
         const name = fn.name || `${book}-${wc}`;
         const id = fn.id;
         const isPdf = (name||'').toLowerCase().endsWith('.pdf');
-
-        const proxyUrl = `/api/drive-proxy?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}&dev=1`;
+        const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
+        const viewUrl    = isPdf
+          ? previewUrl
+          : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}`;
 
         const label =
           /-zu\./i.test(name) ? '図面(zu)'
@@ -509,14 +516,14 @@
           html += `
             <div class="fig-block">
               <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
-              <iframe src="${proxyUrl}" style="width:100%;height:50vh;border:1px solid #e9ecef;border-radius:10px"></iframe>
+              <iframe src="${previewUrl}" style="width:100%;height:50vh;border:1px solid #e9ecef;border-radius:10px"></iframe>
             </div>`;
         }else{
           html += `
             <div class="fig-block">
               <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
-              <a href="${proxyUrl}" target="_blank" rel="noopener">
-                <img src="${proxyUrl}" alt="${esc(name)}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />
+              <a href="${previewUrl}" target="_blank" rel="noopener">
+                <img src="${viewUrl}" alt="${esc(name)}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />
               </a>
             </div>`;
         }
@@ -537,12 +544,12 @@
     }
   }
 
-  // --- 図面拡大ボタン：代表ファイルを drive-proxy 経由で別タブ表示
+  // --- 図面表示ボタン：代表（たいてい -zu）を別タブでプレビュー
   if(D.btnShowFigure){
     D.btnShowFigure.addEventListener('click', () => {
       if(!S.drive) return;
-      const { proxyUrl, name } = S.drive;
-      window.open(proxyUrl, '_blank', 'noopener');
+      const { previewUrl, name } = S.drive;
+      window.open(previewUrl, '_blank', 'noopener');
       D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
     });
   }
