@@ -130,7 +130,11 @@
 
       <!-- 図面（Google Drive） -->
       <div class="section" style="margin-top:14px;">
-        <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面プレビュー）</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
+          <!-- ★ 復活：図面表示ボタン（ヒット時のみ表示） -->
+          <button id="btnShowFigure" class="btn sm" style="display:none;">図面表示</button>
+        </div>
         <div id="driveStatus" class="muted">—</div>
         <div id="driveView" style="margin-top:6px;"></div>
       </div>
@@ -152,6 +156,8 @@
     scanCanvas: q('#scanCanvas'),
     // 手入力
     inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
+    // 図面表示ボタン
+    btnShowFigure: q('#btnShowFigure'),
     // 結果表示
     gsBox: q('#gsBox'),
     driveStatus: q('#driveStatus'), driveView: q('#driveView'),
@@ -171,7 +177,8 @@
     stream: null, rafId: null,
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
-    current: { book:'', wc:'' }, lastQueryKey:''
+    current: { book:'', wc:'' }, lastQueryKey:'',
+    drive: null,   // ★ Drive 図面情報を保持 {src,isPdf,name}
   };
 
   function readCookie(name){
@@ -372,6 +379,8 @@
     D.gsBox.innerHTML = `<div class="muted">取得中…</div>`;
     D.driveStatus.textContent = '—';
     D.driveView.innerHTML = '';
+    S.drive = null;
+    if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
 
     try{
       if(!S.csrf){ await ensureCsrf(); }
@@ -411,7 +420,7 @@
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
 
-    // 図面（Drive を自動で上段右内に埋め込み表示）
+    // 図面（Drive）は「図面表示」ボタンから開く
     const b = (book||'').trim();
     const w = (workcord||'').trim();
     openDriveFigure(b, w);
@@ -421,10 +430,14 @@
     if(!book || !wc){
       D.driveStatus.textContent = 'Book/WC 未指定';
       D.driveView.innerHTML = '';
+      S.drive = null;
+      if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
       return;
     }
     D.driveStatus.textContent = '検索中…';
     D.driveView.innerHTML = '';
+    S.drive = null;
+    if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
 
     try{
       const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, { credentials:'same-origin', cache:'no-store' });
@@ -441,6 +454,8 @@
       if(cands.length===0){
         D.driveStatus.textContent = '一致ファイルなし';
         D.driveView.innerHTML = '';
+        S.drive = null;
+        if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
         return;
       }
 
@@ -462,17 +477,36 @@
       const isPdf=(primary.name||'').toLowerCase().endsWith('.pdf');
       const src=`/api/drive-proxy?id=${encodeURIComponent(primary.id)}&name=${encodeURIComponent(primary.name||`${book}-${wc}`)}`;
 
-      if(isPdf){
-        D.driveView.innerHTML = `<iframe src="${src}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
-      }else{
-        D.driveView.innerHTML = `<img src="${src}" alt="${esc(primary.name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      // ★ 自動表示せず、情報だけ保持 → ボタンで表示
+      S.drive = { src, isPdf, name: primary.name || `${book}-${wc}` };
+      D.driveStatus.textContent = `ヒット: ${cands.length}（図面あり）`;
+      D.driveView.innerHTML = '';
+
+      if(D.btnShowFigure){
+        D.btnShowFigure.style.display='inline-block';
       }
-      D.driveStatus.textContent = `ヒット: ${cands.length}（表示: ${primary.name||'-'}）`;
     }catch(e){
       console.error(e);
       D.driveStatus.textContent = `NG: ${e?.message||e}`;
       D.driveView.innerHTML = '';
+      S.drive = null;
+      if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
     }
+  }
+
+  // --- 図面表示ボタンクリック
+  if(D.btnShowFigure){
+    D.btnShowFigure.addEventListener('click', () => {
+      if(!S.drive) return;
+      const { src, isPdf, name } = S.drive;
+
+      if(isPdf){
+        D.driveView.innerHTML = `<iframe src="${src}" style="width:100%;height:62vh;border:1px solid #e9ecef;border-radius:10px"></iframe>`;
+      }else{
+        D.driveView.innerHTML = `<img src="${src}" alt="${esc(name||'figure')}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />`;
+      }
+      D.driveStatus.textContent = `表示中: ${name||'-'}`;
+    });
   }
 
   // --- イベント
