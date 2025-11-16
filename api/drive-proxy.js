@@ -1,586 +1,149 @@
-<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8" />
-<title>scan-spec｜最小UI（カメラ＋結果）</title>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<style>
-  :root{
-    --ok:#1c7ed6; --ng:#e03131; --tx:#212529; --sub:#6c757d;
-    --bg:#f8f9fa; --bd:#dee2e6; --soft:#ffffff;
-  }
-  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;height:100%}
-  .wrap{max-width:1200px;margin:0 auto;padding:12px}
-  .topbar{
-    position:sticky; top:0; z-index:10; display:flex; gap:10px; align-items:center; padding:10px 12px;
-    background:rgba(255,255,255,.95); border:1px solid var(--bd); border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.06);
-    margin-bottom:10px;
-  }
-  .topbar .spacer{flex:1 1 auto}
-  .chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:700}
-  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
-  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
-  .btn{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600;transition:.2s}
-  .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
-  .btn:disabled{opacity:.6;cursor:not-allowed}
-  .btn.sm{padding:6px 10px;font-size:12px}
-  /* 図面ボタン用：少し大きめ */
-  .btn.lg{padding:12px 22px;font-size:14px;}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+// api/drive-proxy.js
+export const config = { runtime: 'edge' };
 
-  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04);padding:12px}
-  .title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 8px}
-  .title h2{margin:0;font-size:16px}
-  .muted{color:var(--sub);font-size:12px}
-
-  /* 左：カメラスタック */
-  .stack{position:relative;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:#000}
-  video{display:block;width:100%;background:#000}
-  canvas{position:absolute;inset:0;pointer-events:none}
-  #freeze{z-index:1; display:none;}
-  #overlay{z-index:2;}
-
-  /* 右：結果パネルは縦に2段（仕様→図面） */
-  .section{margin-top:8px}
-  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
-  .kvs b{color:#333}
-
-  /* スキャンロック時のアイコン */
-  .lockmark{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none}
-  .lockmark .em{font-size:70px; text-shadow:0 3px 10px rgba(0,0,0,.5); display:none}
-
-  /* Book / wc 手入力エリア */
-  .manual-inputs{
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
-    gap:6px;
-    margin-top:8px;
-    font-size:13px;
-  }
-  .manual-inputs label{
-    font-weight:600;
-  }
-  .manual-inputs select,
-  .manual-inputs input{
-    padding:6px 8px;
-    border-radius:8px;
-    border:1px solid var(--bd);
-    font-size:13px;
-    min-width:70px;
-    background:#fff;
-  }
-
-  /* 図面を複数並べる用 */
-  .fig-block{
-    margin-bottom:10px;
-  }
-  .fig-block-title{
-    font-size:12px;
-    color:var(--sub);
-    margin-bottom:4px;
-  }
-</style>
-</head>
-<body>
-<div class="wrap">
-
-  <!-- 最上段：最小の操作だけ -->
-  <div class="topbar">
-    <button id="btnStart" class="btn primary">カメラ開始</button>
-    <button id="btnStop" class="btn" disabled>停止</button>
-    <span id="scanStatus" class="chip">待機中</span>
-    <span id="detectorInfo" class="chip muted"></span>
-    <div class="spacer"></div>
-    <span class="chip" id="csrfStatus">CSRF: 検査中…</span>
-  </div>
-
-  <div class="grid">
-    <!-- 左：カメラ -->
-    <div class="card">
-      <div class="title"><h2>スキャン</h2><span id="atState" class="muted"></span></div>
-      <div class="stack" id="stack">
-        <video id="video" playsinline webkit-playsinline muted></video>
-        <canvas id="freeze"></canvas>
-        <canvas id="overlay"></canvas>
-        <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
-        <canvas id="scanCanvas" style="display:none"></canvas>
-      </div>
-      <div id="errCam" class="muted" style="margin-top:6px;"></div>
-      <div class="muted" id="nowTarget" style="margin-top:6px;">ターゲット: — / —</div>
-
-      <!-- Book / wc 手入力エリア -->
-      <div class="manual-inputs">
-        <label for="inpBook">Book</label>
-        <select id="inpBook">
-          <option value="">—</option>
-          <option value="Ko">Ko</option>
-          <option value="Yo">Yo</option>
-          <option value="Ta">Ta</option>
-        </select>
-
-        <label for="inpWc">wc</label>
-        <input id="inpWc" type="text" inputmode="numeric" placeholder="例: 1234" />
-
-        <button id="btnManual" class="btn sm">照会</button>
-      </div>
-    </div>
-
-    <!-- 右：結果（上：仕様 / 下：図面） -->
-    <div class="card">
-      <div class="title"><h2>結果</h2><span id="loading" class="muted" style="display:none;">照会中…</span></div>
-
-      <!-- 仕様（Google Sheets） -->
-      <div class="section">
-        <h3 style="margin:0 0 6px;font-size:15px;">Google Sheets（仕様）</h3>
-        <div id="gsBox" class="kvs">
-          <div class="muted">（未取得）</div>
-        </div>
-        <div id="errApi" class="muted" style="margin-top:6px; display:none;"></div>
-      </div>
-
-      <!-- 図面（Google Drive） -->
-      <div class="section" style="margin-top:14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
-          <!-- 図面拡大ボタン -->
-          <button id="btnShowFigure" class="btn lg" style="display:none;">図面拡大</button>
-        </div>
-        <div id="driveStatus" class="muted">—</div>
-        <div id="driveView" style="margin-top:6px;"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
-<script>
-(() => {
-  const D = {
-    // DOM
-    video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
-    btnStart: q('#btnStart'), btnStop: q('#btnStop'),
-    detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'),
-    errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
-    csrfStatus: q('#csrfStatus'), atState: q('#atState'),
-    lockEmoji: q('#lockEmoji'),
-    scanCanvas: q('#scanCanvas'),
-    // 手入力
-    inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
-    // 図面拡大ボタン
-    btnShowFigure: q('#btnShowFigure'),
-    // 結果表示
-    gsBox: q('#gsBox'),
-    driveStatus: q('#driveStatus'), driveView: q('#driveView'),
-    nowTarget: q('#nowTarget'),
-  };
-
-  function q(s){ return document.querySelector(s); }
-
-  const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
-  const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
-  const scanCtx = D.scanCanvas.getContext('2d', { willReadFrequently:true });
-
-  if(D.atState){ D.atState.textContent = 'AT:OFF'; }
-
-  const CFG = { JSQR_MAX_LOOPS: 10 };
-  const S = {
-    stream: null, rafId: null,
-    useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
-    csrf: '', locked: false,
-    current: { book:'', wc:'' }, lastQueryKey:'',
-    // Drive 情報: 図面拡大ボタン用の代表ファイル
-    drive: null,
-  };
-
-  function readCookie(name){
-    const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
-    return m ? decodeURIComponent(m[1]) : '';
-  }
-  function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-  function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
-  function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
-
-  // --- CSRF
-  function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
-  async function requestSession(){ const url=isLocal()?'/api/session?dev=1':'/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); }
-  async function ensureCsrf(){
-    let t = readCookie('xcsrf');
-    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
-    if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
-    S.csrf = t;
-    D.csrfStatus.textContent = 'CSRF: 有効';
-    D.csrfStatus.className = 'chip ok';
-  }
-  document.addEventListener('DOMContentLoaded', async () => {
-    try{ await ensureCsrf(); }catch(e){ D.csrfStatus.textContent='CSRF: 未取得'; D.csrfStatus.className='chip ng'; }
+/* ========== utils ========== */
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
+}
+function parseCookies(req){
+  const h = req.headers.get('cookie') || '';
+  const o = {};
+  h.split(';').forEach(kv => {
+    const [k, ...vs] = kv.split('=');
+    if (!k) return;
+    o[k.trim()] = decodeURIComponent((vs.join('=') || '').trim());
+  });
+  return o;
+}
+function sameOrigin(req){
+  const self    = new URL(req.url).origin;
+  const origin  = req.headers.get('origin')  || '';
+  const referer = req.headers.get('referer') || '';
+  return origin.startsWith(self) || referer.startsWith(self);
+}
+function bytesToBase64Url(bytes){
+  let s = '';
+  for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+}
+function utf8ToBase64Url(s){ return bytesToBase64Url(new TextEncoder().encode(s)); }
+function pemToArrayBuffer(pem){
+  const b64 = pem.replace(/-----[^-]+-----/g,'').replace(/\s+/g,'');
+  const raw = atob(b64);
+  const buf = new ArrayBuffer(raw.length);
+  const v = new Uint8Array(buf);
+  for (let i=0;i<raw.length;i++) v[i] = raw.charCodeAt(i);
+  return buf;
+}
 
-  // --- UI helpers
-  function setStatus(text, kind=''){
-    D.scanStatus.textContent = text;
-    D.scanStatus.className = 'chip' + (kind==='ok'?' ok':kind==='ng'?' ng':'');
-  }
-  function fitOverlay(){
-    if(!D.video.videoWidth) return;
-    D.overlay.width=D.video.videoWidth; D.overlay.height=D.video.videoHeight;
-    D.overlay.style.width=D.video.clientWidth+'px'; D.overlay.style.height=D.video.clientHeight+'px';
-    D.freeze.width=D.video.videoWidth; D.freeze.height=D.video.videoHeight;
-    D.freeze.style.width=D.video.clientWidth+'px'; D.freeze.style.height=D.video.clientHeight+'px';
-  }
+/* ========== Google OAuth (SA) ========== */
+async function getGoogleAccessToken(){
+  const SA_JSON = process.env.GOOGLE_SA_JSON || '';
+  if (!SA_JSON) throw new Error('GOOGLE_SA_JSON is missing');
+  const svc = JSON.parse(SA_JSON);
 
-  // --- カメラ
-  function reallyStop(){ if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} } S.stream=null; }
-  function stopCam({keepFrame=false}={}){
-    if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
-    if(!keepFrame){
-      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      D.freeze.style.display='none';
-      D.lockEmoji.style.display='none';
-      D.video.style.visibility='visible';
-    }
-    reallyStop();
-    D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中');
-  }
-  async function startCam(){
-    D.freeze.style.display='none'; D.video.style.visibility='visible'; D.lockEmoji.style.display='none';
-    S.locked=false; stopCam();
-    D.errCam.textContent='';
-    try{
-      S.stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ideal:'environment'}, width:{ideal:1280,min:640,max:1920}, height:{ideal:720,min:480,max:1080}, advanced:[{focusMode:'continuous'}] },
-        audio:false
-      });
-      D.video.srcObject=S.stream; await D.video.play();
-      D.btnStart.disabled=true; D.btnStop.disabled=false;
-      fitOverlay();
-      const vw=D.video.videoWidth||1280, vh=D.video.videoHeight||720;
-      const baseW=600, baseH=Math.round(baseW*(vh/vw));
-      D.scanCanvas.width=baseW; D.scanCanvas.height=baseH;
+  const header = utf8ToBase64Url('{"alg":"RS256","typ":"JWT"}');
+  const now = Math.floor(Date.now()/1000);
+  const payload = utf8ToBase64Url(JSON.stringify({
+    iss: svc.client_email,
+    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600
+  }));
+  const unsigned = `${header}.${payload}`;
 
-      if(S.useBarcodeDetector){
-        try{
-          const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[];
-          if(!fmts || !fmts.includes('qr_code')) throw 0;
-          S.detector=new BarcodeDetector({formats:['qr_code']});
-        }catch{ S.useBarcodeDetector=false; S.detector=null; }
-      }
-      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
-      setStatus('探索中…'); tick();
-    }catch(e){
-      D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`;
-      setStatus('カメラエラー','ng');
-    }
-  }
-  function freezeAndLock(){
-    try{
-      fitOverlay();
-      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
-      freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
-      D.freeze.style.display='block'; D.video.style.visibility='hidden';
-      D.lockEmoji.style.display='block';
-      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-    }catch{}
-    setStatus('ロック完了','ok');
-    stopCam({keepFrame:true});
-  }
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    pemToArrayBuffer(svc.private_key),
+    { name:'RSASSA-PKCS1-v1_5', hash:'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    key,
+    new TextEncoder().encode(unsigned)
+  );
+  const jwt = `${unsigned}.${bytesToBase64Url(new Uint8Array(sig))}`;
 
-  // --- スキャン
-  function scanSimple(){
-    if (D.video.readyState !== D.video.HAVE_ENOUGH_DATA) return null;
-    scanCtx.drawImage(D.video, 0, 0, D.scanCanvas.width, D.scanCanvas.height);
-    const img = scanCtx.getImageData(0, 0, D.scanCanvas.width, D.scanCanvas.height);
-    const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
-    if (!hit) return null;
-    const sx = D.overlay.width / D.scanCanvas.width;
-    const sy = D.overlay.height/ D.scanCanvas.height;
-    const pts = [
-      hit.location.topLeftCorner, hit.location.topRightCorner,
-      hit.location.bottomRightCorner, hit.location.bottomLeftCorner
-    ].map(p=>({x:p.x*sx,y:p.y*sy}));
-    return { rawValue: hit.data.trim(), cornerPoints: pts };
-  }
-  function drawBox(points){
-    if(!points || points.length<4) return;
-    ctx.save(); ctx.lineWidth=5; ctx.strokeStyle='#1c7ed6'; ctx.shadowColor='#1c7ed6'; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
-  }
-  function classify(raw){
-    const t=normHyphen(raw);
-    if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
-    if(/^die-/i.test(t)) return 'die';
-    try{
-      const u=new URL(t);
-      if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
-      if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
-    }catch{}
-    return 'other';
-  }
-  function parseOrder(raw){
-    const t=normHyphen(raw);
-    try{
-      const u=new URL(t);
-      if(/order[_-]?plain/i.test(u.pathname+u.search)){
-        const book=(u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
-        const wc  =(u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
-        if(book||wc) return { bn:book, wc:wc };
-      }
-    }catch{}
-    const m=/order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
-    return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
-  }
-  function parseDie(raw){
-    const t=normHyphen(raw);
-    const m=/^die-([^-\n]+)-([^-]+)/i.exec(t);
-    if(m) return { bn:m[1].trim(), wc:m[2].trim() };
-    try{
-      const u=new URL(t);
-      const book=(u.searchParams.get('book')||'').trim();
-      const wc  =(u.searchParams.get('wc')||'').trim();
-      if(book||wc) return { bn:book, wc:wc };
-    }catch{}
-    return null;
-  }
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method:'POST',
+    headers:{ 'content-type':'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt
+    })
+  });
+  if (!r.ok) throw new Error(`token ${r.status} ${await r.text()}`);
+  const j = await r.json();
+  return j.access_token;
+}
 
-  async function tick(){
-    if(!S.stream) return;
-    if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
-      fitOverlay();
-      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      const hit=scanSimple();
-      if(hit){
-        drawBox(hit.cornerPoints);
-        const kind=classify(hit.rawValue);
-        let bn='', wc='';
-        if(kind==='order'){ const od=parseOrder(hit.rawValue); if(od){ bn=od.bn||''; wc=od.wc||''; } }
-        else if(kind==='die'){ const d=parseDie(hit.rawValue); if(d){ bn=d.bn||''; wc=d.wc||''; } }
-        if(bn || wc){
-          setTarget(bn,wc);
-          S.locked=true; freezeAndLock(); S.lastQueryKey=''; querySpec();
-          return;
-        }
-      }
-    }
-    S.rafId = requestAnimationFrame(tick);
-  }
-
-  function setTarget(book,wc){
-    S.current.book=(book||'').trim();
-    S.current.wc=(wc||'').trim();
-    D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
-    if(D.inpBook){ D.inpBook.value = S.current.book || ''; }
-    if(D.inpWc){ D.inpWc.value = S.current.wc || ''; }
-  }
-
-  // --- API: GSheets → Drive
-  async function querySpec(){
-    const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
-    const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
-
-    D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='inline';
-    D.gsBox.innerHTML = `<div class="muted">取得中…</div>`;
-    D.driveStatus.textContent = '—';
-    D.driveView.innerHTML = '';
-    S.drive = null;
-    if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
-
-    try{
-      if(!S.csrf){ await ensureCsrf(); }
-      const r = await fetch('/api/die-check', {
-        method:'POST', credentials:'same-origin',
-        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
-        body: JSON.stringify({ book, wc, json:true, limit: 0, noAirtable: true, gsOnly: true })
-      });
-      const txt=await r.text(); let j={};
-      try{ j=JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
-      if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
-      renderSpecAndDrive(j);
-    }catch(e){
-      D.errApi.style.display='block'; D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
-      D.gsBox.innerHTML = `<div class="muted">（Google Sheets を取得できませんでした）</div>`;
-    }finally{
-      D.loading.style.display='none';
-    }
-  }
-
-  function renderSpecAndDrive(payload){
-    const { gs, book, workcord } = payload || {};
-    if(gs){
-      D.gsBox.innerHTML = `
-        <div class="kvs">
-          <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
-          <b>Kname</b><div>${esc(gs.Kname||'')}</div>
-          <b>Material</b><div>${esc(gs.Material||'')}</div>
-          <b>Paper_Size</b><div>${esc(gs.Paper_Size||'')}</div>
-          <b>Cut_Size</b><div>${esc(gs.Cut_Size||'')}</div>
-          <b>Location</b><div>${esc(gs.Location||'')}</div>
-          <b>LastSeen</b><div>${esc(gs.LastSeen||'')}</div>
-          <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
-        </div>`;
-    }else{
-      D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
+/* ========== Handler ========== */
+export default async function handler(req){
+  try{
+    if (req.method !== 'GET'){
+      return json({ ok:false, error:'Method Not Allowed' }, 405);
     }
 
-    const b = (book||'').trim();
-    const w = (workcord||'').trim();
-    openDriveFigure(b, w);
-  }
+    const u    = new URL(req.url);
+    const dev  = u.searchParams.get('dev') === '1';
+    const id   = (u.searchParams.get('id') || '').trim();
+    const name = (u.searchParams.get('name') || 'download.bin').trim().replace(/"/g,'');
 
-  // === Google Drive → drive-proxy 経由で図面を複数表示 ===
-  async function openDriveFigure(book, wc){
-    if(!book || !wc){
-      D.driveStatus.textContent = 'Book/WC 未指定';
-      D.driveView.innerHTML = '';
-      S.drive = null;
-      if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
-      return;
+    if (!id) return json({ ok:false, error:'missing id' }, 400);
+
+    const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.hostname);
+    if (!isLocal && !dev) {
+      if (!sameOrigin(req)) {
+        return json({ ok:false, error:'Origin/Referer mismatch' }, 403);
+      }
+      const cookies = parseCookies(req);
+      const cookie = cookies['xcsrf'] || '';
+      const header = req.headers.get('x-csrf') || '';
+      if (!cookie || !header || cookie !== header) {
+        return json({ ok:false, error:'CSRF invalid' }, 403);
+      }
     }
-    D.driveStatus.textContent = '検索中…';
-    D.driveView.innerHTML = '';
-    S.drive = null;
-    if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
 
-    try{
-      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, { credentials:'same-origin', cache:'no-store' });
-      if(!r.ok){ const t=await r.text().catch(()=> ''); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
-      const j = await r.json().catch(()=> ({}));
-      if(j?.ok !== true){
-        D.driveStatus.textContent = 'NG: 応答不正';
-        return;
-      }
-      const cands = Array.isArray(j.candidates) && j.candidates.length
-        ? j.candidates
-        : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
+    const token = await getGoogleAccessToken();
 
-      if(cands.length===0){
-        D.driveStatus.textContent = '一致ファイルなし';
-        D.driveView.innerHTML = '';
-        S.drive = null;
-        if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
-        return;
-      }
+    // ★ キャッシュ回避用にダミー query を付ける
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&ts=${Date.now()}`;
 
-      // 優先：-zu画像 > -si画像 > 他画像 > PDF
-      const score = fn => {
-        const n = (fn?.name||'').toLowerCase();
-        const isPdf = n.endsWith('.pdf');
-        const isImg = /\.(jpeg|jpg|png)$/.test(n);
-        const hasZu = /-zu\.(jpeg|jpg|png)$/.test(n);
-        const hasSi = /-si\.(jpeg|jpg|png)$/.test(n);
-        if(isImg && hasZu) return 1;
-        if(isImg && hasSi) return 2;
-        if(isImg)          return 3;
-        if(isPdf)          return 9;
-        return 99;
-      };
-      cands.sort((a,b)=> score(a)-score(b));
-
-      // 代表（ボタンから開く用）は最優先の1つ
-      const primary = cands[0];
-      const primaryName = primary.name || `${book}-${wc}`;
-      const primaryId = primary.id;
-
-      // proxy 経由 URL（dev=1 付き）
-      const primaryProxyUrl = `/api/drive-proxy?id=${encodeURIComponent(primaryId)}&name=${encodeURIComponent(primaryName)}&dev=1`;
-
-      S.drive = {
-        proxyUrl: primaryProxyUrl,
-        name: primaryName,
-        id: primaryId
-      };
-
-      // 右下パネルには、候補を全部並べる（zu と si の両方があれば両方）
-      let html = '';
-      for(const fn of cands){
-        const name = fn.name || `${book}-${wc}`;
-        const id = fn.id;
-        const isPdf = (name||'').toLowerCase().endsWith('.pdf');
-
-        const proxyUrl = `/api/drive-proxy?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}&dev=1`;
-
-        const label =
-          /-zu\./i.test(name) ? '図面(zu)'
-          : /-si\./i.test(name) ? 'シール(si)'
-          : isPdf ? 'PDF'
-          : '画像';
-
-        if(isPdf){
-          html += `
-            <div class="fig-block">
-              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
-              <iframe src="${proxyUrl}" style="width:100%;height:50vh;border:1px solid #e9ecef;border-radius:10px"></iframe>
-            </div>`;
-        }else{
-          html += `
-            <div class="fig-block">
-              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
-              <a href="${proxyUrl}" target="_blank" rel="noopener">
-                <img src="${proxyUrl}" alt="${esc(name)}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />
-              </a>
-            </div>`;
-        }
-      }
-
-      D.driveView.innerHTML = html;
-      D.driveStatus.textContent = `ヒット: ${cands.length}件`;
-
-      if(D.btnShowFigure){
-        D.btnShowFigure.style.display='inline-block';
-      }
-    }catch(e){
-      console.error(e);
-      D.driveStatus.textContent = `NG: ${e?.message||e}`;
-      D.driveView.innerHTML = '';
-      S.drive = null;
-      if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
-    }
-  }
-
-  // --- 図面拡大ボタン：代表ファイルを drive-proxy 経由で別タブ表示
-  if(D.btnShowFigure){
-    D.btnShowFigure.addEventListener('click', () => {
-      if(!S.drive) return;
-      const { proxyUrl, name } = S.drive;
-      window.open(proxyUrl, '_blank', 'noopener');
-      D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
-    });
-  }
-
-  // --- イベント
-  D.btnStart.addEventListener('click', startCam);
-  D.btnStop.addEventListener('click', () => stopCam());
-  window.addEventListener('resize', fitOverlay);
-
-  // 手入力からの照会
-  if(D.btnManual){
-    D.btnManual.addEventListener('click', () => {
-      const b = (D.inpBook?.value||'').trim();
-      const w = normHyphen((D.inpWc?.value||'').trim());
-      if(!b || !w){
-        D.errApi.style.display='block';
-        D.errApi.textContent = '❗ Book と wc を入力してください。';
-        return;
-      }
-      D.errApi.style.display='none';
-      D.errApi.textContent='';
-      setTarget(b,w);
-      S.locked=false;
-      S.lastQueryKey='';
-      querySpec();
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      // 念のため
+      cache: 'no-store'
     });
 
-    if(D.inpWc){
-      D.inpWc.addEventListener('keydown', (e) => {
-        if(e.key === 'Enter'){
-          e.preventDefault();
-          D.btnManual.click();
-        }
-      });
+    if (!r.ok) {
+      const detail = await r.text().catch(()=> '');
+      return json(
+        { ok:false, error:`drive ${r.status}`, detail: detail.slice(0,500) },
+        r.status
+      );
     }
-  }
 
-})();
-</script>
-</body>
-</html>
+    // レスポンスヘッダ整備
+    const headers = new Headers();
+    const ct = r.headers.get('content-type') || 'application/octet-stream';
+    headers.set('content-type', ct);
+    headers.set('content-disposition', `inline; filename="${name}"`);
+
+    // ★ ブラウザ / 中間キャッシュに保存させない
+    headers.set('cache-control', 'no-store, max-age=0');
+    headers.set('pragma', 'no-cache');
+
+    headers.set('referrer-policy', 'no-referrer');
+    headers.set('cross-origin-resource-policy', 'same-origin');
+
+    return new Response(r.body, { status: 200, headers });
+  }catch(e){
+    return json({ ok:false, error: String(e?.message || e) }, 500);
+  }
+}
