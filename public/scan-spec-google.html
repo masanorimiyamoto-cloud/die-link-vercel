@@ -23,6 +23,7 @@
   .btn{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600;transition:.2s}
   .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
   .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn.sm{padding:6px 10px;font-size:12px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
 
@@ -46,6 +47,28 @@
   /* スキャンロック時のアイコン */
   .lockmark{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none}
   .lockmark .em{font-size:70px; text-shadow:0 3px 10px rgba(0,0,0,.5); display:none}
+
+  /* Book / wc 手入力エリア */
+  .manual-inputs{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:6px;
+    margin-top:8px;
+    font-size:13px;
+  }
+  .manual-inputs label{
+    font-weight:600;
+  }
+  .manual-inputs select,
+  .manual-inputs input{
+    padding:6px 8px;
+    border-radius:8px;
+    border:1px solid var(--bd);
+    font-size:13px;
+    min-width:70px;
+    background:#fff;
+  }
 </style>
 </head>
 <body>
@@ -74,6 +97,22 @@
       </div>
       <div id="errCam" class="muted" style="margin-top:6px;"></div>
       <div class="muted" id="nowTarget" style="margin-top:6px;">ターゲット: — / —</div>
+
+      <!-- ★ 追加：Book / wc 手入力エリア -->
+      <div class="manual-inputs">
+        <label for="inpBook">Book</label>
+        <select id="inpBook">
+          <option value="">—</option>
+          <option value="Ko">Ko</option>
+          <option value="Yo">Yo</option>
+          <option value="Ta">Ta</option>
+        </select>
+
+        <label for="inpWc">wc</label>
+        <input id="inpWc" type="text" inputmode="numeric" placeholder="例: 1234" />
+
+        <button id="btnManual" class="btn sm">照会</button>
+      </div>
     </div>
 
     <!-- 右：結果（上：仕様 / 下：図面） -->
@@ -111,11 +150,15 @@
     csrfStatus: q('#csrfStatus'), atState: q('#atState'),
     lockEmoji: q('#lockEmoji'),
     scanCanvas: q('#scanCanvas'),
+    // 手入力
+    inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
     // 結果表示
     gsBox: q('#gsBox'),
     driveStatus: q('#driveStatus'), driveView: q('#driveView'),
     nowTarget: q('#nowTarget'),
   };
+
+  function q(s){ return document.querySelector(s); }
 
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
@@ -131,8 +174,10 @@
     current: { book:'', wc:'' }, lastQueryKey:''
   };
 
-  function q(s){ return document.querySelector(s); }
-  function readCookie(name){ const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
+  function readCookie(name){
+    const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
@@ -169,8 +214,14 @@
   function reallyStop(){ if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} } S.stream=null; }
   function stopCam({keepFrame=false}={}){
     if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
-    if(!keepFrame){ ctx.clearRect(0,0,D.overlay.width,D.overlay.height); D.freeze.style.display='none'; D.lockEmoji.style.display='none'; D.video.style.visibility='visible'; }
-    reallyStop(); D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中');
+    if(!keepFrame){
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      D.freeze.style.display='none';
+      D.lockEmoji.style.display='none';
+      D.video.style.visibility='visible';
+    }
+    reallyStop();
+    D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中');
   }
   async function startCam(){
     // 結果パネルは維持（必要な情報だけ上に常に見せる）
@@ -301,6 +352,14 @@
     S.current.book=(book||'').trim();
     S.current.wc=(wc||'').trim();
     D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
+
+    // フォーム側にも反映
+    if(D.inpBook){
+      D.inpBook.value = S.current.book || '';
+    }
+    if(D.inpWc){
+      D.inpWc.value = S.current.wc || '';
+    }
   }
 
   // --- API: GSheets 仕様を取得 → 表示 → Drive 図面も続けて描画
@@ -420,6 +479,34 @@
   D.btnStart.addEventListener('click', startCam);
   D.btnStop.addEventListener('click', () => stopCam());
   window.addEventListener('resize', fitOverlay);
+
+  // ★ 手入力からの照会イベント
+  if(D.btnManual){
+    D.btnManual.addEventListener('click', () => {
+      const b = (D.inpBook?.value||'').trim();
+      const w = normHyphen((D.inpWc?.value||'').trim());
+      if(!b || !w){
+        D.errApi.style.display='block';
+        D.errApi.textContent = '❗ Book と wc を入力してください。';
+        return;
+      }
+      D.errApi.style.display='none';
+      D.errApi.textContent='';
+      setTarget(b,w);
+      S.locked=false;       // 手入力なのでロックは特に使わない
+      S.lastQueryKey='';    // 同じ組み合わせでも再照会できるようにリセット
+      querySpec();
+    });
+
+    if(D.inpWc){
+      D.inpWc.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          D.btnManual.click();
+        }
+      });
+    }
+  }
 
 })();
 </script>
