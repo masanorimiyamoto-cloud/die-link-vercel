@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>指さし50音ボード（音声付き）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <style>
+    :root {
+      --bg: #f5f5f5;
+      --card: #ffffff;
+      --accent: #1971c2;
+      --accent-soft: #e7f5ff;
+      --border: #d0d0d0;
+      --text: #222;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 8px 8px 16px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    header h1 {
+      font-size: clamp(18px, 4.5vw, 22px);
+      margin: 6px 0 2px;
+    }
+    header p {
+      margin: 0;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .board {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      margin-bottom: 10px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .key {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(18px, 5vw, 26px);
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    .key:active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      transform: scale(0.97);
+    }
+    .key.empty {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .output-card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+    .output-label {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .output-display {
+      min-height: 44px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      font-size: clamp(18px, 4.5vw, 24px);
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      word-wrap: break-word;
+      background: #fff;
+    }
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      justify-content: space-between;
+    }
+    .btn {
+      flex: 1 1 calc(33% - 4px);
+      min-width: 0;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 13px;
+      padding: 8px 6px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+      white-space: nowrap;
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .btn:active {
+      opacity: 0.8;
+      transform: scale(0.97);
+    }
+    .status {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #777;
+    }
+
+    @media (min-width: 700px) {
+      .layout {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 10px;
+        align-items: stretch;
+      }
+      .board, .output-card {
+        margin-bottom: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>指さし50音ボード（読み上げ付き）</h1>
+      <p>文字をタップすると１文字ずつ読み上げます。「文章を読む」でまとめて発話します。</p>
+    </header>
+
+    <div class="layout">
+      <!-- 50音ボード -->
+      <section class="board" aria-label="50音ボード">
+        <div class="row">
+          <div class="key" data-kana="あ">あ</div>
+          <div class="key" data-kana="い">い</div>
+          <div class="key" data-kana="う">う</div>
+          <div class="key" data-kana="え">え</div>
+          <div class="key" data-kana="お">お</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="か">か</div>
+          <div class="key" data-kana="き">き</div>
+          <div class="key" data-kana="く">く</div>
+          <div class="key" data-kana="け">け</div>
+          <div class="key" data-kana="こ">こ</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="さ">さ</div>
+          <div class="key" data-kana="し">し</div>
+          <div class="key" data-kana="す">す</div>
+          <div class="key" data-kana="せ">せ</div>
+          <div class="key" data-kana="そ">そ</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="た">た</div>
+          <div class="key" data-kana="ち">ち</div>
+          <div class="key" data-kana="つ">つ</div>
+          <div class="key" data-kana="て">て</div>
+          <div class="key" data-kana="と">と</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="な">な</div>
+          <div class="key" data-kana="に">に</div>
+          <div class="key" data-kana="ぬ">ぬ</div>
+          <div class="key" data-kana="ね">ね</div>
+          <div class="key" data-kana="の">の</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="は">は</div>
+          <div class="key" data-kana="ひ">ひ</div>
+          <div class="key" data-kana="ふ">ふ</div>
+          <div class="key" data-kana="へ">へ</div>
+          <div class="key" data-kana="ほ">ほ</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="ま">ま</div>
+          <div class="key" data-kana="み">み</div>
+          <div class="key" data-kana="む">む</div>
+          <div class="key" data-kana="め">め</div>
+          <div class="key" data-kana="も">も</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="や">や</div>
+          <div class="key empty"></div>
+          <div class="key" data-kana="ゆ">ゆ</div>
+          <div class="key empty"></div>
+          <div class="key" data-kana="よ">よ</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="ら">ら</div>
+          <div class="key" data-kana="り">り</div>
+          <div class="key" data-kana="る">る</div>
+          <div class="key" data-kana="れ">れ</div>
+          <div class="key" data-kana="ろ">ろ</div>
+        </div>
+        <div class="row">
+          <div class="key" data-kana="わ">わ</div>
+          <div class="key empty"></div>
+          <div class="key" data-kana="を">を</div>
+          <div class="key empty"></div>
+          <div class="key" data-kana="ん">ん</div>
+        </div>
+      </section>
+
+      <!-- 出力と操作 -->
+      <section class="output-card">
+        <div class="output-label">組み立て中のことば</div>
+        <div id="output" class="output-display" aria-live="polite"></div>
+        <div class="buttons">
+          <button class="btn" id="btn-undo">一文字もどす</button>
+          <button class="btn" id="btn-clear">全部けす</button>
+          <button class="btn primary" id="btn-speak-sentence">文章を読む</button>
+        </div>
+        <div class="status" id="status"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const outputEl = document.getElementById('output');
+      const statusEl = document.getElementById('status');
+      const keys = document.querySelectorAll('.key[data-kana]');
+      const btnUndo = document.getElementById('btn-undo');
+      const btnClear = document.getElementById('btn-clear');
+      const btnSpeakSentence = document.getElementById('btn-speak-sentence');
+
+      let buffer = "";
+
+      function updateOutput(){
+        outputEl.textContent = buffer;
+      }
+
+      function speak(text){
+        if (!('speechSynthesis' in window)) {
+          statusEl.textContent = '⚠ この端末では音声読み上げが使えません。';
+          return;
+        }
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'ja-JP';
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        window.speechSynthesis.speak(u);
+      }
+
+      keys.forEach(key => {
+        key.addEventListener('click', () => {
+          const kana = key.dataset.kana || "";
+          if (!kana) return;
+          buffer += kana;
+          updateOutput();
+          speak(kana); // 1文字だけ読む
+        });
+      });
+
+      btnUndo.addEventListener('click', () => {
+        if (!buffer) return;
+        buffer = buffer.slice(0, -1);
+        updateOutput();
+      });
+
+      btnClear.addEventListener('click', () => {
+        buffer = "";
+        updateOutput();
+      });
+
+      btnSpeakSentence.addEventListener('click', () => {
+        if (!buffer) return;
+        speak(buffer);
+      });
+
+      // 初期チェック
+      if (!('speechSynthesis' in window)) {
+        statusEl.textContent = '⚠ この端末では音声読み上げが使えません（古いブラウザの可能性があります）。';
+      } else {
+        statusEl.textContent = '✅ 文字をタップすると１文字ずつ読み上げ、右下ボタンで全文を読み上げます。';
+      }
+    })();
+  </script>
+</body>
+</html>
