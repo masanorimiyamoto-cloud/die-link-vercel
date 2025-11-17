@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>指さし50音ボード（音声付き）</title>
+  <title>指さし50音ボード（濁点・小文字対応）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <style>
     :root {
@@ -73,6 +73,12 @@
     .key.empty {
       visibility: hidden;
       pointer-events: none;
+    }
+
+    /* 機能キー（濁点・小文字など）は少し小さめ */
+    .key.func {
+      font-size: clamp(14px, 4vw, 18px);
+      background: #f8f9fa;
     }
 
     .output-card {
@@ -150,13 +156,14 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>指さし50音ボード（読み上げ付き）</h1>
-      <p>文字をタップすると１文字ずつ読み上げます。「文章を読む」でまとめて発話します。</p>
+      <h1>指さし50音ボード（濁点・小文字対応／読み上げ付き）</h1>
+      <p>文字をタップ → 「゛」「゜」「小」で最後の文字を変えられます。「文章を読む」で全文発話。</p>
     </header>
 
     <div class="layout">
       <!-- 50音ボード -->
       <section class="board" aria-label="50音ボード">
+        <!-- 基本50音 -->
         <div class="row">
           <div class="key" data-kana="あ">あ</div>
           <div class="key" data-kana="い">い</div>
@@ -227,6 +234,15 @@
           <div class="key empty"></div>
           <div class="key" data-kana="ん">ん</div>
         </div>
+
+        <!-- 機能キー：濁点・半濁点・小さい文字 -->
+        <div class="row">
+          <div class="key func" data-action="dakuten">゛ 濁点</div>
+          <div class="key func" data-action="handakuten">゜ 半濁</div>
+          <div class="key func" data-action="small">小 文字</div>
+          <div class="key empty"></div>
+          <div class="key empty"></div>
+        </div>
       </section>
 
       <!-- 出力と操作 -->
@@ -247,7 +263,8 @@
     (function(){
       const outputEl = document.getElementById('output');
       const statusEl = document.getElementById('status');
-      const keys = document.querySelectorAll('.key[data-kana]');
+      const kanaKeys = document.querySelectorAll('.key[data-kana]');
+      const funcKeys = document.querySelectorAll('.key[data-action]');
       const btnUndo = document.getElementById('btn-undo');
       const btnClear = document.getElementById('btn-clear');
       const btnSpeakSentence = document.getElementById('btn-speak-sentence');
@@ -271,7 +288,37 @@
         window.speechSynthesis.speak(u);
       }
 
-      keys.forEach(key => {
+      // 濁点・半濁点・小文字の変換表
+      const DAKUTEN_MAP = {
+        'か':'が','き':'ぎ','く':'ぐ','け':'げ','こ':'ご',
+        'さ':'ざ','し':'じ','す':'ず','せ':'ぜ','そ':'ぞ',
+        'た':'だ','ち':'ぢ','つ':'づ','て':'で','と':'ど',
+        'は':'ば','ひ':'び','ふ':'ぶ','へ':'べ','ほ':'ぼ',
+        'う':'ゔ'
+      };
+      const HANDAKUTEN_MAP = {
+        'は':'ぱ','ひ':'ぴ','ふ':'ぷ','へ':'ぺ','ほ':'ぽ'
+      };
+      const SMALL_MAP = {
+        'あ':'ぁ','い':'ぃ','う':'ぅ','え':'ぇ','お':'ぉ',
+        'や':'ゃ','ゆ':'ゅ','よ':'ょ',
+        'つ':'っ',
+        'わ':'ゎ'
+      };
+
+      let defaultStatus = '';
+      let statusTimer = null;
+      function flashStatus(msg){
+        if (!defaultStatus) defaultStatus = statusEl.textContent || '';
+        statusEl.textContent = msg;
+        if (statusTimer) clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => {
+          statusEl.textContent = defaultStatus;
+        }, 1500);
+      }
+
+      // かなキーをタップ
+      kanaKeys.forEach(key => {
         key.addEventListener('click', () => {
           const kana = key.dataset.kana || "";
           if (!kana) return;
@@ -281,17 +328,59 @@
         });
       });
 
+      // 機能キー（濁点・半濁点・小文字）
+      funcKeys.forEach(key => {
+        key.addEventListener('click', () => {
+          const action = key.dataset.action;
+          if (!buffer) return;
+          const last = buffer.slice(-1);
+          let replaced = last;
+
+          if (action === 'dakuten') {
+            if (DAKUTEN_MAP[last]) {
+              replaced = DAKUTEN_MAP[last];
+            } else {
+              flashStatus('この文字には濁点をつけられません。');
+              return;
+            }
+          } else if (action === 'handakuten') {
+            if (HANDAKUTEN_MAP[last]) {
+              replaced = HANDAKUTEN_MAP[last];
+            } else {
+              flashStatus('この文字には半濁点をつけられません。');
+              return;
+            }
+          } else if (action === 'small') {
+            if (SMALL_MAP[last]) {
+              replaced = SMALL_MAP[last];
+            } else {
+              flashStatus('この文字を小さくできません。');
+              return;
+            }
+          } else {
+            return;
+          }
+
+          buffer = buffer.slice(0, -1) + replaced;
+          updateOutput();
+          speak(replaced);
+        });
+      });
+
+      // 一文字もどす
       btnUndo.addEventListener('click', () => {
         if (!buffer) return;
         buffer = buffer.slice(0, -1);
         updateOutput();
       });
 
+      // 全部けす
       btnClear.addEventListener('click', () => {
         buffer = "";
         updateOutput();
       });
 
+      // 文章を読む
       btnSpeakSentence.addEventListener('click', () => {
         if (!buffer) return;
         speak(buffer);
@@ -301,8 +390,9 @@
       if (!('speechSynthesis' in window)) {
         statusEl.textContent = '⚠ この端末では音声読み上げが使えません（古いブラウザの可能性があります）。';
       } else {
-        statusEl.textContent = '✅ 文字をタップすると１文字ずつ読み上げ、右下ボタンで全文を読み上げます。';
+        statusEl.textContent = '✅ 文字タップ＋「゛」「゜」「小」で変換し、「文章を読む」で全文発話します。';
       }
+      defaultStatus = statusEl.textContent;
     })();
   </script>
 </body>
