@@ -47,11 +47,13 @@
       margin-bottom: 10px;
     }
     .row {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 6px;
-      margin-bottom: 6px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+    direction: rtl;  /* ★ これを追加：右からあいうえお かきくけこ…になる */
     }
+
     .key {
       border-radius: 10px;
       border: 1px solid var(--border);
