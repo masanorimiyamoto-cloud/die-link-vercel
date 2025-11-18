@@ -24,7 +24,6 @@
   .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
   .btn:disabled{opacity:.6;cursor:not-allowed}
   .btn.sm{padding:6px 10px;font-size:12px}
-  /* 図面ボタン用：少し大きめ */
   .btn.lg{padding:12px 22px;font-size:14px;}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
@@ -34,23 +33,19 @@
   .title h2{margin:0;font-size:16px}
   .muted{color:var(--sub);font-size:12px}
 
-  /* 左：カメラスタック */
   .stack{position:relative;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:#000}
   video{display:block;width:100%;background:#000}
   canvas{position:absolute;inset:0;pointer-events:none}
   #freeze{z-index:1; display:none;}
   #overlay{z-index:2;}
 
-  /* 右：結果パネルは縦に2段（仕様→図面） */
   .section{margin-top:8px}
   .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
   .kvs b{color:#333}
 
-  /* スキャンロック時のアイコン */
   .lockmark{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none}
   .lockmark .em{font-size:70px; text-shadow:0 3px 10px rgba(0,0,0,.5); display:none}
 
-  /* Book / wc 手入力エリア */
   .manual-inputs{
     display:flex;
     flex-wrap:wrap;
@@ -72,7 +67,6 @@
     background:#fff;
   }
 
-  /* 図面を複数並べる用 */
   .fig-block{
     margin-bottom:10px;
   }
@@ -105,6 +99,7 @@
         <canvas id="freeze"></canvas>
         <canvas id="overlay"></canvas>
         <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
+        <!-- ★ scan-lookup と同じく「作業用キャンバス」として再利用 -->
         <canvas id="scanCanvas" style="display:none"></canvas>
       </div>
       <div id="errCam" class="muted" style="margin-top:6px;"></div>
@@ -144,7 +139,6 @@
       <div class="section" style="margin-top:14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
           <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
-          <!-- 図面表示ボタン -->
           <button id="btnShowFigure" class="btn lg" style="display:none;">図面表示</button>
         </div>
         <div id="driveStatus" class="muted">—</div>
@@ -158,7 +152,6 @@
 <script>
 (() => {
   const D = {
-    // DOM
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
     btnStart: q('#btnStart'), btnStop: q('#btnStop'),
     detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'),
@@ -175,12 +168,11 @@
     driveStatus: q('#driveStatus'), driveView: q('#driveView'),
     nowTarget: q('#nowTarget'),
   };
-
   function q(s){ return document.querySelector(s); }
 
-  const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
-  const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
-  const scanCtx = D.scanCanvas.getContext('2d', { willReadFrequently:true });
+  const ctx        = D.overlay.getContext('2d',   { willReadFrequently:true });
+  const freezeCtx  = D.freeze.getContext('2d',    { willReadFrequently:true });
+  const scanCtx    = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
 
   if(D.atState){ D.atState.textContent = 'AT:OFF'; }
 
@@ -190,10 +182,7 @@
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    // Drive 情報: 代表（たいてい -zu）をここに
     drive: null,
-    // BarcodeDetector の連続呼び出し抑制
-    bdBusy: false,
   };
 
   function readCookie(name){
@@ -226,16 +215,26 @@
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
-    D.overlay.width=D.video.videoWidth; D.overlay.height=D.video.videoHeight;
-    D.overlay.style.width=D.video.clientWidth+'px'; D.overlay.style.height=D.video.clientHeight+'px';
-    D.freeze.width=D.video.videoWidth; D.freeze.height=D.video.videoHeight;
-    D.freeze.style.width=D.video.clientWidth+'px'; D.freeze.style.height=D.video.clientHeight+'px';
+    D.overlay.width  = D.video.videoWidth;
+    D.overlay.height = D.video.videoHeight;
+    D.overlay.style.width  = D.video.clientWidth+'px';
+    D.overlay.style.height = D.video.clientHeight+'px';
+    D.freeze.width  = D.video.videoWidth;
+    D.freeze.height = D.video.videoHeight;
+    D.freeze.style.width  = D.video.clientWidth+'px';
+    D.freeze.style.height = D.video.clientHeight+'px';
   }
 
   // --- カメラ
-  function reallyStop(){ if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{} } S.stream=null; }
+  function reallyStop(){
+    if(S.stream){
+      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{}
+    }
+    S.stream=null;
+  }
   function stopCam({keepFrame=false}={}){
-    if(S.rafId) cancelAnimationFrame(S.rafId); S.rafId=null;
+    if(S.rafId) cancelAnimationFrame(S.rafId);
+    S.rafId=null;
     if(!keepFrame){
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       D.freeze.style.display='none';
@@ -243,49 +242,72 @@
       D.video.style.visibility='visible';
     }
     reallyStop();
-    D.btnStart.disabled=false; D.btnStop.disabled=true; setStatus('停止中');
+    D.btnStart.disabled=false;
+    D.btnStop.disabled=true;
+    setStatus('停止中');
   }
+
   async function startCam(){
-    D.freeze.style.display='none'; D.video.style.visibility='visible'; D.lockEmoji.style.display='none';
-    S.locked=false; stopCam();
+    D.freeze.style.display='none';
+    D.video.style.visibility='visible';
+    D.lockEmoji.style.display='none';
+    S.locked=false;
+    stopCam();
     D.errCam.textContent='';
     try{
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ideal:'environment'}, width:{ideal:1280,min:640,max:1920}, height:{ideal:720,min:480,max:1080}, advanced:[{focusMode:'continuous'}] },
+        video:{
+          facingMode:{ideal:'environment'},
+          width:{ideal:1280,min:640,max:1920},
+          height:{ideal:720,min:480,max:1080},
+          advanced:[{focusMode:'continuous'}]
+        },
         audio:false
       });
-      D.video.srcObject=S.stream; await D.video.play();
-      D.btnStart.disabled=true; D.btnStop.disabled=false;
-      fitOverlay();
-      const vw=D.video.videoWidth||1280, vh=D.video.videoHeight||720;
+      D.video.srcObject=S.stream;
+      await D.video.play();
 
-      // ★ここを「フル解像度」で jsQR に渡すように変更
+      D.btnStart.disabled=true;
+      D.btnStop.disabled=false;
+
+      fitOverlay();
+
+      // ★ jsQR / BarcodeDetector 用の作業キャンバスを「フル解像度」に
+      const vw = D.video.videoWidth  || 1280;
+      const vh = D.video.videoHeight || 720;
       D.scanCanvas.width  = vw;
       D.scanCanvas.height = vh;
 
+      // ★ BarcodeDetector の準備（scan-lookup と同じ）
       if(S.useBarcodeDetector){
         try{
-          const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[];
+          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+            ? await BarcodeDetector.getSupportedFormats()
+            : [];
           if(!fmts || !fmts.includes('qr_code')) throw 0;
-          S.detector=new BarcodeDetector({formats:['qr_code']});
+          S.detector = new BarcodeDetector({formats:['qr_code']});
         }catch{
-          S.useBarcodeDetector=false; S.detector=null;
+          S.useBarcodeDetector = false;
+          S.detector = null;
         }
       }
-      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
+
+      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BD+jsQR' : 'jsQR';
       setStatus('探索中…');
-      tick();
+      tick();   // ★ Android 対応版 tick
     }catch(e){
       D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`;
       setStatus('カメラエラー','ng');
     }
   }
+
   function freezeAndLock(){
     try{
       fitOverlay();
       freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
       freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
-      D.freeze.style.display='block'; D.video.style.visibility='hidden';
+      D.freeze.style.display='block';
+      D.video.style.visibility='hidden';
       D.lockEmoji.style.display='block';
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
     }catch{}
@@ -293,58 +315,23 @@
     stopCam({keepFrame:true});
   }
 
-  // --- デコード後共通処理
+  // --- 共通描画
   function drawBox(points){
     if(!points || points.length<4) return;
-    ctx.save(); ctx.lineWidth=5; ctx.strokeStyle='#1c7ed6'; ctx.shadowColor='#1c7ed6'; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+    ctx.save();
+    ctx.lineWidth=5;
+    ctx.strokeStyle='#1c7ed6';
+    ctx.shadowColor='#1c7ed6';
+    ctx.shadowBlur=6;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x,points[0].y);
+    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
   }
 
-  function onDecoded(rawValue, cornerPoints){
-    if(!rawValue) return;
-    // 緑枠
-    if(cornerPoints && cornerPoints.length>=4){
-      drawBox(cornerPoints);
-    }
-
-    const kind=classify(rawValue);
-    let bn='', wc='';
-    if(kind==='order'){
-      const od=parseOrder(rawValue);
-      if(od){ bn=od.bn||''; wc=od.wc||''; }
-    }else if(kind==='die'){
-      const d=parseDie(rawValue);
-      if(d){ bn=d.bn||''; wc=d.wc||''; }
-    }
-    if(bn || wc){
-      setTarget(bn,wc);
-      S.locked=true;
-      freezeAndLock();
-      S.lastQueryKey='';
-      querySpec();
-    }
-  }
-
-  // --- スキャン
-  function scanSimple(){
-    if (D.video.readyState !== D.video.HAVE_ENOUGH_DATA) return null;
-    // フル解像度で読み取る
-    scanCtx.drawImage(D.video, 0, 0, D.scanCanvas.width, D.scanCanvas.height);
-    const img = scanCtx.getImageData(0, 0, D.scanCanvas.width, D.scanCanvas.height);
-    const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
-    if (!hit) return null;
-
-    // overlay は video と同じ解像度に合わせているので、そのまま使える
-    const sx = D.overlay.width / D.scanCanvas.width;
-    const sy = D.overlay.height/ D.scanCanvas.height;
-    const pts = [
-      hit.location.topLeftCorner, hit.location.topRightCorner,
-      hit.location.bottomRightCorner, hit.location.bottomLeftCorner
-    ].map(p=>({x:p.x*sx,y:p.y*sy}));
-
-    return { rawValue: hit.data.trim(), cornerPoints: pts };
-  }
-
+  // --- 種別判定 & パーサ（元コードをそのまま利用）
   function classify(raw){
     const t=normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
@@ -382,72 +369,142 @@
     return null;
   }
 
-  // ★BarcodeDetector + jsQR 両方を使う tick
+  function setTarget(book,wc){
+    S.current.book=(book||'').trim();
+    S.current.wc  =(wc||'').trim();
+    D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
+    if(D.inpBook) D.inpBook.value = S.current.book || '';
+    if(D.inpWc)   D.inpWc.value   = S.current.wc   || '';
+  }
+
+  // === Android 対応: scan-lookup と同じ「canvas→BD+jsQR」検出 ===
+  async function detectCombined(){
+    if(!D.video.videoWidth) return [];
+
+    const w = D.scanCanvas.width  = D.video.videoWidth;
+    const h = D.scanCanvas.height = D.video.videoHeight;
+
+    // ビデオフレームを作業キャンバスへ
+    scanCtx.drawImage(D.video, 0, 0, w, h);
+
+    const detections = [];
+
+    // 1) BarcodeDetector（あれば）
+    if(S.useBarcodeDetector && S.detector){
+      try{
+        const codes = await S.detector.detect(D.scanCanvas);
+        if(codes && codes.length){
+          for(const c of codes){
+            detections.push({
+              rawValue: (c.rawValue || '').trim(),
+              cornerPoints: (c.cornerPoints || []).map(p=>({x:p.x, y:p.y}))
+            });
+          }
+        }
+      }catch(e){
+        console.warn('BarcodeDetector failed, fallback to jsQR only.', e);
+        S.useBarcodeDetector = false;
+        S.detector = null;
+        D.detectorInfo.textContent = 'jsQR';
+      }
+    }
+
+    // 2) jsQR 複数回（mask 方式）
+    const imgData    = scanCtx.getImageData(0,0,w,h);
+    const maskedData = new Uint8ClampedArray(imgData.data);  // コピー
+
+    for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
+      const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts:'dontInvert' });
+      if(!hit) break;
+
+      const raw = (hit.data || '').trim();
+      if(raw && !detections.some(d=>d.rawValue===raw)){
+        const pts = [
+          hit.location.topLeftCorner,
+          hit.location.topRightCorner,
+          hit.location.bottomRightCorner,
+          hit.location.bottomLeftCorner
+        ].map(p=>({x:p.x, y:p.y}));
+        detections.push({ rawValue: raw, cornerPoints: pts });
+      }
+
+      const tl = hit.location.topLeftCorner;
+      const br = hit.location.bottomRightCorner;
+      for(let y=Math.floor(tl.y); y<Math.ceil(br.y); y++){
+        for(let x=Math.floor(tl.x); x<Math.ceil(br.x); x++){
+          const i=(y*imgData.width+x)*4;
+          maskedData[i]=maskedData[i+1]=maskedData[i+2]=255;
+        }
+      }
+    }
+
+    return detections;
+  }
+
   async function tick(){
     if(!S.stream) return;
+
     if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
       fitOverlay();
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
 
-      // 1. BarcodeDetector が使える場合は優先
-      if(S.useBarcodeDetector && S.detector && !S.bdBusy){
-        try{
-          S.bdBusy = true;
-          const codes = await S.detector.detect(D.video);
-          S.bdBusy = false;
-          if(codes && codes.length){
-            const c = codes[0];
-            // c.cornerPoints は video の実座標なのでそのまま
-            const pts = c.cornerPoints && c.cornerPoints.length
-              ? c.cornerPoints.map(p=>({x:p.x, y:p.y}))
-              : null;
-            onDecoded(c.rawValue || c.rawValue, pts);
-            if(S.locked) return;
-          }
-        }catch(e){
-          console.error(e);
-          S.bdBusy = false;
-          // 以降は jsQR のみにする
-          S.useBarcodeDetector = false;
-          S.detector = null;
-          D.detectorInfo.textContent = 'jsQR';
-        }
-      }
+      const detections = await detectCombined();
 
-      // 2. jsQR フォールバック（または BarcodeDetector で読めなかったとき）
-      if(!S.locked){
-        const hit = scanSimple();
-        if(hit){
-          onDecoded(hit.rawValue, hit.cornerPoints);
-          if(S.locked) return;
+      // 何か読めたら、最初に book / wc が取れるものを採用
+      for(const d of detections){
+        const raw = (d.rawValue || '').trim();
+        if(!raw) continue;
+
+        const kind = classify(raw);
+        let bn='', wc='';
+
+        if(kind === 'order'){
+          const od = parseOrder(raw);
+          if(od){ bn=od.bn||''; wc=od.wc||''; }
+        }else if(kind === 'die'){
+          const dd = parseDie(raw);
+          if(dd){ bn=dd.bn||''; wc=dd.wc||''; }
+        }
+
+        if(bn || wc){
+          // 座標を overlay にスケール（video と同サイズなのでほぼ 1:1）
+          const sx = D.overlay.width  / D.scanCanvas.width;
+          const sy = D.overlay.height / D.scanCanvas.height;
+          const pts = (d.cornerPoints||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
+          drawBox(pts);
+
+          setTarget(bn,wc);
+          S.locked=true;
+          freezeAndLock();
+          S.lastQueryKey='';
+          querySpec();
+          return; // ロックしたら tick 終了
         }
       }
     }
+
     S.rafId = requestAnimationFrame(tick);
   }
 
-  function setTarget(book,wc){
-    S.current.book=(book||'').trim();
-    S.current.wc=(wc||'').trim();
-    D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
-    if(D.inpBook){ D.inpBook.value = S.current.book || ''; }
-    if(D.inpWc){ D.inpWc.value = S.current.wc || ''; }
-  }
-
-  // --- API: GSheets → Drive
+  // --- API: GSheets → Drive は元のまま ---
   async function querySpec(){
-    const book=S.current.book, wc=S.current.wc; if(!book || !wc) return;
-    const key=dieKey(book,wc); if(key===S.lastQueryKey) return; S.lastQueryKey=key;
+    const book=S.current.book, wc=S.current.wc;
+    if(!book || !wc) return;
+    const key=dieKey(book,wc);
+    if(key===S.lastQueryKey) return;
+    S.lastQueryKey=key;
 
-    D.errApi.style.display='none'; D.errApi.textContent=''; D.loading.style.display='inline';
+    D.errApi.style.display='none';
+    D.errApi.textContent='';
+    D.loading.style.display='inline';
     D.gsBox.innerHTML = `<div class="muted">取得中…</div>`;
     D.driveStatus.textContent = '—';
     D.driveView.innerHTML = '';
     S.drive = null;
-    if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
+    if(D.btnShowFigure) D.btnShowFigure.style.display='none';
 
     try{
-      if(!S.csrf){ await ensureCsrf(); }
+      if(!S.csrf) await ensureCsrf();
       const r = await fetch('/api/die-check', {
         method:'POST', credentials:'same-origin',
         headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
@@ -455,10 +512,11 @@
       });
       const txt=await r.text(); let j={};
       try{ j=JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
-      if(!r.ok || j.ok!==true){ throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`); }
+      if(!r.ok || j.ok!==true) throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
       renderSpecAndDrive(j);
     }catch(e){
-      D.errApi.style.display='block'; D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
+      D.errApi.style.display='block';
+      D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets を取得できませんでした）</div>`;
     }finally{
       D.loading.style.display='none';
@@ -482,29 +540,30 @@
     }else{
       D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
     }
-
     const b = (book||'').trim();
     const w = (workcord||'').trim();
     openDriveFigure(b, w);
   }
 
-  // === Google Drive 直リンクで図面を複数表示（zu も si も） ===
   async function openDriveFigure(book, wc){
     if(!book || !wc){
       D.driveStatus.textContent = 'Book/WC 未指定';
       D.driveView.innerHTML = '';
       S.drive = null;
-      if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
+      if(D.btnShowFigure) D.btnShowFigure.style.display='none';
       return;
     }
     D.driveStatus.textContent = '検索中…';
     D.driveView.innerHTML = '';
     S.drive = null;
-    if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
+    if(D.btnShowFigure) D.btnShowFigure.style.display='none';
 
     try{
       const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, { credentials:'same-origin', cache:'no-store' });
-      if(!r.ok){ const t=await r.text().catch(()=> ''); throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`); }
+      if(!r.ok){
+        const t=await r.text().catch(()=> '');
+        throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`);
+      }
       const j = await r.json().catch(()=> ({}));
       if(j?.ok !== true){
         D.driveStatus.textContent = 'NG: 応答不正';
@@ -518,11 +577,10 @@
         D.driveStatus.textContent = '一致ファイルなし';
         D.driveView.innerHTML = '';
         S.drive = null;
-        if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
+        if(D.btnShowFigure) D.btnShowFigure.style.display='none';
         return;
       }
 
-      // 優先：-zu画像 > -si画像 > 他画像 > PDF
       const score = fn => {
         const n = (fn?.name||'').toLowerCase();
         const isPdf = n.endsWith('.pdf');
@@ -537,10 +595,9 @@
       };
       cands.sort((a,b)=> score(a)-score(b));
 
-      // 代表（ボタンから開く用）は最優先の1つ
       const primary = cands[0];
       const primaryName = primary.name || `${book}-${wc}`;
-      const primaryId = primary.id;
+      const primaryId   = primary.id;
       const primaryIsPdf = (primaryName||'').toLowerCase().endsWith('.pdf');
 
       const primaryPreviewUrl = `https://drive.google.com/file/d/${encodeURIComponent(primaryId)}/preview`;
@@ -556,11 +613,10 @@
         id: primaryId
       };
 
-      // 右下パネルには、候補を全部並べる（zu と si の両方があれば両方）
       let html = '';
       for(const fn of cands){
         const name = fn.name || `${book}-${wc}`;
-        const id = fn.id;
+        const id   = fn.id;
         const isPdf = (name||'').toLowerCase().endsWith('.pdf');
         const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
         const viewUrl    = isPdf
@@ -593,19 +649,16 @@
       D.driveView.innerHTML = html;
       D.driveStatus.textContent = `ヒット: ${cands.length}件`;
 
-      if(D.btnShowFigure){
-        D.btnShowFigure.style.display='inline-block';
-      }
+      if(D.btnShowFigure) D.btnShowFigure.style.display='inline-block';
     }catch(e){
       console.error(e);
       D.driveStatus.textContent = `NG: ${e?.message||e}`;
       D.driveView.innerHTML = '';
       S.drive = null;
-      if(D.btnShowFigure){ D.btnShowFigure.style.display='none'; }
+      if(D.btnShowFigure) D.btnShowFigure.style.display='none';
     }
   }
 
-  // --- 図面表示ボタン：代表（たいてい -zu）を別タブでプレビュー
   if(D.btnShowFigure){
     D.btnShowFigure.addEventListener('click', () => {
       if(!S.drive) return;
