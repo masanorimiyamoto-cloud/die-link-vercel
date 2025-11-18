@@ -192,6 +192,8 @@
     current: { book:'', wc:'' }, lastQueryKey:'',
     // Drive 情報: 代表（たいてい -zu）をここに
     drive: null,
+    // BarcodeDetector の連続呼び出し抑制
+    bdBusy: false,
   };
 
   function readCookie(name){
@@ -256,18 +258,23 @@
       D.btnStart.disabled=true; D.btnStop.disabled=false;
       fitOverlay();
       const vw=D.video.videoWidth||1280, vh=D.video.videoHeight||720;
-      const baseW=600, baseH=Math.round(baseW*(vh/vw));
-      D.scanCanvas.width=baseW; D.scanCanvas.height=baseH;
+
+      // ★ここを「フル解像度」で jsQR に渡すように変更
+      D.scanCanvas.width  = vw;
+      D.scanCanvas.height = vh;
 
       if(S.useBarcodeDetector){
         try{
           const fmts=(typeof BarcodeDetector.getSupportedFormats==='function')?await BarcodeDetector.getSupportedFormats():[];
           if(!fmts || !fmts.includes('qr_code')) throw 0;
           S.detector=new BarcodeDetector({formats:['qr_code']});
-        }catch{ S.useBarcodeDetector=false; S.detector=null; }
+        }catch{
+          S.useBarcodeDetector=false; S.detector=null;
+        }
       }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BarcodeDetector' : 'jsQR';
-      setStatus('探索中…'); tick();
+      setStatus('探索中…');
+      tick();
     }catch(e){
       D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`;
       setStatus('カメラエラー','ng');
@@ -286,26 +293,58 @@
     stopCam({keepFrame:true});
   }
 
+  // --- デコード後共通処理
+  function drawBox(points){
+    if(!points || points.length<4) return;
+    ctx.save(); ctx.lineWidth=5; ctx.strokeStyle='#1c7ed6'; ctx.shadowColor='#1c7ed6'; ctx.shadowBlur=6;
+    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+  }
+
+  function onDecoded(rawValue, cornerPoints){
+    if(!rawValue) return;
+    // 緑枠
+    if(cornerPoints && cornerPoints.length>=4){
+      drawBox(cornerPoints);
+    }
+
+    const kind=classify(rawValue);
+    let bn='', wc='';
+    if(kind==='order'){
+      const od=parseOrder(rawValue);
+      if(od){ bn=od.bn||''; wc=od.wc||''; }
+    }else if(kind==='die'){
+      const d=parseDie(rawValue);
+      if(d){ bn=d.bn||''; wc=d.wc||''; }
+    }
+    if(bn || wc){
+      setTarget(bn,wc);
+      S.locked=true;
+      freezeAndLock();
+      S.lastQueryKey='';
+      querySpec();
+    }
+  }
+
   // --- スキャン
   function scanSimple(){
     if (D.video.readyState !== D.video.HAVE_ENOUGH_DATA) return null;
+    // フル解像度で読み取る
     scanCtx.drawImage(D.video, 0, 0, D.scanCanvas.width, D.scanCanvas.height);
     const img = scanCtx.getImageData(0, 0, D.scanCanvas.width, D.scanCanvas.height);
     const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
     if (!hit) return null;
+
+    // overlay は video と同じ解像度に合わせているので、そのまま使える
     const sx = D.overlay.width / D.scanCanvas.width;
     const sy = D.overlay.height/ D.scanCanvas.height;
     const pts = [
       hit.location.topLeftCorner, hit.location.topRightCorner,
       hit.location.bottomRightCorner, hit.location.bottomLeftCorner
     ].map(p=>({x:p.x*sx,y:p.y*sy}));
+
     return { rawValue: hit.data.trim(), cornerPoints: pts };
   }
-  function drawBox(points){
-    if(!points || points.length<4) return;
-    ctx.save(); ctx.lineWidth=5; ctx.strokeStyle='#1c7ed6'; ctx.shadowColor='#1c7ed6'; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
-  }
+
   function classify(raw){
     const t=normHyphen(raw);
     if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
@@ -343,22 +382,44 @@
     return null;
   }
 
+  // ★BarcodeDetector + jsQR 両方を使う tick
   async function tick(){
     if(!S.stream) return;
     if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
       fitOverlay();
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      const hit=scanSimple();
-      if(hit){
-        drawBox(hit.cornerPoints);
-        const kind=classify(hit.rawValue);
-        let bn='', wc='';
-        if(kind==='order'){ const od=parseOrder(hit.rawValue); if(od){ bn=od.bn||''; wc=od.wc||''; } }
-        else if(kind==='die'){ const d=parseDie(hit.rawValue); if(d){ bn=d.bn||''; wc=d.wc||''; } }
-        if(bn || wc){
-          setTarget(bn,wc);
-          S.locked=true; freezeAndLock(); S.lastQueryKey=''; querySpec();
-          return;
+
+      // 1. BarcodeDetector が使える場合は優先
+      if(S.useBarcodeDetector && S.detector && !S.bdBusy){
+        try{
+          S.bdBusy = true;
+          const codes = await S.detector.detect(D.video);
+          S.bdBusy = false;
+          if(codes && codes.length){
+            const c = codes[0];
+            // c.cornerPoints は video の実座標なのでそのまま
+            const pts = c.cornerPoints && c.cornerPoints.length
+              ? c.cornerPoints.map(p=>({x:p.x, y:p.y}))
+              : null;
+            onDecoded(c.rawValue || c.rawValue, pts);
+            if(S.locked) return;
+          }
+        }catch(e){
+          console.error(e);
+          S.bdBusy = false;
+          // 以降は jsQR のみにする
+          S.useBarcodeDetector = false;
+          S.detector = null;
+          D.detectorInfo.textContent = 'jsQR';
+        }
+      }
+
+      // 2. jsQR フォールバック（または BarcodeDetector で読めなかったとき）
+      if(!S.locked){
+        const hit = scanSimple();
+        if(hit){
+          onDecoded(hit.rawValue, hit.cornerPoints);
+          if(S.locked) return;
         }
       }
     }
