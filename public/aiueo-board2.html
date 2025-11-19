@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>指さし50音ボード（縦書き配置・横画面最適化)_1119</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <style>
+    :root {
+      --bg: #f5f5f5;
+      --card: #ffffff;
+      --accent: #1971c2;
+      --accent-soft: #e7f5ff;
+      --border: #d0d0d0;
+      --text: #222;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh; /* 画面高さいっぱい使う */
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .wrap {
+      width: 100%;
+      height: 100%;
+      padding: 4px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ヘッダーと出力エリアをまとめる */
+    .top-area {
+      flex: 0 0 auto;
+      margin-bottom: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    /* 出力カードのデザイン */
+    .output-card {
+      flex: 1;
+      background: var(--card);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .output-display {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      font-size: clamp(20px, 5vw, 32px);
+      padding: 4px 12px;
+      min-height: 50px;
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow-x: auto;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      flex: 1;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 0;
+      text-align: center;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: bold;
+      flex: 1.5;
+    }
+    .btn:active { transform: scale(0.97); opacity: 0.9; }
+
+    /* ★★★ メインのボード部分 ★★★ */
+    .board {
+      flex: 1; /* 残りの高さを全部使う */
+      background: var(--card);
+      border-radius: 12px;
+      padding: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      
+      /* 横並びにする設定 */
+      display: flex;
+      /* ★重要: 右から左へ並べる（あ行を右端にするため） */
+      flex-direction: row-reverse; 
+      justify-content: space-between;
+      gap: 4px;
+      overflow-x: auto; /* 画面が狭い場合はスクロール */
+    }
+
+    /* 縦の1列（あいうえお） */
+    .col {
+      flex: 1; /* 幅を均等に */
+      display: flex;
+      flex-direction: column; /* 中身は縦積み */
+      gap: 4px;
+      min-width: 40px; /* 狭くなりすぎ防止 */
+    }
+
+    .key {
+      flex: 1; /* 高さを均等に */
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(16px, 4vh, 24px); /* 画面高さに応じて文字サイズ調整 */
+      font-weight: bold;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .key:active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+    }
+    
+    .key.empty {
+      border: none;
+      background: transparent;
+      pointer-events: none;
+    }
+
+    .key.func {
+      background: #f0f0f0;
+      font-size: 14px;
+      color: #333;
+    }
+    
+    .status {
+      font-size: 10px;
+      color: #888;
+      text-align: right;
+      margin-top: 2px;
+      height: 14px;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top-area">
+      <section class="output-card">
+        <div id="output" class="output-display"></div>
+        <div class="buttons">
+          <div class="btn" id="btn-undo">一文字消す</div>
+          <div class="btn" id="btn-clear">全消去</div>
+          <div class="btn primary" id="btn-speak-sentence">読み上げ</div>
+        </div>
+        <div class="status" id="status"></div>
+      </section>
+    </div>
+
+    <section class="board">
+      
+      <div class="col">
+        <div class="key" data-kana="あ">あ</div>
+        <div class="key" data-kana="い">い</div>
+        <div class="key" data-kana="う">う</div>
+        <div class="key" data-kana="え">え</div>
+        <div class="key" data-kana="お">お</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="か">か</div>
+        <div class="key" data-kana="き">き</div>
+        <div class="key" data-kana="く">く</div>
+        <div class="key" data-kana="け">け</div>
+        <div class="key" data-kana="こ">こ</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="さ">さ</div>
+        <div class="key" data-kana="し">し</div>
+        <div class="key" data-kana="す">す</div>
+        <div class="key" data-kana="せ">せ</div>
+        <div class="key" data-kana="そ">そ</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="た">た</div>
+        <div class="key" data-kana="ち">ち</div>
+        <div class="key" data-kana="つ">つ</div>
+        <div class="key" data-kana="て">て</div>
+        <div class="key" data-kana="と">と</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="な">な</div>
+        <div class="key" data-kana="に">に</div>
+        <div class="key" data-kana="ぬ">ぬ</div>
+        <div class="key" data-kana="ね">ね</div>
+        <div class="key" data-kana="の">の</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="は">は</div>
+        <div class="key" data-kana="ひ">ひ</div>
+        <div class="key" data-kana="ふ">ふ</div>
+        <div class="key" data-kana="へ">へ</div>
+        <div class="key" data-kana="ほ">ほ</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="ま">ま</div>
+        <div class="key" data-kana="み">み</div>
+        <div class="key" data-kana="む">む</div>
+        <div class="key" data-kana="め">め</div>
+        <div class="key" data-kana="も">も</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="や">や</div>
+        <div class="key empty"></div>
+        <div class="key" data-kana="ゆ">ゆ</div>
+        <div class="key empty"></div>
+        <div class="key" data-kana="よ">よ</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="ら">ら</div>
+        <div class="key" data-kana="り">り</div>
+        <div class="key" data-kana="る">る</div>
+        <div class="key" data-kana="れ">れ</div>
+        <div class="key" data-kana="ろ">ろ</div>
+      </div>
+
+      <div class="col">
+        <div class="key" data-kana="わ">わ</div>
+        <div class="key empty"></div>
+        <div class="key" data-kana="を">を</div>
+        <div class="key empty"></div>
+        <div class="key" data-kana="ん">ん</div>
+      </div>
+
+      <div class="col">
+        <div class="key func" data-action="dakuten">゛<br>濁点</div>
+        <div class="key func" data-action="handakuten">゜<br>半濁</div>
+        <div class="key func" data-action="small">小<br>文字</div>
+        <div class="key empty"></div>
+        <div class="key empty"></div>
+      </div>
+
+    </section>
+  </div>
+
+<script>
+    (function(){
+        const outputEl = document.getElementById('output');
+        const statusEl = document.getElementById('status');
+        const btnUndo = document.getElementById('btn-undo');
+        const btnClear = document.getElementById('btn-clear');
+        const btnSpeakSentence = document.getElementById('btn-speak-sentence');
+        const boardEl = document.querySelector('.board');
+        const allKeys = Array.from(document.querySelectorAll('.key:not(.empty)'));
+
+        let buffer = "";
+
+        function updateOutput(){
+          outputEl.textContent = buffer;
+          // 文字が追加されたら右端（最新）へスクロール
+          outputEl.scrollLeft = outputEl.scrollWidth;
+        }
+
+        function speak(text){
+          if (!('speechSynthesis' in window)) return;
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = 'ja-JP';
+          window.speechSynthesis.speak(u);
+        }
+
+        const DAKUTEN_MAP = {
+          'か':'が','き':'ぎ','く':'ぐ','け':'げ','こ':'ご',
+          'さ':'ざ','し':'じ','す':'ず','せ':'ぜ','そ':'ぞ',
+          'た':'だ','ち':'ぢ','つ':'づ','て':'で','と':'ど',
+          'は':'ば','ひ':'び','ふ':'ぶ','へ':'べ','ほ':'ぼ',
+          'う':'ゔ'
+        };
+        const HANDAKUTEN_MAP = {
+          'は':'ぱ','ひ':'ぴ','ふ':'ぷ','へ':'ぺ','ほ':'ぽ'
+        };
+        const SMALL_MAP = {
+          'あ':'ぁ','い':'ぃ','う':'ぅ','え':'ぇ','お':'ぉ',
+          'や':'ゃ','ゆ':'ゅ','よ':'ょ','つ':'っ','わ':'ゎ'
+        };
+
+        let defaultStatus = '';
+        let statusTimer = null;
+        function flashStatus(msg){
+          statusEl.textContent = msg;
+          if (statusTimer) clearTimeout(statusTimer);
+          statusTimer = setTimeout(() => {
+            statusEl.textContent = defaultStatus;
+          }, 2000);
+        }
+
+        function handleKeyAction(keyEl){
+          if(!keyEl) return;
+          const kana = keyEl.dataset.kana;
+          const action = keyEl.dataset.action;
+
+          if (kana) {
+            buffer += kana;
+            updateOutput();
+            speak(kana);
+          } else if (action) {
+            if (!buffer) return;
+            const last = buffer.slice(-1);
+            let replaced = last;
+            if (action === 'dakuten') {
+              if (DAKUTEN_MAP[last]) replaced = DAKUTEN_MAP[last];
+              else { flashStatus('濁点不可'); return; }
+            } else if (action === 'handakuten') {
+              if (HANDAKUTEN_MAP[last]) replaced = HANDAKUTEN_MAP[last];
+              else { flashStatus('半濁点不可'); return; }
+            } else if (action === 'small') {
+              if (SMALL_MAP[last]) replaced = SMALL_MAP[last];
+              else { flashStatus('小文字不可'); return; }
+            }
+            buffer = buffer.slice(0, -1) + replaced;
+            updateOutput();
+            speak(replaced);
+          }
+        }
+
+        // タップ・クリック処理（ズレ補正付き）
+        if (boardEl) {
+          boardEl.addEventListener('click', (e) => {
+            // 直接キーを押したか
+            const directKey = e.target.closest('.key');
+            if (directKey && !directKey.classList.contains('empty')) {
+              handleKeyAction(directKey);
+              return;
+            }
+            // 隙間を押した場合の近傍探索
+            const x = e.clientX;
+            const y = e.clientY;
+            let bestKey = null;
+            let bestDistSq = Infinity;
+            allKeys.forEach(key => {
+              const r = key.getBoundingClientRect();
+              const cx = (r.left + r.right) / 2;
+              const cy = (r.top + r.bottom) / 2;
+              const distSq = (cx - x)**2 + (cy - y)**2;
+              if (distSq < bestDistSq) {
+                bestDistSq = distSq;
+                bestKey = key;
+              }
+            });
+            // 判定半径を少し広めに(80px)
+            if (bestKey && bestDistSq <= 6400) {
+              handleKeyAction(bestKey);
+            }
+          });
+        }
+
+        btnUndo.addEventListener('click', () => {
+          if (!buffer) return;
+          buffer = buffer.slice(0, -1);
+          updateOutput();
+        });
+        btnClear.addEventListener('click', () => {
+          buffer = "";
+          updateOutput();
+        });
+        btnSpeakSentence.addEventListener('click', () => {
+          if (buffer) speak(buffer);
+        });
+
+        statusEl.textContent = ('speechSynthesis' in window) ? '準備完了' : '音声不可';
+        defaultStatus = statusEl.textContent;
+    })();
+</script>
+</body>
+</html>
