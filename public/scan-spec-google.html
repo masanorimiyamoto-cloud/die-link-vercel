@@ -634,7 +634,17 @@
       let btnHtml = '';
       cands.forEach(f => {
         const name = f.name || '';
-        const url = `https://drive.google.com/file/d/${f.id}/view`;
+        const isPdf = /\.pdf$/i.test(name);
+        
+        // 【修正】PDFならビューア、画像なら直リンク(UIなし)にする
+        let url;
+        if (isPdf) {
+            // PDFはビューアでないとダウンロードされてしまうことがあるため view のまま
+            url = `https://drive.google.com/file/d/${f.id}/view`;
+        } else {
+            // 画像（-zu, -siなど）は GoogleのUIを挟まない直リンクにする
+            url = `https://drive.google.com/uc?export=view&id=${f.id}`;
+        }
         
         let label = 'ファイル';
         let icon = '📄';
@@ -647,23 +657,6 @@
         btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
       });
       D.driveActions.innerHTML = btnHtml;
-
-      // Preview
-      let viewHtml = '';
-      cands.forEach(f => {
-         const name = f.name || '';
-         const isPdf = /\.pdf$/i.test(name);
-         const previewUrl = `https://drive.google.com/file/d/${f.id}/preview`;
-         
-         viewHtml += `
-           <div class="fig-block">
-             <div class="fig-header">${esc(name)}</div>
-             <div class="fig-content" style="height: ${isPdf ? '500px' : 'auto'}">
-               <iframe src="${previewUrl}" loading="lazy" style="height: ${isPdf ? '100%' : '400px'}"></iframe>
-             </div>
-           </div>`;
-      });
-      D.driveView.innerHTML = viewHtml;
 
     }catch(e){
       D.driveStatus.textContent = '検索失敗';
