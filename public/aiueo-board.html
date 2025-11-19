@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>指さし50音ボード（濁点・小文字対応）</title>
+  <title>指さし50音ボード（右から左・濁点対応）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <style>
     :root {
@@ -47,24 +47,31 @@
       margin-bottom: 10px;
     }
     .row {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 4px;              /* ★ スキマを少し狭くして「ハズレ」を減らす */
-    margin-bottom: 4px;
-    /*direction: rtl;        /* 右から あいうえお にする場合はそのまま */
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      margin-bottom: 4px;
+      
+      /* ★★★ ここを変更しました ★★★ */
+      /* 右から「あいうえお」の順に並べます */
+      direction: rtl; 
     }
+    
     .key {
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: #fff;
-    min-height: 56px;      /* ★ タップ領域を少し大きく（44px以上が目安） */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: clamp(18px, 5vw, 26px);
-    cursor: pointer;
-    user-select: none;
-    touch-action: manipulation;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(18px, 5vw, 26px);
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+      
+      /* 文字の向きは左書きに戻す（記号などの反転防止） */
+      direction: ltr; 
     }
 
     .key:active {
@@ -81,6 +88,8 @@
     .key.func {
       font-size: clamp(14px, 4vw, 18px);
       background: #f8f9fa;
+      font-weight: bold;
+      color: #444;
     }
 
     .output-card {
@@ -120,7 +129,7 @@
       border: 1px solid var(--border);
       background: #fff;
       font-size: 13px;
-      padding: 8px 6px;
+      padding: 12px 6px; /* ボタンも押しやすく少し縦幅を増やしました */
       text-align: center;
       cursor: pointer;
       user-select: none;
@@ -140,6 +149,7 @@
       margin-top: 4px;
       font-size: 11px;
       color: #777;
+      min-height: 1.5em;
     }
 
     @media (min-width: 700px) {
@@ -158,14 +168,12 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>指さし50音ボード（濁点・小文字対応／読み上げ付き_1119）</h1>
-      <p>文字をタップ → 「゛」「゜」「小」で最後の文字を変えられます。「文章を読む」で全文発話。</p>
+      <h1>指さし50音ボード</h1>
+      <p>文字をタップ → 「゛」「゜」「小」で変更。「文章を読む」で発話。</p>
     </header>
 
     <div class="layout">
-      <!-- 50音ボード -->
       <section class="board" aria-label="50音ボード">
-        <!-- 基本50音 -->
         <div class="row">
           <div class="key" data-kana="あ">あ</div>
           <div class="key" data-kana="い">い</div>
@@ -237,17 +245,15 @@
           <div class="key" data-kana="ん">ん</div>
         </div>
 
-        <!-- 機能キー：濁点・半濁点・小さい文字 -->
         <div class="row">
-          <div class="key func" data-action="dakuten">゛ 濁点</div>
-          <div class="key func" data-action="handakuten">゜ 半濁</div>
-          <div class="key func" data-action="small">小 文字</div>
+          <div class="key func" data-action="dakuten">゛濁点</div>
+          <div class="key func" data-action="handakuten">゜半濁</div>
+          <div class="key func" data-action="small">小文字</div>
           <div class="key empty"></div>
           <div class="key empty"></div>
         </div>
       </section>
 
-      <!-- 出力と操作 -->
       <section class="output-card">
         <div class="output-label">組み立て中のことば</div>
         <div id="output" class="output-display" aria-live="polite"></div>
@@ -273,176 +279,148 @@
         let buffer = "";
 
         function updateOutput(){
-        outputEl.textContent = buffer;
+          outputEl.textContent = buffer;
         }
 
         function speak(text){
-        if (!('speechSynthesis' in window)) {
-            statusEl.textContent = '⚠ この端末では音声読み上げが使えません。';
-            return;
-        }
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'ja-JP';
-        u.rate = 1.0;
-        u.pitch = 1.0;
-        window.speechSynthesis.speak(u);
+          if (!('speechSynthesis' in window)) {
+             statusEl.textContent = '⚠ 音声読み上げ未対応の端末です';
+             return;
+          }
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = 'ja-JP';
+          u.rate = 1.0; 
+          u.pitch = 1.0;
+          window.speechSynthesis.speak(u);
         }
 
-        // 濁点・半濁点・小文字の変換表
         const DAKUTEN_MAP = {
-        'か':'が','き':'ぎ','く':'ぐ','け':'げ','こ':'ご',
-        'さ':'ざ','し':'じ','す':'ず','せ':'ぜ','そ':'ぞ',
-        'た':'だ','ち':'ぢ','つ':'づ','て':'で','と':'ど',
-        'は':'ば','ひ':'び','ふ':'ぶ','へ':'べ','ほ':'ぼ',
-        'う':'ゔ'
+          'か':'が','き':'ぎ','く':'ぐ','け':'げ','こ':'ご',
+          'さ':'ざ','し':'じ','す':'ず','せ':'ぜ','そ':'ぞ',
+          'た':'だ','ち':'ぢ','つ':'づ','て':'で','と':'ど',
+          'は':'ば','ひ':'び','ふ':'ぶ','へ':'べ','ほ':'ぼ',
+          'う':'ゔ'
         };
         const HANDAKUTEN_MAP = {
-        'は':'ぱ','ひ':'ぴ','ふ':'ぷ','へ':'ぺ','ほ':'ぽ'
+          'は':'ぱ','ひ':'ぴ','ふ':'ぷ','へ':'ぺ','ほ':'ぽ'
         };
         const SMALL_MAP = {
-        'あ':'ぁ','い':'ぃ','う':'ぅ','え':'ぇ','お':'ぉ',
-        'や':'ゃ','ゆ':'ゅ','よ':'ょ',
-        'つ':'っ',
-        'わ':'ゎ'
+          'あ':'ぁ','い':'ぃ','う':'ぅ','え':'ぇ','お':'ぉ',
+          'や':'ゃ','ゆ':'ゅ','よ':'ょ',
+          'つ':'っ',
+          'わ':'ゎ'
         };
 
         let defaultStatus = '';
         let statusTimer = null;
         function flashStatus(msg){
-        if (!defaultStatus) defaultStatus = statusEl.textContent || '';
-        statusEl.textContent = msg;
-        if (statusTimer) clearTimeout(statusTimer);
-        statusTimer = setTimeout(() => {
+          if (!defaultStatus) defaultStatus = statusEl.textContent || '';
+          statusEl.textContent = msg;
+          if (statusTimer) clearTimeout(statusTimer);
+          statusTimer = setTimeout(() => {
             statusEl.textContent = defaultStatus;
-        }, 1500);
+          }, 2000);
         }
 
-        // 1文字キー処理
         function handleKanaKey(kana){
-        if (!kana) return;
-        buffer += kana;
-        updateOutput();
-        speak(kana);
+          if (!kana) return;
+          buffer += kana;
+          updateOutput();
+          speak(kana);
         }
 
-        // 機能キー処理（濁点・半濁点・小文字）
         function handleFuncAction(action){
-        if (!buffer) return;
-        const last = buffer.slice(-1);
-        let replaced = last;
+          if (!buffer) return;
+          const last = buffer.slice(-1);
+          let replaced = last;
 
-        if (action === 'dakuten') {
-            if (DAKUTEN_MAP[last]) {
-            replaced = DAKUTEN_MAP[last];
-            } else {
-            flashStatus('この文字には濁点をつけられません。');
+          if (action === 'dakuten') {
+            if (DAKUTEN_MAP[last]) replaced = DAKUTEN_MAP[last];
+            else { flashStatus('濁点がつかない文字です'); return; }
+          } else if (action === 'handakuten') {
+            if (HANDAKUTEN_MAP[last]) replaced = HANDAKUTEN_MAP[last];
+            else { flashStatus('半濁点がつかない文字です'); return; }
+          } else if (action === 'small') {
+            if (SMALL_MAP[last]) replaced = SMALL_MAP[last];
+            else { flashStatus('小さい文字になりません'); return; }
+          } else {
             return;
-            }
-        } else if (action === 'handakuten') {
-            if (HANDAKUTEN_MAP[last]) {
-            replaced = HANDAKUTEN_MAP[last];
-            } else {
-            flashStatus('この文字には半濁点をつけられません。');
-            return;
-            }
-        } else if (action === 'small') {
-            if (SMALL_MAP[last]) {
-            replaced = SMALL_MAP[last];
-            } else {
-            flashStatus('この文字を小さくできません。');
-            return;
-            }
-        } else {
-            return;
+          }
+          buffer = buffer.slice(0, -1) + replaced;
+          updateOutput();
+          speak(replaced);
         }
 
-        buffer = buffer.slice(0, -1) + replaced;
-        updateOutput();
-        speak(replaced);
-        }
-
-        // key要素共通処理
         function handleKeyElement(keyEl){
-        if (!keyEl || keyEl.classList.contains('empty')) return;
-        const kana = keyEl.dataset.kana;
-        const action = keyEl.dataset.action;
-
-        if (kana) {
-            handleKanaKey(kana);
-        } else if (action) {
-            handleFuncAction(action);
-        }
+          if (!keyEl || keyEl.classList.contains('empty')) return;
+          const kana = keyEl.dataset.kana;
+          const action = keyEl.dataset.action;
+          if (kana) handleKanaKey(kana);
+          else if (action) handleFuncAction(action);
         }
 
-        // ★ ゆるい当たり判定：ボード全体でクリックを拾う
+        // クリック判定（マウスクリック・タップ）
+        // 震えなどでボタンの隙間を押してしまっても、一番近いボタンを探して押したことにする処理
         if (boardEl) {
-        boardEl.addEventListener('click', (e) => {
-            // ① まずは普通にキーを押したかどうかを見る
+          boardEl.addEventListener('click', (e) => {
+            // 直接ボタンを押せた場合
             const directKey = e.target.closest('.key');
             if (directKey && !directKey.classList.contains('empty')) {
-            handleKeyElement(directKey);
-            return;
+              handleKeyElement(directKey);
+              return;
             }
 
-            // ② どのキーでもない場所を押した場合：
-            //    → 一番近いキーを探して、そのキーを押したことにする
+            // 隙間を押した場合の救済措置
             const x = e.clientX;
             const y = e.clientY;
-
             let bestKey = null;
             let bestDistSq = Infinity;
 
             allKeys.forEach(key => {
-            const r = key.getBoundingClientRect();
-            const cx = (r.left + r.right) / 2;
-            const cy = (r.top + r.bottom) / 2;
-            const dx = cx - x;
-            const dy = cy - y;
-            const distSq = dx*dx + dy*dy;
-            if (distSq < bestDistSq) {
+              const r = key.getBoundingClientRect();
+              const cx = (r.left + r.right) / 2;
+              const cy = (r.top + r.bottom) / 2;
+              const dx = cx - x;
+              const dy = cy - y;
+              const distSq = dx*dx + dy*dy;
+              if (distSq < bestDistSq) {
                 bestDistSq = distSq;
                 bestKey = key;
-            }
+              }
             });
 
-            // 許容する最大距離（半径 60px くらい）
-            const MAX_DIST_SQ = 60 * 60;
-
+            // 半径60px以内なら許容
+            const MAX_DIST_SQ = 60 * 60; 
             if (bestKey && bestDistSq <= MAX_DIST_SQ) {
-            handleKeyElement(bestKey);
+              handleKeyElement(bestKey);
             }
-        });
+          });
         }
 
-        // 一文字もどす
         btnUndo.addEventListener('click', () => {
-        if (!buffer) return;
-        buffer = buffer.slice(0, -1);
-        updateOutput();
+          if (!buffer) return;
+          buffer = buffer.slice(0, -1);
+          updateOutput();
         });
 
-        // 全部けす
         btnClear.addEventListener('click', () => {
-        buffer = "";
-        updateOutput();
+          buffer = "";
+          updateOutput();
         });
 
-        // 文章を読む
         btnSpeakSentence.addEventListener('click', () => {
-        if (!buffer) return;
-        speak(buffer);
+          if (!buffer) return;
+          speak(buffer);
         });
 
-        // 初期チェック
         if (!('speechSynthesis' in window)) {
-        statusEl.textContent = '⚠ この端末では音声読み上げが使えません（古いブラウザの可能性があります）。';
+          statusEl.textContent = '音声読み上げが使えないブラウザです。';
         } else {
-        statusEl.textContent = '✅ 文字タップ＋「゛」「゜」「小」で変換し、「文章を読む」で全文発話します。';
+          statusEl.textContent = '準備OK';
         }
         defaultStatus = statusEl.textContent;
     })();
-    </script>
-
+</script>
 </body>
 </html>
