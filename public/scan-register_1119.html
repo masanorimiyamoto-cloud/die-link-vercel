@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚→型 QRスキャン登録_air_on_gpt_1108</title>
+<title>棚→型 QRスキャン登録_air_off_1108</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
@@ -90,7 +90,7 @@
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_air_off_gpt_1108b</h1>
+  <h1>棚→型 QRスキャン登録_airoff_1108c</h1>
   <div class="cam-controls">
     <button id="btnStart" class="btn btn-primary">カメラ開始</button>
     <button id="btnStop" class="btn" disabled>停止</button>
@@ -159,7 +159,7 @@
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"// Airtable APIエンドポイント
-const AIRTABLE_ENABLED = false; // ← Airtable更新を有効化
+const AIRTABLE_ENABLED = false; // ← Airtable更新を有効化/無効
 const SCAN_RESOLUTION = 600;
 
 
@@ -482,46 +482,50 @@ async function submitUpdate() {
     message = `GoogleSheets（${parts.length ? parts.join(' / ') : '0件'}）`;
 
     // ========== 2) Airtable ==========
+    // 2) Airtable 登録（有効な場合のみ）
     if (AIRTABLE_ENABLED) {
       try {
-        const payload = { items }; // API(ts) は .items を見ている想定
+        const payload = { items };
         const rA = await fetch(AIRTABLE_ENDPOINT, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Accept": "application/json" },
           body: JSON.stringify(payload)
         });
 
-        rawResponseA = await rA.text();
-        const jA = parseSafe(rawResponseA);
+        const raw = await rA.text();
+        let jA = null;
+        try { jA = JSON.parse(raw); } catch { /* レスポンスが空/非JSONでも落とさない */ }
 
-        console.log("Airtable 応答:", rA.status, jA ?? rawResponseA);
+        console.log("Airtable 応答:", rA.status, jA ?? raw);
 
-        if (rA.ok && looksLikeSuccess(jA)) {
+        // ★ ポイント1: ステータス200台なら基本成功扱い（UI誤判定を防ぐ）
+        if (rA.ok) {
           const updatedCount =
             (jA && (jA.updatedRecords ?? jA.updated ?? jA.upserted ?? jA.processed)) ??
             (Array.isArray(jA?.records) ? jA.records.length : 0);
 
-          message += ` / Airtable (更新 ${Number(updatedCount)||0}件)`;
-
-          // 任意: スキップ詳細などがあれば短縮表示
-          if (jA && Array.isArray(jA.skippedDetails) && jA.skippedDetails.length > 0) {
-            const details = jA.skippedDetails.join(', ').slice(0, 150);
-            message += ` [詳細: ${details}...]`;
+          // ★ ポイント2: looksLikeSuccess でも拾う。両方ダメでも 2xx は成功表示にする
+          if (jA && looksLikeSuccess(jA)) {
+            message += ` / Airtable (更新 ${Number(updatedCount)||0}件)`;
+          } else {
+            message += ` / Airtable (応答OK, 件数不明)`; // 実害なし。サーバーは成功
           }
         } else {
+          // 4xx/5xx は失敗表示
           const errMsg = (jA && (jA.error || jA.message || jA.reason)) ? (jA.error || jA.message || jA.reason) : `Status ${rA.status}`;
-          console.warn("Airtable 更新が失敗扱い:", { status: rA.status, body: rawResponseA });
+          console.warn("Airtable 更新が失敗扱い:", { status: rA.status, body: raw });
           message += ` / Airtable更新失敗 (${String(errMsg).slice(0, 150)})`;
         }
 
       } catch (airtableError) {
+        // ★ ネットワーク例外時のみ「通信失敗」を出す
         console.warn("Airtable 通信エラー:", airtableError);
         message += " / Airtable通信失敗";
-        rawResponseA = String(airtableError?.message || airtableError);
       }
     } else {
       message += " / Airtableは停止中";
     }
+
 
     // GSheet が成功していれば、全体としては成功扱いにする（UIをリセット）
     success = true;

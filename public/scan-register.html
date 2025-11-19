@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>棚→型 QRスキャン登録_air_off_1108</title>
+<title>棚→型 QRスキャン登録_UI改善版</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root {
@@ -12,6 +12,7 @@
     --fg: #212529; --fg-sub: #6c757d; --bg: #f8f9fa;
     --border: #dee2e6; --shadow: rgba(0,0,0, .1);
     --success: #2a9d8f; --success-light: #e9f5f4;
+    --inactive: #adb5bd; /* 未完了の色 */
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
@@ -24,64 +25,107 @@
     padding: 12px 16px; position: sticky; top: 0; z-index: 100;
   }
   header h1 {
-    font-size: 1.4rem; margin: 0; text-align: center;
+    font-size: 1.2rem; margin: 0; text-align: center; color: var(--primary);
   }
   .cam-controls { display: flex; gap: 12px; justify-content: center; margin-top: 12px; }
 
   /* --- Camera View --- */
-  .view-wrapper { position: relative; width: 100%; max-width: 420px; margin: 20px auto; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px var(--shadow); }
-  video { width: 100%; display: block; background: #000; }
+  .view-wrapper { position: relative; width: 100%; max-width: 420px; margin: 10px auto 20px; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px var(--shadow); background: #000; }
+  video { width: 100%; display: block; opacity: 0.8; } /* カメラ映像を少し暗くしてオーバーレイを見やすく */
   canvas#ov { position: absolute; inset: 0; width: 100%; height: 100%; }
-  canvas#scanCanvas { display: none; } /* Hidden canvas for scanning */
+  canvas#scanCanvas { display: none; }
 
-  /* --- Workflow Steps --- */
-  .workflow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin: 16px 0; }
-  .step { padding: 10px; border: 2px solid var(--border); border-radius: 12px; text-align: center; background: #fff; transition: all .3s ease; }
-  .step.active { border-color: var(--primary); background: var(--primary-light); font-weight: 700; transform: scale(1.05); }
-  .step .num { font-size: 12px; color: var(--fg-sub); }
-  .step .label { font-size: 16px; }
-  .connector { height: 2px; background: var(--border); }
+  /* --- Workflow Steps (デザイン変更箇所) --- */
+  .workflow-container {
+    margin: 0 0 20px;
+    text-align: center;
+  }
+  .instruction-note {
+    font-size: 12px; color: var(--fg-sub); margin-bottom: 8px;
+  }
+  .workflow {
+    display: flex; justify-content: center; align-items: center; gap: 16px;
+    position: relative;
+  }
+  /* Connecting Line */
+  .workflow::before {
+    content: ''; position: absolute; top: 18px; left: 50px; right: 50px; height: 3px; background: var(--border); z-index: 0;
+  }
+  .step {
+    position: relative; z-index: 1;
+    background: var(--bg); padding: 0 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    width: 100px;
+    opacity: 0.5; transition: all 0.3s;
+    pointer-events: none; /* クリック不可にする */
+  }
+  .step.active { opacity: 1; transform: scale(1.05); }
+  
+  .step-circle {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--inactive); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 16px;
+    border: 3px solid var(--bg); /* 背景色で線を区切る */
+    box-shadow: 0 2px 4px var(--shadow);
+    transition: background 0.3s;
+  }
+  .step.active .step-circle { background: var(--primary); }
+  .step.done .step-circle { background: var(--success); } /* 完了済みステップ用 */
+
+  .step-label {
+    font-size: 14px; font-weight: bold; color: var(--fg-sub);
+  }
+  .step.active .step-label { color: var(--primary); }
 
   /* --- Content Sections --- */
   .content-section { background: #fff; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px; overflow: hidden; }
-  .content-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-  .content-header h2 { margin: 0; font-size: 1.1rem; }
+  .content-header { padding: 10px 16px; background: #f8f9fa; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .content-header h2 { margin: 0; font-size: 1rem; color: var(--fg-sub); }
+  .content-header.active-header h2 { color: var(--primary); font-weight: bold; }
   .content-body { padding: 16px; }
-  .placeholder { color: var(--fg-sub); text-align: center; padding: 20px; }
-  #die-section { display: none; } /* Initially hidden */
+  .placeholder { color: var(--fg-sub); text-align: center; padding: 20px; font-size: 0.9rem; }
+  #die-section { display: none; }
 
   /* --- Fixed LOC/DIE Display --- */
-  .loc-display { background: var(--success-light); border: 2px solid var(--success); padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  .loc-display .val { font-size: 1.5rem; font-weight: 700; color: var(--success); }
-  .die-list .item { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .loc-display { background: var(--success-light); border: 1px solid var(--success); padding: 12px 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .loc-display .label-mini { font-size: 10px; color: var(--success); font-weight: bold; text-transform: uppercase; letter-spacing: 1px;}
+  .loc-display .val { font-size: 1.4rem; font-weight: 700; color: #1d7c70; }
+  
+  .die-list .item { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
   .die-list .item .info { flex-grow: 1; }
-  .die-list .item .head { font-weight: 700; }
-  .die-list .item .head .wc { color: var(--primary); }
-  .die-list .item .sub { font-size: 12px; color: var(--fg-sub); display: block; margin-top: 4px; word-break: break-all; }
+  .die-list .item .head { font-weight: 700; font-size: 1.05rem; }
+  .die-list .item .head .wc { color: var(--primary); margin-left: 4px; }
+  .die-list .item .sub { font-size: 11px; color: var(--fg-sub); display: block; margin-top: 2px; word-break: break-all; }
 
   /* --- Controls & Buttons --- */
   .btn {
     display: inline-flex; align-items: center; gap: 8px; font-size: 1rem;
-    padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border);
+    padding: 12px 20px; border-radius: 50px; border: 1px solid var(--border);
     background: #fff; cursor: pointer; transition: all .2s ease; font-weight: 600;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
   }
-  .btn:hover { border-color: var(--fg-sub); }
-  .btn:disabled { cursor: not-allowed; opacity: .6; }
+  .btn:active { transform: translateY(1px); box-shadow: none; }
+  .btn:disabled { cursor: not-allowed; opacity: .5; background: #eee; color: #aaa; border-color: #ddd; }
+  
   .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .btn-primary:hover { background: var(--secondary); border-color: var(--secondary); }
-  .btn-danger { color: var(--danger); }
-  .btn-sm { padding: 6px 10px; font-size: 0.9rem; }
+  .btn-primary:hover { background: var(--secondary); border-color: var(--secondary); box-shadow: 0 4px 8px rgba(0, 95, 115, 0.3); }
+  
+  .btn-danger { color: var(--danger); border-color: var(--danger-light); background: #fff; }
+  .btn-danger:hover { background: var(--danger-light); }
+  
+  .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; }
   .btn svg { width: 1.2em; height: 1.2em; }
-  .actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
-  #btnUpdate.loading { background: var(--fg-sub); }
+  
+  .actions { margin-top: 24px; display: flex; flex-direction: column; gap: 12px; }
+  .actions .btn { justify-content: center; width: 100%; }
+  #btnUpdate.loading { background: var(--fg-sub); border-color: var(--fg-sub); }
 
   /* --- Misc --- */
   #err { color: var(--danger); background: var(--danger-light); padding: 10px; border-radius: 8px; margin-top: 12px; white-space: pre-wrap; display: none; }
   .toastWrap { position: fixed; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; }
-  .toast { background: #111; color: #fff; padding: 8px 12px; border-radius: 10px; font-size: 14px; opacity: .95; box-shadow: 0 4px 16px var(--shadow); }
-  .toast small { color: #9cc; margin-left: 6px; }
-
-  /* SVG Icons */
+  .toast { background: rgba(33, 37, 41, 0.95); color: #fff; padding: 10px 16px; border-radius: 30px; font-size: 14px; backdrop-filter: blur(4px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  
   .icon-trash { stroke: currentColor; }
   .icon-clear { stroke: currentColor; }
   .icon-upload { stroke: #fff; }
@@ -90,14 +134,29 @@
 <body>
 
 <header>
-  <h1>棚→型 QRスキャン登録_airoff_1108c</h1>
+  <h1>棚→型 QR登録</h1>
   <div class="cam-controls">
-    <button id="btnStart" class="btn btn-primary">カメラ開始</button>
-    <button id="btnStop" class="btn" disabled>停止</button>
+    <button id="btnStart" class="btn btn-primary btn-sm">カメラ起動</button>
+    <button id="btnStop" class="btn btn-sm" disabled>停止</button>
   </div>
 </header>
 
 <main class="container">
+  
+  <div class="workflow-container">
+    <div class="instruction-note">カメラを向けると自動認識します</div>
+    <div class="workflow">
+      <div id="step1" class="step active">
+        <div class="step-circle">1</div>
+        <div class="step-label">棚 (LOC)</div>
+      </div>
+      <div id="step2" class="step">
+        <div class="step-circle">2</div>
+        <div class="step-label">型 (DIE)</div>
+      </div>
+    </div>
+  </div>
+
   <div class="view-wrapper">
     <video id="v" playsinline muted></video>
     <canvas id="ov"></canvas>
@@ -105,32 +164,20 @@
   <canvas id="scanCanvas"></canvas>
   <div id="err"></div>
 
-  <div class="workflow">
-    <div id="step1" class="step active">
-      <div class="num">STEP 1</div>
-      <div class="label">棚をスキャン</div>
-    </div>
-    <div class="connector"></div>
-    <div id="step2" class="step">
-      <div class="num">STEP 2</div>
-      <div class="label">型をスキャン</div>
-    </div>
-  </div>
-
   <div id="loc-section" class="content-section">
-    <div class="content-header">
-      <h2>① 固定中の棚 (LOC)</h2>
+    <div class="content-header active-header">
+      <h2>① 固定中の棚</h2>
     </div>
     <div class="content-body">
       <div id="loc-content">
-        <div class="placeholder">カメラで棚のQRコードをかざしてください</div>
+        <div class="placeholder">まず棚のQRコードを映してください</div>
       </div>
     </div>
   </div>
 
   <div id="die-section" class="content-section">
     <div class="content-header">
-      <h2>② 登録する型 (DIE)</h2>
+      <h2>② 登録する型一覧</h2>
       <span style="flex-grow:1"></span>
       <button id="btnClearDies" class="btn btn-danger btn-sm">
         <svg class="icon-clear" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path><line x1="18" y1="9" x2="12" y2="15"></line><line x1="12" y1="9" x2="18" y2="15"></line></svg>
@@ -139,7 +186,7 @@
     </div>
     <div class="content-body">
       <div id="dieList" class="die-list">
-        <div class="placeholder">次に型のQRコードをスキャンします</div>
+        <div class="placeholder">続けて型のQRコードをスキャンしてください</div>
       </div>
     </div>
   </div>
@@ -158,10 +205,9 @@
 <script>
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
-const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"// Airtable APIエンドポイント
-const AIRTABLE_ENABLED = false; // ← Airtable更新を有効化/無効
+const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"
+const AIRTABLE_ENABLED = false; 
 const SCAN_RESOLUTION = 600;
-
 
 // ========= 状態 (State) =========
 let fixedLoc = null;
@@ -170,7 +216,7 @@ const flashes = [];
 const bubbles = [];
 let candidates = [];
 
-// ========= DOM要素 (DOM Elements) =========
+// ========= DOM要素 =========
 const $ = (q) => document.querySelector(q);
 const v = $("#v"), scanCanvas = $("#scanCanvas"), ov = $("#ov");
 const octx = ov.getContext("2d");
@@ -183,68 +229,82 @@ function updateUIState() {
   const step1 = $("#step1"), step2 = $("#step2");
   const locSection = $("#loc-section"), dieSection = $("#die-section");
   const locContent = $("#loc-content");
+  const locHeader = locSection.querySelector('.content-header');
+  const dieHeader = dieSection.querySelector('.content-header');
 
   // Step 1: 棚 (LOC)
   if (fixedLoc) {
-    step1.classList.add('active');
+    // ステップ表示の更新 (完了状態)
+    step1.classList.remove('active');
+    step1.classList.add('done'); // 色を変える
+    
     locContent.innerHTML = `
       <div class="loc-display">
         <div>
-          <div class="sub">固定中の棚</div>
+          <div class="label-mini">CURRENT SHELF</div>
           <div class="val">${escapeHtml(fixedLoc.loc)}</div>
         </div>
         <button id="btnClearLoc" class="btn btn-danger btn-sm">
-          <svg class="icon-clear" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path><line x1="18" y1="9" x2="12" y2="15"></line><line x1="12" y1="9" x2="18" y2="15"></line></svg>
-          <span>解除</span>
+          解除
         </button>
       </div>`;
+    
     $("#btnClearLoc").addEventListener("click", () => {
       fixedLoc = null;
-      fixedDies.clear(); // 棚を解除したら型もクリア
+      fixedDies.clear(); 
       updateUIState();
       renderDies();
     });
+
     dieSection.style.display = 'block';
+    locHeader.classList.remove('active-header'); // アクティブ感を消す
   } else {
+    // ステップ表示の更新 (アクティブ状態)
     step1.classList.add('active');
-    step2.classList.remove('active');
-    locContent.innerHTML = `<div class="placeholder">カメラで棚のQRコードをかざしてください</div>`;
+    step1.classList.remove('done');
+
+    locContent.innerHTML = `<div class="placeholder">ここをタップせず、カメラに棚QRを映してください</div>`;
     dieSection.style.display = 'none';
+    locHeader.classList.add('active-header');
   }
 
   // Step 2: 型 (DIE)
-  if (fixedLoc && fixedDies.size > 0) {
-    step1.classList.remove('active');
+  if (fixedLoc) {
     step2.classList.add('active');
-  } else if (fixedLoc) {
-    step1.classList.remove('active');
-    step2.classList.add('active');
+    dieHeader.classList.add('active-header');
   } else {
     step2.classList.remove('active');
+    dieHeader.classList.remove('active-header');
   }
 
-  // Step 3: 更新ボタン (Update Button)
-  btnUpdate.disabled = !fixedLoc || fixedDies.size === 0;
+  // Step 3: 更新ボタン
+  const hasDies = fixedDies.size > 0;
+  btnUpdate.disabled = !fixedLoc || !hasDies;
+  
+  if(hasDies){
+      $("#btnUpdateLabel").textContent = `データベースに登録 (${fixedDies.size}件)`;
+  } else {
+      $("#btnUpdateLabel").textContent = "データベースに登録";
+  }
 }
 
 function renderDies() {
   const dieListEl = $("#dieList");
   if (fixedDies.size === 0) {
-    dieListEl.innerHTML = `<div class="placeholder">次に型のQRコードをスキャンします</div>`;
+    dieListEl.innerHTML = `<div class="placeholder">カメラに型QRを次々と映してください<br>（連続で読み取れます）</div>`;
   } else {
-    dieListEl.innerHTML = [...fixedDies.values()].map(d => {
+    dieListEl.innerHTML = [...fixedDies.values()].reverse().map(d => { // 新しい順に表示
       const key = `${d.bn}-${d.wc}`;
       return `<div class="item" data-key="${key}">
         <div class="info">
           <div class="head">
-            <span class="sub">${escapeHtml(d.bn)}</span>
-            <span class="wc">[<b>${escapeHtml(d.wc)}</b>]</span>
+            <span class="bn">${escapeHtml(d.bn)}</span>
+            <span class="wc">${escapeHtml(d.wc)}</span>
           </div>
-          ${d.wn ? `<div class="sub">WorkName: ${escapeHtml(d.wn)}</div>` : ''}
-          <div class="sub">RAW: ${escapeHtml(d.raw.length > 70 ? d.raw.slice(0, 70) + "…" : d.raw)}</div>
+          ${d.wn ? `<div class="sub">名称: ${escapeHtml(d.wn)}</div>` : ''}
         </div>
-        <button class="btn btn-danger btn-sm" data-del="${key}">
-            <svg class="icon-trash" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        <button class="btn btn-danger btn-sm" data-del="${key}" style="border:none; background:#fff2f2;">
+            <svg class="icon-trash" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;stroke:#d63031"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
         </button>
       </div>`;
     }).join("");
@@ -259,33 +319,29 @@ function renderDies() {
   updateUIState();
 }
 
-// ========= ユーティリティ (Utilities) =========
+// ========= ユーティリティ =========
 const dieKey = (bn, wc) => `${bn}-${wc}`;
 function setError(t) { errEl.textContent = t || ""; errEl.style.display = t ? 'block' : 'none'; }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-function toast(msg, sub = "") { const el = document.createElement("div"); el.className = "toast"; el.innerHTML = `${msg}${sub ? ` <small>${sub}</small>` : ""}`; toasts.appendChild(el); setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, 1200); setTimeout(() => { el.remove(); }, 1800); }
+function toast(msg, sub = "") { const el = document.createElement("div"); el.className = "toast"; el.innerHTML = `<b>${msg}</b>${sub ? `<br><small>${sub}</small>` : ""}`; toasts.appendChild(el); setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, 1200); setTimeout(() => { el.remove(); }, 1800); }
 let AC = null;
 function playBeep(freq = 880, dur = 120) { try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); const o = AC.createOscillator(), g = AC.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.value = 0.0001; o.connect(g); g.connect(AC.destination); const t = AC.currentTime; g.gain.exponentialRampToValueAtTime(0.08, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur / 1000); o.start(); o.stop(t + dur / 1000 + 0.02); } catch { } }
 function buzz(ms = 60) { if (navigator.vibrate) navigator.vibrate(ms); }
 function classify(s){ if(/^loc-/i.test(s)) return "loc"; if(/^die-/i.test(s)) return "die"; try{ const u=new URL(s); if(u.searchParams.get("book")||u.searchParams.get("wc")) return "die"; }catch{} return "other"; }
-
-// ★ 修正: wn (WorkName) を抽出する関数を復活
 function tryExtractWN(raw){ try{ const u = new URL(raw); const m = /[#&]d=([^&]+)/.exec(u.hash||""); if(!m) return ""; const b64 = m[1].replace(/-/g,'+').replace(/_/g,'/'); const pad = b64.length%4 ? '='.repeat(4-(b64.length%4)) : ''; const json = atob(b64 + pad); const obj = JSON.parse(json); return (obj.wn||"").trim(); }catch{ return ""; } }
-
-// ★ 修正: parse関数で wn も返すようにする
 function parse(text){ 
     const m = /^die-([^-\n]+)-(.+)$/.exec(text); 
-    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; } // die- 形式の場合は wn は空
+    if(m){ return { bn:m[1].trim(), wc:m[2].trim(), wn:"" }; }
     try{ const u=new URL(text); 
         const book=(u.searchParams.get("book")||"").trim(); 
         const wc=(u.searchParams.get("wc")||"").trim(); 
-        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; } // URL形式の場合は wn を抽出
+        if(book||wc){ return { bn:book, wc:wc, wn: tryExtractWN(text) }; }
     }catch{} 
     const l=/^loc-(.+)$/i.exec(text); if(l){ return { loc:l[1].trim() }; } 
     return {}; 
 }
 
-// ========= 描画 (Canvas Overlays) =========
+// ========= 描画 =========
 function drawPolygon(ctx, points){ ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y); ctx.closePath(); }
 function roundedRect(ctx, x,y,w,h,r=10){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function centroid(corners){ const xs=corners.map(p=>p.x), ys=corners.map(p=>p.y); return { x:(Math.min(...xs)+Math.max(...xs))/2, y:Math.min(...ys) }; }
@@ -296,7 +352,7 @@ function drawOverlays(){
   octx.clearRect(0,0,ov.width,ov.height);
   const scale = ov.width / scanCanvas.width;
   
-  // 候補の枠線を描画
+  // 候補の枠線
   for(const c of candidates){ 
     const isLoc = c.kind==='loc'; 
     const scaledCorners = c.corners.map(p => ({ x: p.x * scale, y: p.y * scale }));
@@ -307,7 +363,7 @@ function drawOverlays(){
     drawPolygon(octx, scaledCorners); octx.stroke(); octx.fill(); 
   }
   
-  // フラッシュアニメーションを描画
+  // フラッシュ
   for(let i=flashes.length-1; i>=0; i--){ 
     const f = flashes[i]; const remain = f.until - performance.now(); if(remain <= 0){ flashes.splice(i,1); continue; } 
     const t = Math.max(0, Math.min(1, remain/1200)); 
@@ -318,13 +374,13 @@ function drawOverlays(){
     drawPolygon(octx, scaledCorners); octx.stroke(); octx.fill(); 
   }
   
-  // 吹き出しを描画
+  // 吹き出し
   for(let i=bubbles.length-1; i>=0; i--){ 
     const b = bubbles[i]; const remain = b.until - performance.now(); if(remain <= 0){ bubbles.splice(i,1); continue; } 
     const t = Math.max(0, Math.min(1, remain/1600)); 
     const scaledCentroid = { x: b.x * scale, y: b.y * scale };
-    octx.globalAlpha = 0.9 * t; octx.font = '16px system-ui, sans-serif'; 
-    const w = octx.measureText(b.text).width + 20; const h = 36; 
+    octx.globalAlpha = 0.9 * t; octx.font = 'bold 16px system-ui, sans-serif'; 
+    const w = octx.measureText(b.text).width + 24; const h = 40; 
     let x = scaledCentroid.x - w/2, y = scaledCentroid.y - h - 8; 
     x = Math.max(6, Math.min(x, ov.width - w - 6)); y = Math.max(6, Math.min(y, ov.height - h - 6)); 
     octx.fillStyle = b.color; octx.strokeStyle = b.stroke; octx.lineWidth = 2; 
@@ -334,7 +390,7 @@ function drawOverlays(){
   }
 }
 
-// ========= 検出 (Detection) =========
+// ========= 検出 =========
 let stream=null, rafId=null;
 function stopCam(){ cancelAnimationFrame(rafId); rafId=null; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } $("#btnStart").disabled=false; $("#btnStop").disabled=true; }
 function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
@@ -345,13 +401,10 @@ async function startCam(){
     }catch(e){ showError(e); return; } 
     v.srcObject=stream; 
     try{ await v.play(); }catch(e){ showError(e); return; } 
-    
-    // Canvasのサイズをビデオのアスペクト比に合わせる
     const w = v.videoWidth, h = v.videoHeight;
     ov.width = w; ov.height = h;
     scanCanvas.width = SCAN_RESOLUTION;
     scanCanvas.height = SCAN_RESOLUTION * (h/w);
-
     $("#btnStart").disabled=true; $("#btnStop").disabled=false; 
     tick(); 
 }
@@ -367,10 +420,8 @@ function scan() {
 
 function processScanResult(hit) {
     if (!hit) { candidates = []; return; }
-    
-    // 1フレームに1つのQRコードを処理するシンプルな形に変更
     const kind = classify(hit.raw);
-    const parsed = parse(hit.raw); // ★修正: parseは {bn, wc, wn} または {loc} を返す
+    const parsed = parse(hit.raw); 
     let candidate = null;
 
     if (kind === 'loc' && parsed.loc) {
@@ -384,7 +435,7 @@ function processScanResult(hit) {
     
     candidates = candidate ? [candidate] : [];
 
-    // 自動ロック処理
+    // 自動ロック
     if (candidate && !candidate.registered) {
         if (candidate.kind === 'loc' && !fixedLoc) {
             fixedLoc = { loc: candidate.parsed.loc, raw: candidate.raw };
@@ -396,7 +447,6 @@ function processScanResult(hit) {
         } else if (candidate.kind === 'die' && fixedLoc) {
             const key = dieKey(candidate.parsed.bn, candidate.parsed.wc);
             if (!fixedDies.has(key)) {
-                // ★修正: parsed には wn も含まれている
                 fixedDies.set(key, { ...candidate.parsed, raw: candidate.raw, addedAt: Date.now() });
                 renderDies();
                 addFlash('die', candidate.corners);
@@ -410,146 +460,70 @@ function processScanResult(hit) {
 
 async function tick() { 
     if (!stream) return; 
-    
     const hit = scan();
     processScanResult(hit);
     drawOverlays(); 
-    
     rafId = requestAnimationFrame(tick); 
 }
 
-// ========= 送信 (Submission) =========
+// ========= 送信 =========
 async function submitUpdate() {
   if (!fixedLoc || fixedDies.size === 0) return;
-
-  // 送信用配列を構築（空値は弾く）
   const now = new Date();
   const captured_date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-  const items = [...fixedDies.values()]
-    .map(d => ({
+  const items = [...fixedDies.values()].map(d => ({
       book: (d.bn || "").trim(),
       wc: (d.wc || "").trim(),
       wn: (d.wn || "").trim(),
       loc: (fixedLoc.loc || "").trim(),
       captured_at: captured_date
-    }))
-    .filter(it => it.book && it.wc && it.loc); // book/wc/loc が揃っていない行は送らない
+    })).filter(it => it.book && it.wc && it.loc);
 
   if (items.length === 0) {
-    alert("送信対象がありません（book / wc / loc の欠落により全て除外されました）。");
-    return;
+    alert("送信対象がありません。"); return;
   }
 
-  const msg = items.map(p => `• ${p.book}-${p.wc}${p.wn ? ' ('+p.wn+')' : ''} → ${p.loc}`).join("\n");
-  const airtableStatus = AIRTABLE_ENABLED ? "有効" : "停止中";
-
-  if (!confirm(`以下の内容を登録しますか？\n\n${msg}\n\n📊 Googleスプレッドシート: 登録\n🗄️ Airtable: ${airtableStatus}\n\n(成功すると画面はクリアされ、カメラは停止します)`)) return;
+  const msg = items.map(p => `• ${p.book}-${p.wc} → ${p.loc}`).join("\n");
+  if (!confirm(`以下を登録しますか？\n\n${msg}\n\n(成功すると画面はクリアされます)`)) return;
 
   const btnLabel = $("#btnUpdateLabel");
   btnUpdate.disabled = true;
   btnUpdate.classList.add('loading');
-  btnLabel.textContent = "登録中...";
-
-  let success = false;
-  let message = "";
-  let rawResponseG = "";
-  let rawResponseA = "";
-
-  const parseSafe = (t) => { try { return JSON.parse(t); } catch { return null; } };
+  btnLabel.textContent = "通信中...";
 
   try {
-    // ========== 1) Google Sheets ==========
+    // 1) Google Sheets
     const rG = await fetch(SHEET_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items })
     });
-
-    rawResponseG = await rG.text();
-    const jG = parseSafe(rawResponseG);
-
-    if (!(rG.ok && jG && jG.ok === true)) {
-      console.error("GoogleSheets 応答:", rG.status, rawResponseG);
-      throw new Error(`GoogleSheets 失敗: status=${rG.status} body=${rawResponseG.slice(0, 500)}`);
-    }
-
-    const appended = Number(jG.appendedRows || 0);
-    const updatedCells = Number(jG.updatedCells || 0);
-    const parts = [];
-    if (appended > 0) parts.push(`追加 ${appended}行`);
-    if (updatedCells > 0) parts.push(`更新 ${updatedCells}セル`);
-    message = `GoogleSheets（${parts.length ? parts.join(' / ') : '0件'}）`;
-
-    // ========== 2) Airtable ==========
-    // 2) Airtable 登録（有効な場合のみ）
+    const jG = await rG.json();
+    if (!jG.ok) throw new Error("GoogleSheets Error");
+    
+    // 2) Airtable
     if (AIRTABLE_ENABLED) {
-      try {
-        const payload = { items };
-        const rA = await fetch(AIRTABLE_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        const raw = await rA.text();
-        let jA = null;
-        try { jA = JSON.parse(raw); } catch { /* レスポンスが空/非JSONでも落とさない */ }
-
-        console.log("Airtable 応答:", rA.status, jA ?? raw);
-
-        // ★ ポイント1: ステータス200台なら基本成功扱い（UI誤判定を防ぐ）
-        if (rA.ok) {
-          const updatedCount =
-            (jA && (jA.updatedRecords ?? jA.updated ?? jA.upserted ?? jA.processed)) ??
-            (Array.isArray(jA?.records) ? jA.records.length : 0);
-
-          // ★ ポイント2: looksLikeSuccess でも拾う。両方ダメでも 2xx は成功表示にする
-          if (jA && looksLikeSuccess(jA)) {
-            message += ` / Airtable (更新 ${Number(updatedCount)||0}件)`;
-          } else {
-            message += ` / Airtable (応答OK, 件数不明)`; // 実害なし。サーバーは成功
-          }
-        } else {
-          // 4xx/5xx は失敗表示
-          const errMsg = (jA && (jA.error || jA.message || jA.reason)) ? (jA.error || jA.message || jA.reason) : `Status ${rA.status}`;
-          console.warn("Airtable 更新が失敗扱い:", { status: rA.status, body: raw });
-          message += ` / Airtable更新失敗 (${String(errMsg).slice(0, 150)})`;
-        }
-
-      } catch (airtableError) {
-        // ★ ネットワーク例外時のみ「通信失敗」を出す
-        console.warn("Airtable 通信エラー:", airtableError);
-        message += " / Airtable通信失敗";
-      }
-    } else {
-      message += " / Airtableは停止中";
+        try {
+            await fetch(AIRTABLE_ENDPOINT, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ items })
+            });
+        } catch(e) { console.warn("Airtable skip", e); }
     }
 
+    toast("登録完了！", `${items.length}件を保存しました`);
+    playBeep(520, 140);
 
-    // GSheet が成功していれば、全体としては成功扱いにする（UIをリセット）
-    success = true;
+    fixedLoc = null;
+    fixedDies.clear();
+    renderDies();
+    updateUIState();
+    stopCam();
 
   } catch (e) {
-    console.error("Submit Error (GSheet) =>", e, { rawResponseG });
-    alert(
-      "登録に失敗しました (GSheet):\n" +
-      (e && e.message ? e.message : e) +
-      (rawResponseG ? `\n\n[GoogleSheets 応答(先頭300文字)]:\n${rawResponseG.slice(0, 300)}` : "")
-    );
+    alert("登録エラー:\n" + e.message);
   } finally {
-    if (success) {
-      toast(message);
-      playBeep(520, 140);
-
-      // 状態リセット & カメラ停止
-      fixedLoc = null;
-      fixedDies.clear();
-      renderDies();
-      updateUIState();
-      stopCam();
-    }
-
     btnUpdate.disabled = false;
     btnUpdate.classList.remove('loading');
     btnLabel.textContent = "データベースに登録";
@@ -557,17 +531,12 @@ async function submitUpdate() {
   }
 }
 
-
-// ========= イベントリスナー (Event Listeners) =========
+// ========= 初期化 =========
 $("#btnStart").addEventListener("click", startCam);
 $("#btnStop").addEventListener("click", stopCam);
 $("#btnClearDies").addEventListener("click", () => { fixedDies.clear(); renderDies(); });
 $("#btnUpdate").addEventListener("click", submitUpdate);
-
-// ========= 初期化 (Initialization) =========
-document.addEventListener('DOMContentLoaded', () => {
-  updateUIState();
-});
+document.addEventListener('DOMContentLoaded', () => { updateUIState(); });
 </script>
 </body>
 </html>
