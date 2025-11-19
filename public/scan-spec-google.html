@@ -23,7 +23,7 @@
     font-family: system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding-bottom: 40px; /* 下部に余裕 */
+    padding-bottom: 40px;
   }
 
   .wrap {
@@ -106,7 +106,7 @@
     background: #000;
     border-radius: 8px;
     overflow: hidden;
-    aspect-ratio: 16/9; /* ビデオのアスペクト比を固定 */
+    aspect-ratio: 16/9;
   }
   video { width: 100%; height: 100%; object-fit: cover; display: block; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -313,7 +313,6 @@
           </div>
 
           <div id="driveActions" class="drive-actions"></div>
-
           <div id="driveView" class="fig-container"></div>
         </div>
       </div>
@@ -339,7 +338,7 @@
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
   const scanCtx = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
 
-  const CFG = { JSQR_MAX_LOOPS: 5 }; // 負荷軽減のため少し減らす
+  const CFG = { JSQR_MAX_LOOPS: 5 };
   const S = {
     stream: null, rafId: null,
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
@@ -393,7 +392,10 @@
       D.lockEmoji.style.display='none';
       D.video.style.visibility='visible';
     }
-    if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); S.stream=null; }
+    if(S.stream){ 
+        try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){} 
+        S.stream=null; 
+    }
     D.btnStart.disabled=false;
     D.btnStop.disabled=true;
     setStatus('停止中');
@@ -408,9 +410,15 @@
     D.errCam.textContent='';
 
     try{
+      // ★修正: カメラ制約を緩和・範囲指定に戻し、OverconstrainedErrorを回避
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} },
-        audio:false
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280, min: 640, max: 1920 },
+          height: { ideal: 720, min: 480, max: 1080 },
+          advanced: [{ focusMode: 'continuous' }] // 一部のAndroidで有効
+        },
+        audio: false
       });
       D.video.srcObject=S.stream;
       await D.video.play();
@@ -434,7 +442,8 @@
       setStatus('スキャン中', true);
       tick();
     }catch(e){
-      D.errCam.textContent = `カメラ起動エラー: ${e.message}`;
+      console.error(e);
+      D.errCam.textContent = `カメラ起動エラー: ${e.name} ${e.message}`;
       setStatus('エラー');
     }
   }
@@ -465,9 +474,8 @@
       }catch(e){ S.useBarcodeDetector=false; }
     }
     
-    // 2. jsQR (Fallback / Complement)
+    // 2. jsQR (Fallback)
     const imgData = scanCtx.getImageData(0,0,w,h);
-    // 検出済み領域を塗りつぶす等の高度な処理は省略し、シンプルに実行
     const hit = jsQR(imgData.data, w, h, { inversionAttempts:'dontInvert' });
     if(hit && !detections.some(d=>d.raw===hit.data)){
       detections.push({
@@ -489,20 +497,16 @@
         const raw = (d.raw||'').trim();
         if(!raw) continue;
         
-        // Parse Logic
         let bn='', wc='';
         const t = normHyphen(raw);
         
-        // Pattern: order plain
         if(/order[_-]?plain/i.test(t)){
            try{
              const u=new URL(t);
              bn = u.searchParams.get('book')||u.searchParams.get('Book')||'';
              wc = u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'';
            }catch{}
-        } 
-        // Pattern: die-BN-WC
-        else if(/^die-/i.test(t)){
+        } else if(/^die-/i.test(t)){
            const m = /^die-([^-\n]+)-([^-]+)/i.exec(t);
            if(m){ bn=m[1]; wc=m[2]; }
            else {
@@ -511,7 +515,6 @@
         }
 
         if(bn && wc){
-           // Draw Box
            const sx = D.overlay.width / D.scanCanvas.width;
            const sy = D.overlay.height / D.scanCanvas.height;
            const pts = (d.pts||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
@@ -521,7 +524,6 @@
              for(let i=1;i<4;i++) ctx.lineTo(pts[i].x,pts[i].y);
              ctx.closePath(); ctx.stroke();
            }
-
            setTarget(bn, wc);
            S.locked=true;
            freezeAndLock();
@@ -581,7 +583,6 @@
       D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
       return;
     }
-    // テーブル形式で表示
     const fields = [
       {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'}, 
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'}, 
@@ -597,7 +598,6 @@
     D.gsBox.innerHTML = html;
   }
 
-  // ★★★ 修正箇所：複数ファイルの動的ボタン生成 ★★★
   async function findDriveFiles(book, wc){
     D.driveStatus.textContent = '検索中...';
     try{
@@ -613,7 +613,6 @@
 
       D.driveStatus.textContent = `${cands.length}件ヒット`;
       
-      // 並び替え（図面(-zu) -> シール(-si) -> PDF -> その他）
       const score = n => {
         n = n.toLowerCase();
         if(/-zu\./.test(n)) return 1;
@@ -623,7 +622,7 @@
       };
       cands.sort((a,b) => score(a.name||'') - score(b.name||''));
 
-      // 1. アクションボタンの生成（別タブで開く用）
+      // Actions (Buttons)
       let btnHtml = '';
       cands.forEach(f => {
         const name = f.name || '';
@@ -641,7 +640,7 @@
       });
       D.driveActions.innerHTML = btnHtml;
 
-      // 2. プレビューの埋め込み表示（すべて表示する）
+      // Preview
       let viewHtml = '';
       cands.forEach(f => {
          const name = f.name || '';
@@ -663,7 +662,6 @@
     }
   }
 
-  // --- Events ---
   D.btnStart.onclick = startCam;
   D.btnStop.onclick = () => stopCam();
   window.onresize = fitOverlay;
