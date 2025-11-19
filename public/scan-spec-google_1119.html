@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>scan-spec｜最小UI（カメラ＋結果）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<style>
+  :root{
+    --ok:#1c7ed6; --ng:#e03131; --tx:#212529; --sub:#6c757d;
+    --bg:#f8f9fa; --bd:#dee2e6; --soft:#ffffff;
+  }
+  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;height:100%}
+  .wrap{max-width:1200px;margin:0 auto;padding:12px}
+  .topbar{
+    position:sticky; top:0; z-index:10; display:flex; gap:10px; align-items:center; padding:10px 12px;
+    background:rgba(255,255,255,.95); border:1px solid var(--bd); border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.06);
+    margin-bottom:10px;
+  }
+  .topbar .spacer{flex:1 1 auto}
+  .chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:700}
+  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
+  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
+  .btn{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600;transition:.2s}
+  .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn.sm{padding:6px 10px;font-size:12px}
+  .btn.lg{padding:12px 22px;font-size:14px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+
+  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04);padding:12px}
+  .title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 8px}
+  .title h2{margin:0;font-size:16px}
+  .muted{color:var(--sub);font-size:12px}
+
+  .stack{position:relative;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:#000}
+  video{display:block;width:100%;background:#000}
+  canvas{position:absolute;inset:0;pointer-events:none}
+  #freeze{z-index:1; display:none;}
+  #overlay{z-index:2;}
+
+  .section{margin-top:8px}
+  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
+  .kvs b{color:#333}
+
+  .lockmark{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none}
+  .lockmark .em{font-size:70px; text-shadow:0 3px 10px rgba(0,0,0,.5); display:none}
+
+  .manual-inputs{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:6px;
+    margin-top:8px;
+    font-size:13px;
+  }
+  .manual-inputs label{
+    font-weight:600;
+  }
+  .manual-inputs select,
+  .manual-inputs input{
+    padding:6px 8px;
+    border-radius:8px;
+    border:1px solid var(--bd);
+    font-size:13px;
+    min-width:70px;
+    background:#fff;
+  }
+
+  .fig-block{
+    margin-bottom:10px;
+  }
+  .fig-block-title{
+    font-size:12px;
+    color:var(--sub);
+    margin-bottom:4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 最上段：最小の操作だけ -->
+  <div class="topbar">
+    <button id="btnStart" class="btn primary">カメラ開始</button>
+    <button id="btnStop" class="btn" disabled>停止</button>
+    <span id="scanStatus" class="chip">待機中</span>
+    <span id="detectorInfo" class="chip muted"></span>
+    <div class="spacer"></div>
+    <span class="chip" id="csrfStatus">CSRF: 検査中…</span>
+  </div>
+
+  <div class="grid">
+    <!-- 左：カメラ -->
+    <div class="card">
+      <div class="title"><h2>スキャン</h2><span id="atState" class="muted"></span></div>
+      <div class="stack" id="stack">
+        <video id="video" playsinline webkit-playsinline muted></video>
+        <canvas id="freeze"></canvas>
+        <canvas id="overlay"></canvas>
+        <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
+        <!-- ★ scan-lookup と同じく「作業用キャンバス」として再利用 -->
+        <canvas id="scanCanvas" style="display:none"></canvas>
+      </div>
+      <div id="errCam" class="muted" style="margin-top:6px;"></div>
+      <div class="muted" id="nowTarget" style="margin-top:6px;">ターゲット: — / —</div>
+
+      <!-- Book / wc 手入力エリア -->
+      <div class="manual-inputs">
+        <label for="inpBook">Book</label>
+        <select id="inpBook">
+          <option value="">—</option>
+          <option value="Ko">Ko</option>
+          <option value="Yo">Yo</option>
+          <option value="Ta">Ta</option>
+        </select>
+
+        <label for="inpWc">wc</label>
+        <input id="inpWc" type="text" inputmode="numeric" placeholder="例: 1234" />
+
+        <button id="btnManual" class="btn sm">照会</button>
+      </div>
+    </div>
+
+    <!-- 右：結果（上：仕様 / 下：図面） -->
+    <div class="card">
+      <div class="title"><h2>結果</h2><span id="loading" class="muted" style="display:none;">照会中…</span></div>
+
+      <!-- 仕様（Google Sheets） -->
+      <div class="section">
+        <h3 style="margin:0 0 6px;font-size:15px;">Google Sheets（仕様）</h3>
+        <div id="gsBox" class="kvs">
+          <div class="muted">（未取得）</div>
+        </div>
+        <div id="errApi" class="muted" style="margin-top:6px; display:none;"></div>
+      </div>
+
+      <!-- 図面（Google Drive） -->
+      <div class="section" style="margin-top:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
+          <button id="btnShowFigure" class="btn lg" style="display:none;">図面表示</button>
+        </div>
+        <div id="driveStatus" class="muted">—</div>
+        <div id="driveView" style="margin-top:6px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+<script>
+(() => {
+  const D = {
+    video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
+    btnStart: q('#btnStart'), btnStop: q('#btnStop'),
+    detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'),
+    errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
+    csrfStatus: q('#csrfStatus'), atState: q('#atState'),
+    lockEmoji: q('#lockEmoji'),
+    scanCanvas: q('#scanCanvas'),
+    // 手入力
+    inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
+    // 図面表示ボタン
+    btnShowFigure: q('#btnShowFigure'),
+    // 結果表示
+    gsBox: q('#gsBox'),
+    driveStatus: q('#driveStatus'), driveView: q('#driveView'),
+    nowTarget: q('#nowTarget'),
+  };
+  function q(s){ return document.querySelector(s); }
+
+  const ctx        = D.overlay.getContext('2d',   { willReadFrequently:true });
+  const freezeCtx  = D.freeze.getContext('2d',    { willReadFrequently:true });
+  const scanCtx    = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
+
+  if(D.atState){ D.atState.textContent = 'AT:OFF'; }
+
+  const CFG = { JSQR_MAX_LOOPS: 10 };
+  const S = {
+    stream: null, rafId: null,
+    useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
+    csrf: '', locked: false,
+    current: { book:'', wc:'' }, lastQueryKey:'',
+    drive: null,
+  };
+
+  function readCookie(name){
+    const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
+  function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
+
+  // --- CSRF
+  function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
+  async function requestSession(){ const url=isLocal()?'/api/session?dev=1':'/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); }
+  async function ensureCsrf(){
+    let t = readCookie('xcsrf');
+    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
+    if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
+    S.csrf = t;
+    D.csrfStatus.textContent = 'CSRF: 有効';
+    D.csrfStatus.className = 'chip ok';
+  }
+  document.addEventListener('DOMContentLoaded', async () => {
+    try{ await ensureCsrf(); }catch(e){ D.csrfStatus.textContent='CSRF: 未取得'; D.csrfStatus.className='chip ng'; }
+  });
+
+  // --- UI helpers
+  function setStatus(text, kind=''){
+    D.scanStatus.textContent = text;
+    D.scanStatus.className = 'chip' + (kind==='ok'?' ok':kind==='ng'?' ng':'');
+  }
+  function fitOverlay(){
+    if(!D.video.videoWidth) return;
+    D.overlay.width  = D.video.videoWidth;
+    D.overlay.height = D.video.videoHeight;
+    D.overlay.style.width  = D.video.clientWidth+'px';
+    D.overlay.style.height = D.video.clientHeight+'px';
+    D.freeze.width  = D.video.videoWidth;
+    D.freeze.height = D.video.videoHeight;
+    D.freeze.style.width  = D.video.clientWidth+'px';
+    D.freeze.style.height = D.video.clientHeight+'px';
+  }
+
+  // --- カメラ
+  function reallyStop(){
+    if(S.stream){
+      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{}
+    }
+    S.stream=null;
+  }
+  function stopCam({keepFrame=false}={}){
+    if(S.rafId) cancelAnimationFrame(S.rafId);
+    S.rafId=null;
+    if(!keepFrame){
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      D.freeze.style.display='none';
+      D.lockEmoji.style.display='none';
+      D.video.style.visibility='visible';
+    }
+    reallyStop();
+    D.btnStart.disabled=false;
+    D.btnStop.disabled=true;
+    setStatus('停止中');
+  }
+
+  async function startCam(){
+    D.freeze.style.display='none';
+    D.video.style.visibility='visible';
+    D.lockEmoji.style.display='none';
+    S.locked=false;
+    stopCam();
+    D.errCam.textContent='';
+    try{
+      S.stream = await navigator.mediaDevices.getUserMedia({
+        video:{
+          facingMode:{ideal:'environment'},
+          width:{ideal:1280,min:640,max:1920},
+          height:{ideal:720,min:480,max:1080},
+          advanced:[{focusMode:'continuous'}]
+        },
+        audio:false
+      });
+      D.video.srcObject=S.stream;
+      await D.video.play();
+
+      D.btnStart.disabled=true;
+      D.btnStop.disabled=false;
+
+      fitOverlay();
+
+      // ★ jsQR / BarcodeDetector 用の作業キャンバスを「フル解像度」に
+      const vw = D.video.videoWidth  || 1280;
+      const vh = D.video.videoHeight || 720;
+      D.scanCanvas.width  = vw;
+      D.scanCanvas.height = vh;
+
+      // ★ BarcodeDetector の準備（scan-lookup と同じ）
+      if(S.useBarcodeDetector){
+        try{
+          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+            ? await BarcodeDetector.getSupportedFormats()
+            : [];
+          if(!fmts || !fmts.includes('qr_code')) throw 0;
+          S.detector = new BarcodeDetector({formats:['qr_code']});
+        }catch{
+          S.useBarcodeDetector = false;
+          S.detector = null;
+        }
+      }
+
+      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BD+jsQR' : 'jsQR';
+      setStatus('探索中…');
+      tick();   // ★ Android 対応版 tick
+    }catch(e){
+      D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`;
+      setStatus('カメラエラー','ng');
+    }
+  }
+
+  function freezeAndLock(){
+    try{
+      fitOverlay();
+      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
+      freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
+      D.freeze.style.display='block';
+      D.video.style.visibility='hidden';
+      D.lockEmoji.style.display='block';
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+    }catch{}
+    setStatus('ロック完了','ok');
+    stopCam({keepFrame:true});
+  }
+
+  // --- 共通描画
+  function drawBox(points){
+    if(!points || points.length<4) return;
+    ctx.save();
+    ctx.lineWidth=5;
+    ctx.strokeStyle='#1c7ed6';
+    ctx.shadowColor='#1c7ed6';
+    ctx.shadowBlur=6;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x,points[0].y);
+    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // --- 種別判定 & パーサ（元コードをそのまま利用）
+  function classify(raw){
+    const t=normHyphen(raw);
+    if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
+    if(/^die-/i.test(t)) return 'die';
+    try{
+      const u=new URL(t);
+      if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
+      if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
+    }catch{}
+    return 'other';
+  }
+  function parseOrder(raw){
+    const t=normHyphen(raw);
+    try{
+      const u=new URL(t);
+      if(/order[_-]?plain/i.test(u.pathname+u.search)){
+        const book=(u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
+        const wc  =(u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
+        if(book||wc) return { bn:book, wc:wc };
+      }
+    }catch{}
+    const m=/order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
+    return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
+  }
+  function parseDie(raw){
+    const t=normHyphen(raw);
+    const m=/^die-([^-\n]+)-([^-]+)/i.exec(t);
+    if(m) return { bn:m[1].trim(), wc:m[2].trim() };
+    try{
+      const u=new URL(t);
+      const book=(u.searchParams.get('book')||'').trim();
+      const wc  =(u.searchParams.get('wc')||'').trim();
+      if(book||wc) return { bn:book, wc:wc };
+    }catch{}
+    return null;
+  }
+
+  function setTarget(book,wc){
+    S.current.book=(book||'').trim();
+    S.current.wc  =(wc||'').trim();
+    D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
+    if(D.inpBook) D.inpBook.value = S.current.book || '';
+    if(D.inpWc)   D.inpWc.value   = S.current.wc   || '';
+  }
+
+  // === Android 対応: scan-lookup と同じ「canvas→BD+jsQR」検出 ===
+  async function detectCombined(){
+    if(!D.video.videoWidth) return [];
+
+    const w = D.scanCanvas.width  = D.video.videoWidth;
+    const h = D.scanCanvas.height = D.video.videoHeight;
+
+    // ビデオフレームを作業キャンバスへ
+    scanCtx.drawImage(D.video, 0, 0, w, h);
+
+    const detections = [];
+
+    // 1) BarcodeDetector（あれば）
+    if(S.useBarcodeDetector && S.detector){
+      try{
+        const codes = await S.detector.detect(D.scanCanvas);
+        if(codes && codes.length){
+          for(const c of codes){
+            detections.push({
+              rawValue: (c.rawValue || '').trim(),
+              cornerPoints: (c.cornerPoints || []).map(p=>({x:p.x, y:p.y}))
+            });
+          }
+        }
+      }catch(e){
+        console.warn('BarcodeDetector failed, fallback to jsQR only.', e);
+        S.useBarcodeDetector = false;
+        S.detector = null;
+        D.detectorInfo.textContent = 'jsQR';
+      }
+    }
+
+    // 2) jsQR 複数回（mask 方式）
+    const imgData    = scanCtx.getImageData(0,0,w,h);
+    const maskedData = new Uint8ClampedArray(imgData.data);  // コピー
+
+    for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
+      const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts:'dontInvert' });
+      if(!hit) break;
+
+      const raw = (hit.data || '').trim();
+      if(raw && !detections.some(d=>d.rawValue===raw)){
+        const pts = [
+          hit.location.topLeftCorner,
+          hit.location.topRightCorner,
+          hit.location.bottomRightCorner,
+          hit.location.bottomLeftCorner
+        ].map(p=>({x:p.x, y:p.y}));
+        detections.push({ rawValue: raw, cornerPoints: pts });
+      }
+
+      const tl = hit.location.topLeftCorner;
+      const br = hit.location.bottomRightCorner;
+      for(let y=Math.floor(tl.y); y<Math.ceil(br.y); y++){
+        for(let x=Math.floor(tl.x); x<Math.ceil(br.x); x++){
+          const i=(y*imgData.width+x)*4;
+          maskedData[i]=maskedData[i+1]=maskedData[i+2]=255;
+        }
+      }
+    }
+
+    return detections;
+  }
+
+  async function tick(){
+    if(!S.stream) return;
+
+    if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
+      fitOverlay();
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+
+      const detections = await detectCombined();
+
+      // 何か読めたら、最初に book / wc が取れるものを採用
+      for(const d of detections){
+        const raw = (d.rawValue || '').trim();
+        if(!raw) continue;
+
+        const kind = classify(raw);
+        let bn='', wc='';
+
+        if(kind === 'order'){
+          const od = parseOrder(raw);
+          if(od){ bn=od.bn||''; wc=od.wc||''; }
+        }else if(kind === 'die'){
+          const dd = parseDie(raw);
+          if(dd){ bn=dd.bn||''; wc=dd.wc||''; }
+        }
+
+        if(bn || wc){
+          // 座標を overlay にスケール（video と同サイズなのでほぼ 1:1）
+          const sx = D.overlay.width  / D.scanCanvas.width;
+          const sy = D.overlay.height / D.scanCanvas.height;
+          const pts = (d.cornerPoints||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
+          drawBox(pts);
+
+          setTarget(bn,wc);
+          S.locked=true;
+          freezeAndLock();
+          S.lastQueryKey='';
+          querySpec();
+          return; // ロックしたら tick 終了
+        }
+      }
+    }
+
+    S.rafId = requestAnimationFrame(tick);
+  }
+
+  // --- API: GSheets → Drive は元のまま ---
+  async function querySpec(){
+    const book=S.current.book, wc=S.current.wc;
+    if(!book || !wc) return;
+    const key=dieKey(book,wc);
+    if(key===S.lastQueryKey) return;
+    S.lastQueryKey=key;
+
+    D.errApi.style.display='none';
+    D.errApi.textContent='';
+    D.loading.style.display='inline';
+    D.gsBox.innerHTML = `<div class="muted">取得中…</div>`;
+    D.driveStatus.textContent = '—';
+    D.driveView.innerHTML = '';
+    S.drive = null;
+    if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+
+    try{
+      if(!S.csrf) await ensureCsrf();
+      const r = await fetch('/api/die-check', {
+        method:'POST', credentials:'same-origin',
+        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
+        body: JSON.stringify({ book, wc, json:true, limit: 0, noAirtable: true, gsOnly: true })
+      });
+      const txt=await r.text(); let j={};
+      try{ j=JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
+      if(!r.ok || j.ok!==true) throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
+      renderSpecAndDrive(j);
+    }catch(e){
+      D.errApi.style.display='block';
+      D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
+      D.gsBox.innerHTML = `<div class="muted">（Google Sheets を取得できませんでした）</div>`;
+    }finally{
+      D.loading.style.display='none';
+    }
+  }
+
+  function renderSpecAndDrive(payload){
+    const { gs, book, workcord } = payload || {};
+    if(gs){
+      D.gsBox.innerHTML = `
+        <div class="kvs">
+          <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
+          <b>Kname</b><div>${esc(gs.Kname||'')}</div>
+          <b>Material</b><div>${esc(gs.Material||'')}</div>
+          <b>Paper_Size</b><div>${esc(gs.Paper_Size||'')}</div>
+          <b>Cut_Size</b><div>${esc(gs.Cut_Size||'')}</div>
+          <b>Location</b><div>${esc(gs.Location||'')}</div>
+          <b>LastSeen</b><div>${esc(gs.LastSeen||'')}</div>
+          <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
+        </div>`;
+    }else{
+      D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
+    }
+    const b = (book||'').trim();
+    const w = (workcord||'').trim();
+    openDriveFigure(b, w);
+  }
+
+  async function openDriveFigure(book, wc){
+    if(!book || !wc){
+      D.driveStatus.textContent = 'Book/WC 未指定';
+      D.driveView.innerHTML = '';
+      S.drive = null;
+      if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+      return;
+    }
+    D.driveStatus.textContent = '検索中…';
+    D.driveView.innerHTML = '';
+    S.drive = null;
+    if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+
+    try{
+      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, { credentials:'same-origin', cache:'no-store' });
+      if(!r.ok){
+        const t=await r.text().catch(()=> '');
+        throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`);
+      }
+      const j = await r.json().catch(()=> ({}));
+      if(j?.ok !== true){
+        D.driveStatus.textContent = 'NG: 応答不正';
+        return;
+      }
+      const cands = Array.isArray(j.candidates) && j.candidates.length
+        ? j.candidates
+        : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
+
+      if(cands.length===0){
+        D.driveStatus.textContent = '一致ファイルなし';
+        D.driveView.innerHTML = '';
+        S.drive = null;
+        if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+        return;
+      }
+
+      const score = fn => {
+        const n = (fn?.name||'').toLowerCase();
+        const isPdf = n.endsWith('.pdf');
+        const isImg = /\.(jpeg|jpg|png)$/.test(n);
+        const hasZu = /-zu\.(jpeg|jpg|png)$/.test(n);
+        const hasSi = /-si\.(jpeg|jpg|png)$/.test(n);
+        if(isImg && hasZu) return 1;
+        if(isImg && hasSi) return 2;
+        if(isImg)          return 3;
+        if(isPdf)          return 9;
+        return 99;
+      };
+      cands.sort((a,b)=> score(a)-score(b));
+
+      const primary = cands[0];
+      const primaryName = primary.name || `${book}-${wc}`;
+      const primaryId   = primary.id;
+      const primaryIsPdf = (primaryName||'').toLowerCase().endsWith('.pdf');
+
+      const primaryPreviewUrl = `https://drive.google.com/file/d/${encodeURIComponent(primaryId)}/preview`;
+      const primaryViewUrl    = primaryIsPdf
+        ? primaryPreviewUrl
+        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(primaryId)}`;
+
+      S.drive = {
+        previewUrl: primaryPreviewUrl,
+        viewUrl: primaryViewUrl,
+        isPdf: primaryIsPdf,
+        name: primaryName,
+        id: primaryId
+      };
+
+      let html = '';
+      for(const fn of cands){
+        const name = fn.name || `${book}-${wc}`;
+        const id   = fn.id;
+        const isPdf = (name||'').toLowerCase().endsWith('.pdf');
+        const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
+        const viewUrl    = isPdf
+          ? previewUrl
+          : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}`;
+
+        const label =
+          /-zu\./i.test(name) ? '図面(zu)'
+          : /-si\./i.test(name) ? 'シール(si)'
+          : isPdf ? 'PDF'
+          : '画像';
+
+        if(isPdf){
+          html += `
+            <div class="fig-block">
+              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
+              <iframe src="${previewUrl}" style="width:100%;height:50vh;border:1px solid #e9ecef;border-radius:10px"></iframe>
+            </div>`;
+        }else{
+          html += `
+            <div class="fig-block">
+              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
+              <a href="${previewUrl}" target="_blank" rel="noopener">
+                <img src="${viewUrl}" alt="${esc(name)}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />
+              </a>
+            </div>`;
+        }
+      }
+
+      D.driveView.innerHTML = html;
+      D.driveStatus.textContent = `ヒット: ${cands.length}件`;
+
+      if(D.btnShowFigure) D.btnShowFigure.style.display='inline-block';
+    }catch(e){
+      console.error(e);
+      D.driveStatus.textContent = `NG: ${e?.message||e}`;
+      D.driveView.innerHTML = '';
+      S.drive = null;
+      if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+    }
+  }
+
+  if(D.btnShowFigure){
+    D.btnShowFigure.addEventListener('click', () => {
+      if(!S.drive) return;
+      const { previewUrl, name } = S.drive;
+      window.open(previewUrl, '_blank', 'noopener');
+      D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
+    });
+  }
+
+  // --- イベント
+  D.btnStart.addEventListener('click', startCam);
+  D.btnStop.addEventListener('click', () => stopCam());
+  window.addEventListener('resize', fitOverlay);
+
+  // 手入力からの照会
+  if(D.btnManual){
+    D.btnManual.addEventListener('click', () => {
+      const b = (D.inpBook?.value||'').trim();
+      const w = normHyphen((D.inpWc?.value||'').trim());
+      if(!b || !w){
+        D.errApi.style.display='block';
+        D.errApi.textContent = '❗ Book と wc を入力してください。';
+        return;
+      }
+      D.errApi.style.display='none';
+      D.errApi.textContent='';
+      setTarget(b,w);
+      S.locked=false;
+      S.lastQueryKey='';
+      querySpec();
+    });
+
+    if(D.inpWc){
+      D.inpWc.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          D.btnManual.click();
+        }
+      });
+    }
+  }
+
+})();
+</script>
+</body>
+</html>
