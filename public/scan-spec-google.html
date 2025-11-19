@@ -410,13 +410,14 @@
     D.errCam.textContent='';
 
     try{
-      // ★修正: カメラ制約を緩和・範囲指定に戻し、OverconstrainedErrorを回避
+      // カメラ制約を緩和
       S.stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1280, min: 640, max: 1920 },
-          height: { ideal: 720, min: 480, max: 1080 },
-          advanced: [{ focusMode: 'continuous' }] // 一部のAndroidで有効
+          // 制約を緩和（idealのみにする）
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+          // advanced プロパティは削除（デバイスによってサポートされない場合がある）
         },
         audio: false
       });
@@ -426,13 +427,20 @@
       D.btnStart.disabled=true;
       D.btnStop.disabled=false;
       
+      
       // BarcodeDetector Setup
-      if(S.useBarcodeDetector && !S.detector){
-        try{
-           const fmts = await BarcodeDetector.getSupportedFormats();
-           if(fmts.includes('qr_code')) S.detector = new BarcodeDetector({formats:['qr_code']});
-        }catch{ S.useBarcodeDetector=false; }
+    if(S.useBarcodeDetector){
+      try{
+        const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+          ? await BarcodeDetector.getSupportedFormats()
+          : [];
+        if(!fmts || !fmts.includes('qr_code')) throw 0;
+        S.detector = new BarcodeDetector({formats:['qr_code']});
+      }catch{
+        S.useBarcodeDetector = false;
+        S.detector = null;
       }
+    }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BD+jsQR' : 'jsQR';
       
       fitOverlay();
