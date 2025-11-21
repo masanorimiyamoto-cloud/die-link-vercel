@@ -2,153 +2,323 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>scan-spec｜最小UI（カメラ＋結果）</title>
+<title>scan-spec｜Smart View</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
-  :root{
-    --ok:#1c7ed6; --ng:#e03131; --tx:#212529; --sub:#6c757d;
-    --bg:#f8f9fa; --bd:#dee2e6; --soft:#ffffff;
-  }
-  html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;height:100%}
-  .wrap{max-width:1200px;margin:0 auto;padding:12px}
-  .topbar{
-    position:sticky; top:0; z-index:10; display:flex; gap:10px; align-items:center; padding:10px 12px;
-    background:rgba(255,255,255,.95); border:1px solid var(--bd); border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.06);
-    margin-bottom:10px;
-  }
-  .topbar .spacer{flex:1 1 auto}
-  .chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:700}
-  .chip.ok{background:#e7f5ff;color:#1c7ed6;border-color:#a5d8ff}
-  .chip.ng{background:#fff5f5;color:#e03131;border-color:#ffc9c9}
-  .btn{padding:10px 16px;border-radius:10px;border:1px solid var(--bd);background:#fff;cursor:pointer;font-size:14px;font-weight:600;transition:.2s}
-  .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
-  .btn:disabled{opacity:.6;cursor:not-allowed}
-  .btn.sm{padding:6px 10px;font-size:12px}
-  .btn.lg{padding:12px 22px;font-size:14px;}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
-
-  .card{background:#fff;border:1px solid var(--bd);border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.06),0 1px 3px rgba(0,0,0,.04);padding:12px}
-  .title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 8px}
-  .title h2{margin:0;font-size:16px}
-  .muted{color:var(--sub);font-size:12px}
-
-  .stack{position:relative;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:#000}
-  video{display:block;width:100%;background:#000}
-  canvas{position:absolute;inset:0;pointer-events:none}
-  #freeze{z-index:1; display:none;}
-  #overlay{z-index:2;}
-
-  .section{margin-top:8px}
-  .kvs{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:14px}
-  .kvs b{color:#333}
-
-  .lockmark{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none}
-  .lockmark .em{font-size:70px; text-shadow:0 3px 10px rgba(0,0,0,.5); display:none}
-
-  .manual-inputs{
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
-    gap:6px;
-    margin-top:8px;
-    font-size:13px;
-  }
-  .manual-inputs label{
-    font-weight:600;
-  }
-  .manual-inputs select,
-  .manual-inputs input{
-    padding:6px 8px;
-    border-radius:8px;
-    border:1px solid var(--bd);
-    font-size:13px;
-    min-width:70px;
-    background:#fff;
+  :root {
+    --primary: #228be6; /* 青 */
+    --primary-bg: #e7f5ff;
+    --text: #343a40;
+    --text-sub: #868e96;
+    --bg: #f1f3f5;
+    --card-bg: #ffffff;
+    --border: #dee2e6;
+    --ok: #12b886; /* 緑 */
+    --ng: #fa5252; /* 赤 */
   }
 
-  .fig-block{
-    margin-bottom:10px;
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding-bottom: 40px;
   }
-  .fig-block-title{
-    font-size:12px;
-    color:var(--sub);
-    margin-bottom:4px;
+
+  .wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 16px;
   }
+
+  /* --- Header / Controls --- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card-bg);
+    padding: 12px 16px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    margin-bottom: 16px;
+    position: sticky;
+    top: 8px;
+    z-index: 100;
+  }
+  .top-controls { display: flex; gap: 10px; }
+  
+  .status-indicator {
+    font-size: 12px;
+    font-weight: bold;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: #eee;
+    color: #777;
+  }
+  .status-indicator.active { background: var(--primary-bg); color: var(--primary); }
+
+  /* --- Grid Layout --- */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 768px) {
+    .main-grid { grid-template-columns: 1fr; }
+  }
+
+  /* --- Cards --- */
+  .card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+  .card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: #f8f9fa;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .card-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #495057;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .card-body {
+    padding: 16px;
+  }
+
+  /* --- Camera Area --- */
+  .stack {
+    position: relative;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+  }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #freeze, #lockEmoji { display: none; }
+  
+  .lockmark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .lockmark .em { font-size: 60px; text-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+
+  .target-info {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: var(--primary-bg);
+    color: var(--primary);
+    border-radius: 8px;
+    font-weight: bold;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  /* --- Manual Input --- */
+  .manual-area {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .inp-group { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .inp-group label { font-size: 11px; color: var(--text-sub); font-weight: bold; }
+  .inp-control {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    width: 100%;
+    background: #fff;
+  }
+  .inp-control:focus { outline: 2px solid var(--primary-bg); border-color: var(--primary); }
+
+  /* --- Specs (Google Sheets) --- */
+  .spec-table {
+    display: grid;
+    grid-template-columns: 100px 1fr; /* ラベル幅固定 */
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .spec-row { display: contents; }
+  .spec-label {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    color: var(--text-sub);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+  }
+  .spec-val {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+    word-break: break-all;
+  }
+  .spec-row:last-child .spec-label,
+  .spec-row:last-child .spec-val { border-bottom: none; }
+
+  /* --- Files (Google Drive) --- */
+  .drive-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .drive-btn {
+    text-decoration: none;
+    background: #fff;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    flex: 1;
+    justify-content: center;
+    white-space: nowrap;
+  }
+  .drive-btn:hover { background: #f8f9fa; border-color: #adb5bd; }
+  .drive-btn.primary-btn { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .drive-btn.primary-btn:hover { opacity: 0.9; }
+
+  .fig-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .fig-block {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .fig-header {
+    font-size: 12px;
+    padding: 6px 10px;
+    background: #f1f3f5;
+    color: var(--text-sub);
+    border-bottom: 1px solid var(--border);
+  }
+  .fig-content iframe,
+  .fig-content img {
+    display: block;
+    width: 100%;
+    border: none;
+  }
+
+  /* --- Buttons --- */
+  .btn {
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: #1c7ed6; }
+  .btn-sub { background: #fff; border: 1px solid var(--border); color: var(--text); }
+  .btn-sub:disabled { background: #f1f3f5; color: #adb5bd; cursor: not-allowed; }
+
+  .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
 </style>
 </head>
 <body>
+
 <div class="wrap">
-
-  <!-- 最上段：最小の操作だけ -->
   <div class="topbar">
-    <button id="btnStart" class="btn primary">カメラ開始</button>
-    <button id="btnStop" class="btn" disabled>停止</button>
-    <span id="scanStatus" class="chip">待機中</span>
-    <span id="detectorInfo" class="chip muted"></span>
-    <div class="spacer"></div>
-    <span class="chip" id="csrfStatus">CSRF: 検査中…</span>
+    <div class="top-controls">
+      <button id="btnStart" class="btn btn-primary">カメラ開始</button>
+      <button id="btnStop" class="btn btn-sub" disabled>停止</button>
+    </div>
+    <div id="scanStatus" class="status-indicator">待機中</div>
   </div>
 
-  <div class="grid">
-    <!-- 左：カメラ -->
+  <div class="main-grid">
+    
     <div class="card">
-      <div class="title"><h2>スキャン</h2><span id="atState" class="muted"></span></div>
-      <div class="stack" id="stack">
-        <video id="video" playsinline webkit-playsinline muted></video>
-        <canvas id="freeze"></canvas>
-        <canvas id="overlay"></canvas>
-        <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
-        <!-- ★ scan-lookup と同じく「作業用キャンバス」として再利用 -->
-        <canvas id="scanCanvas" style="display:none"></canvas>
+      <div class="card-header">
+        <h2>📷 スキャン</h2>
+        <span id="detectorInfo" style="font-size:11px; color:#aaa">jsQR</span>
       </div>
-      <div id="errCam" class="muted" style="margin-top:6px;"></div>
-      <div class="muted" id="nowTarget" style="margin-top:6px;">ターゲット: — / —</div>
+      <div class="card-body">
+        <div class="stack" id="stack">
+          <video id="video" playsinline webkit-playsinline muted></video>
+          <canvas id="freeze"></canvas>
+          <canvas id="overlay"></canvas>
+          <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
+          <canvas id="scanCanvas" style="display:none"></canvas>
+        </div>
+        
+        <div id="nowTarget" class="target-info">ターゲット: — / —</div>
+        <div id="errCam" style="color:var(--ng); font-size:12px; margin-top:4px;"></div>
 
-      <!-- Book / wc 手入力エリア -->
-      <div class="manual-inputs">
-        <label for="inpBook">Book</label>
-        <select id="inpBook">
-          <option value="">—</option>
-          <option value="Ko">Ko</option>
-          <option value="Yo">Yo</option>
-          <option value="Ta">Ta</option>
-        </select>
-
-        <label for="inpWc">wc</label>
-        <input id="inpWc" type="text" inputmode="numeric" placeholder="例: 1234" />
-
-        <button id="btnManual" class="btn sm">照会</button>
+        <div class="manual-area">
+          <div class="inp-group" style="flex:0 0 80px;">
+            <label>Book</label>
+            <select id="inpBook" class="inp-control">
+              <option value="">-</option>
+              <option value="Ko">Ko</option>
+              <option value="Yo">Yo</option>
+              <option value="Ta">Ta</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label>WC (例: 1234)</label>
+            <input id="inpWc" type="text" inputmode="numeric" class="inp-control" placeholder="WorkCord" />
+          </div>
+          <button id="btnManual" class="btn btn-sub" style="align-self:flex-end; height:38px;">照会</button>
+        </div>
       </div>
     </div>
 
-    <!-- 右：結果（上：仕様 / 下：図面） -->
     <div class="card">
-      <div class="title"><h2>結果</h2><span id="loading" class="muted" style="display:none;">照会中…</span></div>
-
-      <!-- 仕様（Google Sheets） -->
-      <div class="section">
-        <h3 style="margin:0 0 6px;font-size:15px;">Google Sheets（仕様）</h3>
-        <div id="gsBox" class="kvs">
-          <div class="muted">（未取得）</div>
-        </div>
-        <div id="errApi" class="muted" style="margin-top:6px; display:none;"></div>
+      <div class="card-header">
+        <h2>📄 結果</h2>
+        <span id="loading" style="font-size:12px; color:var(--primary); display:none;">照会中...</span>
       </div>
-
-      <!-- 図面（Google Drive） -->
-      <div class="section" style="margin-top:14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <h3 style="margin:0 0 6px;font-size:15px;">Google Drive（図面）</h3>
-          <button id="btnShowFigure" class="btn lg" style="display:none;">図面表示</button>
+      
+      <div class="card-body">
+        <h3 style="font-size:14px; margin:0 0 8px; color:var(--text-sub);">基本スペック (Google Sheets)</h3>
+        <div id="gsBox">
+          <div class="msg-empty">データを取得していません</div>
         </div>
-        <div id="driveStatus" class="muted">—</div>
-        <div id="driveView" style="margin-top:6px;"></div>
+        <div id="errApi" style="color:var(--ng); font-size:12px; margin-top:6px;"></div>
+
+        <div style="margin-top:24px; border-top:1px solid var(--border); padding-top:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <h3 style="font-size:14px; margin:0; color:var(--text-sub);">関連ファイル (Google Drive)</h3>
+            <div id="driveStatus" style="font-size:11px; color:#aaa;"></div>
+          </div>
+
+          <div id="driveActions" class="drive-actions"></div>
+          <div id="driveView" class="fig-container"></div>
+        </div>
       </div>
     </div>
-  </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+  </div></div><script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
   const D = {
@@ -156,82 +326,63 @@
     btnStart: q('#btnStart'), btnStop: q('#btnStop'),
     detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'),
     errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
-    csrfStatus: q('#csrfStatus'), atState: q('#atState'),
-    lockEmoji: q('#lockEmoji'),
-    scanCanvas: q('#scanCanvas'),
-    // 手入力
+    lockEmoji: q('#lockEmoji'), scanCanvas: q('#scanCanvas'),
     inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
-    // 図面表示ボタン
-    btnShowFigure: q('#btnShowFigure'),
-    // 結果表示
     gsBox: q('#gsBox'),
-    driveStatus: q('#driveStatus'), driveView: q('#driveView'),
+    driveStatus: q('#driveStatus'), driveView: q('#driveView'), driveActions: q('#driveActions'),
     nowTarget: q('#nowTarget'),
   };
   function q(s){ return document.querySelector(s); }
 
-  const ctx        = D.overlay.getContext('2d',   { willReadFrequently:true });
-  const freezeCtx  = D.freeze.getContext('2d',    { willReadFrequently:true });
-  const scanCtx    = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
+  const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
+  const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
+  const scanCtx = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
 
-  if(D.atState){ D.atState.textContent = 'AT:OFF'; }
-
-  const CFG = { JSQR_MAX_LOOPS: 10 };
+  const CFG = { JSQR_MAX_LOOPS: 5 };
   const S = {
     stream: null, rafId: null,
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    drive: null,
   };
 
+  // --- CSRF & Cookie ---
   function readCookie(name){
     const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+'=([^;]*)'));
     return m ? decodeURIComponent(m[1]) : '';
   }
+  async function ensureCsrf(){
+    let t = readCookie('xcsrf');
+    if(!t){ 
+      const url = (location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host)) ? '/api/session?dev=1' : '/api/session';
+      await fetch(url,{method:'GET',credentials:'same-origin'}).catch(()=>{}); 
+      t = readCookie('xcsrf'); 
+    }
+    if(t) S.csrf = t;
+  }
+  document.addEventListener('DOMContentLoaded', ensureCsrf);
+
+  // --- Helpers ---
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
 
-  // --- CSRF
-  function isLocal(){ return location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host); }
-  async function requestSession(){ const url=isLocal()?'/api/session?dev=1':'/api/session'; await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{}); }
-  async function ensureCsrf(){
-    let t = readCookie('xcsrf');
-    if(!t){ await requestSession(); t = readCookie('xcsrf'); }
-    if(!t) throw new Error('CSRF Cookie(xcsrf)が取得できませんでした');
-    S.csrf = t;
-    D.csrfStatus.textContent = 'CSRF: 有効';
-    D.csrfStatus.className = 'chip ok';
-  }
-  document.addEventListener('DOMContentLoaded', async () => {
-    try{ await ensureCsrf(); }catch(e){ D.csrfStatus.textContent='CSRF: 未取得'; D.csrfStatus.className='chip ng'; }
-  });
-
-  // --- UI helpers
-  function setStatus(text, kind=''){
+  function setStatus(text, active=false){
     D.scanStatus.textContent = text;
-    D.scanStatus.className = 'chip' + (kind==='ok'?' ok':kind==='ng'?' ng':'');
+    if(active) D.scanStatus.classList.add('active');
+    else D.scanStatus.classList.remove('active');
   }
   function fitOverlay(){
     if(!D.video.videoWidth) return;
-    D.overlay.width  = D.video.videoWidth;
+    D.overlay.width = D.video.videoWidth;
     D.overlay.height = D.video.videoHeight;
-    D.overlay.style.width  = D.video.clientWidth+'px';
-    D.overlay.style.height = D.video.clientHeight+'px';
-    D.freeze.width  = D.video.videoWidth;
+    D.overlay.style.width = '100%'; 
+    D.overlay.style.height = '100%';
+    D.freeze.width = D.video.videoWidth;
     D.freeze.height = D.video.videoHeight;
-    D.freeze.style.width  = D.video.clientWidth+'px';
-    D.freeze.style.height = D.video.clientHeight+'px';
   }
 
-  // --- カメラ
-  function reallyStop(){
-    if(S.stream){
-      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch{}
-    }
-    S.stream=null;
-  }
+  // --- Camera Control ---
   function stopCam({keepFrame=false}={}){
     if(S.rafId) cancelAnimationFrame(S.rafId);
     S.rafId=null;
@@ -241,7 +392,10 @@
       D.lockEmoji.style.display='none';
       D.video.style.visibility='visible';
     }
-    reallyStop();
+    if(S.stream){ 
+        try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){} 
+        S.stream=null; 
+    }
     D.btnStart.disabled=false;
     D.btnStop.disabled=true;
     setStatus('停止中');
@@ -254,452 +408,296 @@
     S.locked=false;
     stopCam();
     D.errCam.textContent='';
+
     try{
+      // カメラ制約を緩和
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video:{
-          facingMode:{ideal:'environment'},
-          width:{ideal:1280,min:640,max:1920},
-          height:{ideal:720,min:480,max:1080},
-          advanced:[{focusMode:'continuous'}]
+        video: {
+          facingMode: { ideal: 'environment' },
+          // 制約を緩和（idealのみにする）
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         },
-        audio:false
+        audio: false
       });
       D.video.srcObject=S.stream;
       await D.video.play();
-
+      
       D.btnStart.disabled=true;
       D.btnStop.disabled=false;
-
-      fitOverlay();
-
-      // ★ jsQR / BarcodeDetector 用の作業キャンバスを「フル解像度」に
-      const vw = D.video.videoWidth  || 1280;
-      const vh = D.video.videoHeight || 720;
-      D.scanCanvas.width  = vw;
-      D.scanCanvas.height = vh;
-
-      // ★ BarcodeDetector の準備（scan-lookup と同じ）
-      if(S.useBarcodeDetector){
-        try{
-          const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
-            ? await BarcodeDetector.getSupportedFormats()
-            : [];
-          if(!fmts || !fmts.includes('qr_code')) throw 0;
-          S.detector = new BarcodeDetector({formats:['qr_code']});
-        }catch{
-          S.useBarcodeDetector = false;
-          S.detector = null;
-        }
+      
+      
+      // BarcodeDetector Setup
+    if(S.useBarcodeDetector){
+      try{
+        const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+          ? await BarcodeDetector.getSupportedFormats()
+          : [];
+        if(!fmts || !fmts.includes('qr_code')) throw 0;
+        S.detector = new BarcodeDetector({formats:['qr_code']});
+      }catch{
+        S.useBarcodeDetector = false;
+        S.detector = null;
       }
-
+    }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BD+jsQR' : 'jsQR';
-      setStatus('探索中…');
-      tick();   // ★ Android 対応版 tick
+      
+      fitOverlay();
+      D.scanCanvas.width = D.video.videoWidth || 1280;
+      D.scanCanvas.height = D.video.videoHeight || 720;
+      
+      setStatus('スキャン中', true);
+      tick();
     }catch(e){
-      D.errCam.textContent=`❌ ${e.name||''} ${e.message||e}`;
-      setStatus('カメラエラー','ng');
+      console.error(e);
+      D.errCam.textContent = `カメラ起動エラー: ${e.name} ${e.message}`;
+      setStatus('エラー');
     }
   }
 
   function freezeAndLock(){
-    try{
-      fitOverlay();
-      freezeCtx.clearRect(0,0,D.freeze.width,D.freeze.height);
-      freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
-      D.freeze.style.display='block';
-      D.video.style.visibility='hidden';
-      D.lockEmoji.style.display='block';
-      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-    }catch{}
-    setStatus('ロック完了','ok');
+    fitOverlay();
+    freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
+    D.freeze.style.display='block';
+    D.video.style.visibility='hidden';
+    D.lockEmoji.style.display='block';
+    ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
     stopCam({keepFrame:true});
+    setStatus('ロック完了');
   }
 
-  // --- 共通描画
-  function drawBox(points){
-    if(!points || points.length<4) return;
-    ctx.save();
-    ctx.lineWidth=5;
-    ctx.strokeStyle='#1c7ed6';
-    ctx.shadowColor='#1c7ed6';
-    ctx.shadowBlur=6;
-    ctx.beginPath();
-    ctx.moveTo(points[0].x,points[0].y);
-    for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // --- 種別判定 & パーサ（元コードをそのまま利用）
-  function classify(raw){
-    const t=normHyphen(raw);
-    if(/^order[_-]?plain/i.test(t) || /^order-/i.test(t)) return 'order';
-    if(/^die-/i.test(t)) return 'die';
-    try{
-      const u=new URL(t);
-      if(/order[_-]?plain/i.test(u.pathname+u.search)) return 'order';
-      if(u.searchParams.has('book') || u.searchParams.has('wc')) return 'die';
-    }catch{}
-    return 'other';
-  }
-  function parseOrder(raw){
-    const t=normHyphen(raw);
-    try{
-      const u=new URL(t);
-      if(/order[_-]?plain/i.test(u.pathname+u.search)){
-        const book=(u.searchParams.get('book')||u.searchParams.get('Book')||'').trim();
-        const wc  =(u.searchParams.get('wc')||u.searchParams.get('WorkCord')||'').trim();
-        if(book||wc) return { bn:book, wc:wc };
-      }
-    }catch{}
-    const m=/order[_-]?plain[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t) || /^order-([^-\n]+)-([^-]+)/i.exec(t);
-    return m ? { bn:m[1].trim(), wc:m[2].trim() } : null;
-  }
-  function parseDie(raw){
-    const t=normHyphen(raw);
-    const m=/^die-([^-\n]+)-([^-]+)/i.exec(t);
-    if(m) return { bn:m[1].trim(), wc:m[2].trim() };
-    try{
-      const u=new URL(t);
-      const book=(u.searchParams.get('book')||'').trim();
-      const wc  =(u.searchParams.get('wc')||'').trim();
-      if(book||wc) return { bn:book, wc:wc };
-    }catch{}
-    return null;
-  }
-
-  function setTarget(book,wc){
-    S.current.book=(book||'').trim();
-    S.current.wc  =(wc||'').trim();
-    D.nowTarget.textContent = `ターゲット: ${S.current.book||'—'} / ${S.current.wc||'—'}`;
-    if(D.inpBook) D.inpBook.value = S.current.book || '';
-    if(D.inpWc)   D.inpWc.value   = S.current.wc   || '';
-  }
-
-  // === Android 対応: scan-lookup と同じ「canvas→BD+jsQR」検出 ===
+  // --- Detection Logic ---
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
-
-    const w = D.scanCanvas.width  = D.video.videoWidth;
-    const h = D.scanCanvas.height = D.video.videoHeight;
-
-    // ビデオフレームを作業キャンバスへ
+    const w = D.scanCanvas.width, h = D.scanCanvas.height;
     scanCtx.drawImage(D.video, 0, 0, w, h);
-
+    
     const detections = [];
-
-    // 1) BarcodeDetector（あれば）
+    // 1. BarcodeDetector
     if(S.useBarcodeDetector && S.detector){
       try{
         const codes = await S.detector.detect(D.scanCanvas);
-        if(codes && codes.length){
-          for(const c of codes){
-            detections.push({
-              rawValue: (c.rawValue || '').trim(),
-              cornerPoints: (c.cornerPoints || []).map(p=>({x:p.x, y:p.y}))
-            });
-          }
-        }
-      }catch(e){
-        console.warn('BarcodeDetector failed, fallback to jsQR only.', e);
-        S.useBarcodeDetector = false;
-        S.detector = null;
-        D.detectorInfo.textContent = 'jsQR';
-      }
+        codes.forEach(c => detections.push({ raw: c.rawValue, pts: c.cornerPoints }));
+      }catch(e){ S.useBarcodeDetector=false; }
     }
-
-    // 2) jsQR 複数回（mask 方式）
-    const imgData    = scanCtx.getImageData(0,0,w,h);
-    const maskedData = new Uint8ClampedArray(imgData.data);  // コピー
-
-    for(let k=0; k<CFG.JSQR_MAX_LOOPS; k++){
-      const hit = jsQR(maskedData, imgData.width, imgData.height, { inversionAttempts:'dontInvert' });
-      if(!hit) break;
-
-      const raw = (hit.data || '').trim();
-      if(raw && !detections.some(d=>d.rawValue===raw)){
-        const pts = [
-          hit.location.topLeftCorner,
-          hit.location.topRightCorner,
-          hit.location.bottomRightCorner,
-          hit.location.bottomLeftCorner
-        ].map(p=>({x:p.x, y:p.y}));
-        detections.push({ rawValue: raw, cornerPoints: pts });
-      }
-
-      const tl = hit.location.topLeftCorner;
-      const br = hit.location.bottomRightCorner;
-      for(let y=Math.floor(tl.y); y<Math.ceil(br.y); y++){
-        for(let x=Math.floor(tl.x); x<Math.ceil(br.x); x++){
-          const i=(y*imgData.width+x)*4;
-          maskedData[i]=maskedData[i+1]=maskedData[i+2]=255;
-        }
-      }
+    
+    // 2. jsQR (Fallback)
+    const imgData = scanCtx.getImageData(0,0,w,h);
+    const hit = jsQR(imgData.data, w, h, { inversionAttempts:'dontInvert' });
+    if(hit && !detections.some(d=>d.raw===hit.data)){
+      detections.push({
+        raw: hit.data,
+        pts: [hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner]
+      });
     }
-
     return detections;
   }
 
   async function tick(){
     if(!S.stream) return;
-
     if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
       fitOverlay();
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-
-      const detections = await detectCombined();
-
-      // 何か読めたら、最初に book / wc が取れるものを採用
-      for(const d of detections){
-        const raw = (d.rawValue || '').trim();
+      
+      const dets = await detectCombined();
+      for(const d of dets){
+        const raw = (d.raw||'').trim();
         if(!raw) continue;
-
-        const kind = classify(raw);
+        
         let bn='', wc='';
-
-        if(kind === 'order'){
-          const od = parseOrder(raw);
-          if(od){ bn=od.bn||''; wc=od.wc||''; }
-        }else if(kind === 'die'){
-          const dd = parseDie(raw);
-          if(dd){ bn=dd.bn||''; wc=dd.wc||''; }
+        const t = normHyphen(raw);
+        
+        // 1. URLパラメータ形式 (order-plain, die-plain など)
+        // 例: https://.../order-plain?book=Ko&wc=1234
+        if(/order[_-]?(plain|check)|die[_-]?check/i.test(t)){
+           try{
+             // URLとしてパースを試みる
+             const u = new URL(t);
+             bn = u.searchParams.get('book') || u.searchParams.get('Book') || '';
+             wc = u.searchParams.get('wc') || u.searchParams.get('WorkCord') || '';
+           }catch(e){
+             // URLでない場合、もしパス形式なら?
+           }
+        } 
+        
+        // 2. パスパラメータ形式 (die-Ko-1234)
+        // 上記で取れていなければ試行
+        if((!bn || !wc) && /^(die|order)-([^-]+)-([^-]+)/i.test(t)){
+           const m = /^(die|order)-([^-\n]+)-([^-]+)/i.exec(t);
+           if(m){ 
+             bn = m[2]; 
+             wc = m[3]; 
+           }
         }
 
-        if(bn || wc){
-          // 座標を overlay にスケール（video と同サイズなのでほぼ 1:1）
-          const sx = D.overlay.width  / D.scanCanvas.width;
-          const sy = D.overlay.height / D.scanCanvas.height;
-          const pts = (d.cornerPoints||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
-          drawBox(pts);
+        // 3. 万が一 order-Ko-1234 のような単純文字列ではなくURLのパスに含まれている場合への対応強化
+        // 例: https://.../order-Ko-1234
+        if((!bn || !wc)){
+             // URLかもしれないのでパス部分だけ取り出してチェック
+             try {
+                const u = new URL(t);
+                const path = u.pathname; // /order-Ko-1234
+                const m = /(?:^|\/)(die|order)-([^-\/]+)-([^-\/]+)/i.exec(path);
+                if(m){
+                    bn = m[2];
+                    wc = m[3];
+                }
+             } catch {}
+        }
 
-          setTarget(bn,wc);
-          S.locked=true;
-          freezeAndLock();
-          S.lastQueryKey='';
-          querySpec();
-          return; // ロックしたら tick 終了
+        if(bn && wc){
+           const sx = D.overlay.width / D.scanCanvas.width;
+           const sy = D.overlay.height / D.scanCanvas.height;
+           const pts = (d.pts||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
+           if(pts.length===4){
+             ctx.strokeStyle='#228be6'; ctx.lineWidth=4; 
+             ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+             for(let i=1;i<4;i++) ctx.lineTo(pts[i].x,pts[i].y);
+             ctx.closePath(); ctx.stroke();
+           }
+           setTarget(bn, wc);
+           S.locked=true;
+           freezeAndLock();
+           querySpec();
+           return; 
         }
       }
     }
-
     S.rafId = requestAnimationFrame(tick);
   }
 
-  // --- API: GSheets → Drive は元のまま ---
-  async function querySpec(){
-    const book=S.current.book, wc=S.current.wc;
-    if(!book || !wc) return;
-    const key=dieKey(book,wc);
-    if(key===S.lastQueryKey) return;
-    S.lastQueryKey=key;
+  function setTarget(bn, wc){
+    S.current.book = bn.trim();
+    S.current.wc = wc.trim();
+    D.nowTarget.textContent = `ターゲット: ${S.current.book} / ${S.current.wc}`;
+    D.inpBook.value = S.current.book;
+    D.inpWc.value = S.current.wc;
+  }
 
-    D.errApi.style.display='none';
+  // --- API & Rendering ---
+  async function querySpec(){
+    const {book, wc} = S.current;
+    if(!book || !wc) return;
+    const key = dieKey(book, wc);
+    if(key===S.lastQueryKey) return;
+    S.lastQueryKey = key;
+
     D.errApi.textContent='';
     D.loading.style.display='inline';
-    D.gsBox.innerHTML = `<div class="muted">取得中…</div>`;
-    D.driveStatus.textContent = '—';
+    D.gsBox.innerHTML = '<div class="msg-empty">読み込み中...</div>';
+    D.driveActions.innerHTML = '';
     D.driveView.innerHTML = '';
-    S.drive = null;
-    if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+    D.driveStatus.textContent = '';
 
     try{
-      if(!S.csrf) await ensureCsrf();
+      await ensureCsrf();
       const r = await fetch('/api/die-check', {
-        method:'POST', credentials:'same-origin',
-        headers:{ 'Content-Type':'application/json', 'X-CSRF': S.csrf },
-        body: JSON.stringify({ book, wc, json:true, limit: 0, noAirtable: true, gsOnly: true })
+        method:'POST', headers:{ 'Content-Type':'application/json', 'X-CSRF':S.csrf },
+        body: JSON.stringify({ book, wc, json:true, limit:0, noAirtable:true, gsOnly:true })
       });
-      const txt=await r.text(); let j={};
-      try{ j=JSON.parse(txt); }catch{ throw new Error(`JSON Parse error: ${txt.slice(0,200)}`); }
-      if(!r.ok || j.ok!==true) throw new Error(j?.error || `HTTP ${r.status}: ${txt.slice(0,200)}`);
-      renderSpecAndDrive(j);
+      const j = await r.json();
+      if(!j.ok) throw new Error(j.error||'API Error');
+      
+      renderSpecs(j.gs);
+      await findDriveFiles(book, wc);
+      
     }catch(e){
-      D.errApi.style.display='block';
-      D.errApi.textContent=`❌ APIエラー: ${e?.message||e}`;
-      D.gsBox.innerHTML = `<div class="muted">（Google Sheets を取得できませんでした）</div>`;
+      D.errApi.textContent = e.message;
+      D.gsBox.innerHTML = '<div class="msg-empty">取得失敗</div>';
     }finally{
       D.loading.style.display='none';
     }
   }
 
-  function renderSpecAndDrive(payload){
-    const { gs, book, workcord } = payload || {};
-    if(gs){
-      D.gsBox.innerHTML = `
-        <div class="kvs">
-          <b>ItemName</b><div>${esc(gs.ItemName||'')}</div>
-          <b>Kname</b><div>${esc(gs.Kname||'')}</div>
-          <b>Material</b><div>${esc(gs.Material||'')}</div>
-          <b>Paper_Size</b><div>${esc(gs.Paper_Size||'')}</div>
-          <b>Cut_Size</b><div>${esc(gs.Cut_Size||'')}</div>
-          <b>Location</b><div>${esc(gs.Location||'')}</div>
-          <b>LastSeen</b><div>${esc(gs.LastSeen||'')}</div>
-          <b>Ndate</b><div>${esc(gs.Ndate||'')}</div>
-        </div>`;
-    }else{
-      D.gsBox.innerHTML = `<div class="muted">（Google Sheets に一致行なし）</div>`;
-    }
-    const b = (book||'').trim();
-    const w = (workcord||'').trim();
-    openDriveFigure(b, w);
-  }
-
-  async function openDriveFigure(book, wc){
-    if(!book || !wc){
-      D.driveStatus.textContent = 'Book/WC 未指定';
-      D.driveView.innerHTML = '';
-      S.drive = null;
-      if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+  function renderSpecs(gs){
+    if(!gs){
+      D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
       return;
     }
-    D.driveStatus.textContent = '検索中…';
-    D.driveView.innerHTML = '';
-    S.drive = null;
-    if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+    const fields = [
+      {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'}, 
+      {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'}, 
+      {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'}, 
+      {k:'LastSeen', l:'確認日'}
+    ];
+    let html = '<div class="spec-table">';
+    fields.forEach(f => {
+      const val = gs[f.k] || '-';
+      html += `<div class="spec-row"><div class="spec-label">${esc(f.l)}</div><div class="spec-val">${esc(val)}</div></div>`;
+    });
+    html += '</div>';
+    D.gsBox.innerHTML = html;
+  }
 
+  async function findDriveFiles(book, wc){
+    D.driveStatus.textContent = '検索中...';
     try{
-      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`, { credentials:'same-origin', cache:'no-store' });
-      if(!r.ok){
-        const t=await r.text().catch(()=> '');
-        throw new Error(`drive-find HTTP ${r.status}: ${t.slice(0,200)}`);
-      }
-      const j = await r.json().catch(()=> ({}));
-      if(j?.ok !== true){
-        D.driveStatus.textContent = 'NG: 応答不正';
-        return;
-      }
-      const cands = Array.isArray(j.candidates) && j.candidates.length
-        ? j.candidates
-        : (j.fileId ? [{ id: j.fileId, name: j.fileName || `${book}-${wc}` }] : []);
+      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`);
+      const j = await r.json();
+      if(!j.ok){ D.driveStatus.textContent='検索エラー'; return; }
 
-      if(cands.length===0){
-        D.driveStatus.textContent = '一致ファイルなし';
-        D.driveView.innerHTML = '';
-        S.drive = null;
-        if(D.btnShowFigure) D.btnShowFigure.style.display='none';
+      const cands = j.candidates || (j.fileId ? [{id:j.fileId, name:j.fileName}] : []);
+      if(!cands.length){
+        D.driveStatus.textContent = 'ファイルなし';
         return;
       }
 
-      const score = fn => {
-        const n = (fn?.name||'').toLowerCase();
-        const isPdf = n.endsWith('.pdf');
-        const isImg = /\.(jpeg|jpg|png)$/.test(n);
-        const hasZu = /-zu\.(jpeg|jpg|png)$/.test(n);
-        const hasSi = /-si\.(jpeg|jpg|png)$/.test(n);
-        if(isImg && hasZu) return 1;
-        if(isImg && hasSi) return 2;
-        if(isImg)          return 3;
-        if(isPdf)          return 9;
-        return 99;
+      D.driveStatus.textContent = `${cands.length}件ヒット`;
+      
+      const score = n => {
+        n = n.toLowerCase();
+        if(/-zu\./.test(n)) return 1;
+        if(/-si\./.test(n)) return 2;
+        if(n.endsWith('.pdf')) return 3;
+        return 9;
       };
-      cands.sort((a,b)=> score(a)-score(b));
+      cands.sort((a,b) => score(a.name||'') - score(b.name||''));
 
-      const primary = cands[0];
-      const primaryName = primary.name || `${book}-${wc}`;
-      const primaryId   = primary.id;
-      const primaryIsPdf = (primaryName||'').toLowerCase().endsWith('.pdf');
-
-      const primaryPreviewUrl = `https://drive.google.com/file/d/${encodeURIComponent(primaryId)}/preview`;
-      const primaryViewUrl    = primaryIsPdf
-        ? primaryPreviewUrl
-        : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(primaryId)}`;
-
-      S.drive = {
-        previewUrl: primaryPreviewUrl,
-        viewUrl: primaryViewUrl,
-        isPdf: primaryIsPdf,
-        name: primaryName,
-        id: primaryId
-      };
-
-      let html = '';
-      for(const fn of cands){
-        const name = fn.name || `${book}-${wc}`;
-        const id   = fn.id;
-        const isPdf = (name||'').toLowerCase().endsWith('.pdf');
-        const previewUrl = `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`;
-        const viewUrl    = isPdf
-          ? previewUrl
-          : `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}`;
-
-        const label =
-          /-zu\./i.test(name) ? '図面(zu)'
-          : /-si\./i.test(name) ? 'シール(si)'
-          : isPdf ? 'PDF'
-          : '画像';
-
-        if(isPdf){
-          html += `
-            <div class="fig-block">
-              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
-              <iframe src="${previewUrl}" style="width:100%;height:50vh;border:1px solid #e9ecef;border-radius:10px"></iframe>
-            </div>`;
-        }else{
-          html += `
-            <div class="fig-block">
-              <div class="fig-block-title">${esc(label)} : ${esc(name)}</div>
-              <a href="${previewUrl}" target="_blank" rel="noopener">
-                <img src="${viewUrl}" alt="${esc(name)}" style="max-width:100%;height:auto;border:1px solid #e9ecef;border-radius:10px;background:#fff" />
-              </a>
-            </div>`;
+      // Actions (Buttons)
+      let btnHtml = '';
+      cands.forEach(f => {
+        const name = f.name || '';
+        const isPdf = /\.pdf$/i.test(name);
+        
+        // 【修正】PDFならビューア、画像なら直リンク(UIなし)にする
+        let url;
+        if (isPdf) {
+            // PDFはビューアでないとダウンロードされてしまうことがあるため view のまま
+            url = `https://drive.google.com/file/d/${f.id}/view`;
+        } else {
+            // 画像（-zu, -siなど）は GoogleのUIを挟まない直リンクにする
+            url = `https://drive.google.com/uc?export=view&id=${f.id}`;
         }
-      }
+        
+        let label = 'ファイル';
+        let icon = '📄';
+        let styleClass = 'drive-btn';
 
-      D.driveView.innerHTML = html;
-      D.driveStatus.textContent = `ヒット: ${cands.length}件`;
+        if(/-zu\./i.test(name)) { label = '図面 (-zu)'; icon='📐'; styleClass+=' primary-btn'; }
+        else if(/-si\./i.test(name)) { label = 'シール (-si)'; icon='🏷️'; }
+        else if(/\.pdf$/i.test(name)) { label = 'PDF'; icon='📑'; }
 
-      if(D.btnShowFigure) D.btnShowFigure.style.display='inline-block';
-    }catch(e){
-      console.error(e);
-      D.driveStatus.textContent = `NG: ${e?.message||e}`;
-      D.driveView.innerHTML = '';
-      S.drive = null;
-      if(D.btnShowFigure) D.btnShowFigure.style.display='none';
-    }
-  }
-
-  if(D.btnShowFigure){
-    D.btnShowFigure.addEventListener('click', () => {
-      if(!S.drive) return;
-      const { previewUrl, name } = S.drive;
-      window.open(previewUrl, '_blank', 'noopener');
-      D.driveStatus.textContent = `別ウィンドウで表示中: ${name||'-'}`;
-    });
-  }
-
-  // --- イベント
-  D.btnStart.addEventListener('click', startCam);
-  D.btnStop.addEventListener('click', () => stopCam());
-  window.addEventListener('resize', fitOverlay);
-
-  // 手入力からの照会
-  if(D.btnManual){
-    D.btnManual.addEventListener('click', () => {
-      const b = (D.inpBook?.value||'').trim();
-      const w = normHyphen((D.inpWc?.value||'').trim());
-      if(!b || !w){
-        D.errApi.style.display='block';
-        D.errApi.textContent = '❗ Book と wc を入力してください。';
-        return;
-      }
-      D.errApi.style.display='none';
-      D.errApi.textContent='';
-      setTarget(b,w);
-      S.locked=false;
-      S.lastQueryKey='';
-      querySpec();
-    });
-
-    if(D.inpWc){
-      D.inpWc.addEventListener('keydown', (e) => {
-        if(e.key === 'Enter'){
-          e.preventDefault();
-          D.btnManual.click();
-        }
+        btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
       });
+      D.driveActions.innerHTML = btnHtml;
+
+    }catch(e){
+      D.driveStatus.textContent = '検索失敗';
     }
   }
+
+  D.btnStart.onclick = startCam;
+  D.btnStop.onclick = () => stopCam();
+  window.onresize = fitOverlay;
+
+  D.btnManual.onclick = () => {
+    const b = D.inpBook.value.trim();
+    const w = normHyphen(D.inpWc.value.trim());
+    if(!b || !w){ alert('BookとWCを入力してください'); return; }
+    setTarget(b, w);
+    S.locked=false; S.lastQueryKey='';
+    querySpec();
+  };
 
 })();
 </script>
