@@ -390,14 +390,7 @@
     D.freeze.width = D.video.videoWidth;
     D.freeze.height = D.video.videoHeight;
   }
-  async function waitVideoSize(timeoutMs = 2000){
-    const t0 = performance.now();
-    while(performance.now() - t0 < timeoutMs){
-      if(D.video.videoWidth > 0 && D.video.videoHeight > 0) return true;
-      await new Promise(r => requestAnimationFrame(r));
-    }
-    return false;
-  }
+  
 
   // --- Camera Control ---
   function stopCam({keepFrame=false}={}){
@@ -439,18 +432,19 @@
       });
       D.video.srcObject=S.stream;
       await D.video.play();
-      // ★追加：最初の1回だけ、解像度が確定するまで待つ
-      await waitVideoSize();
+      // ★追加：解像度が確定するまで待つ（失敗したらエラー表示して止める）
+      const ok = await waitVideoSize();
+      if(!ok) throw new Error('カメラ解像度が確定しませんでした');
 
-      // ここから先で canvas サイズを確定させる
       fitOverlay();
       D.scanCanvas.width  = D.video.videoWidth;
       D.scanCanvas.height = D.video.videoHeight;
 
+      D.btnStart.disabled = true;
+      D.btnStop.disabled  = false;
+
       setStatus('スキャン中', true);
       tick();
-      D.btnStart.disabled=true;
-      D.btnStop.disabled=false;
       
       
       // BarcodeDetector Setup
