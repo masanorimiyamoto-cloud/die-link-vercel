@@ -2,20 +2,19 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>scan-spec｜Smart View (Enhanced Logic)</title>
+<title>scan-spec｜Smart View</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <style>
   :root {
-    --primary: #228be6;
+    --primary: #228be6; /* 青 */
     --primary-bg: #e7f5ff;
     --text: #343a40;
     --text-sub: #868e96;
     --bg: #f1f3f5;
     --card-bg: #ffffff;
     --border: #dee2e6;
-    --ok: #12b886;
-    --ng: #fa5252;
-    --warn: #f59f00;
+    --ok: #12b886; /* 緑 */
+    --ng: #fa5252; /* 赤 */
   }
 
   * { box-sizing: border-box; }
@@ -33,7 +32,7 @@
     padding: 16px;
   }
 
-  /* --- Header --- */
+  /* --- Header / Controls --- */
   .topbar {
     display: flex;
     align-items: center;
@@ -59,7 +58,7 @@
   }
   .status-indicator.active { background: var(--primary-bg); color: var(--primary); }
 
-  /* --- Grid --- */
+  /* --- Grid Layout --- */
   .main-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -101,7 +100,7 @@
     padding: 16px;
   }
 
-  /* --- Camera --- */
+  /* --- Camera Area --- */
   .stack {
     position: relative;
     background: #000;
@@ -146,11 +145,12 @@
     width: 100%;
     background: #fff;
   }
+  .inp-control:focus { outline: 2px solid var(--primary-bg); border-color: var(--primary); }
 
-  /* --- Specs --- */
+  /* --- Specs (Google Sheets) --- */
   .spec-table {
     display: grid;
-    grid-template-columns: 100px 1fr;
+    grid-template-columns: 100px 1fr; /* ラベル幅固定 */
     font-size: 14px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -174,8 +174,13 @@
   .spec-row:last-child .spec-label,
   .spec-row:last-child .spec-val { border-bottom: none; }
 
-  /* --- Drive Files --- */
-  .drive-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  /* --- Files (Google Drive) --- */
+  .drive-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
   .drive-btn {
     text-decoration: none;
     background: #fff;
@@ -197,13 +202,39 @@
   .drive-btn.primary-btn { background: var(--primary); color: #fff; border-color: var(--primary); }
   .drive-btn.primary-btn:hover { opacity: 0.9; }
 
-  .fig-container { display: flex; flex-direction: column; gap: 16px; }
-  .fig-content iframe, .fig-content img { display: block; width: 100%; border: none; }
+  .fig-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .fig-block {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .fig-header {
+    font-size: 12px;
+    padding: 6px 10px;
+    background: #f1f3f5;
+    color: var(--text-sub);
+    border-bottom: 1px solid var(--border);
+  }
+  .fig-content iframe,
+  .fig-content img {
+    display: block;
+    width: 100%;
+    border: none;
+  }
 
   /* --- Buttons --- */
   .btn {
-    border: none; border-radius: 8px; padding: 8px 16px;
-    font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
   }
   .btn-primary { background: var(--primary); color: #fff; }
   .btn-primary:hover { background: #1c7ed6; }
@@ -280,16 +311,14 @@
             <h3 style="font-size:14px; margin:0; color:var(--text-sub);">関連ファイル (Google Drive)</h3>
             <div id="driveStatus" style="font-size:11px; color:#aaa;"></div>
           </div>
+
           <div id="driveActions" class="drive-actions"></div>
           <div id="driveView" class="fig-container"></div>
         </div>
       </div>
     </div>
 
-  </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+  </div></div><script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
   const D = {
@@ -309,76 +338,13 @@
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
   const scanCtx = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
 
+  const CFG = { JSQR_MAX_LOOPS: 5 };
   const S = {
     stream: null, rafId: null,
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
-    holdTimer: null
   };
-
-  // --- 1. Logic from "Good" Code (移植した高精度ロジック) ---
-  
-  // ハイフン正規化
-  const normalizeHyphen = s => (s||"").replace(/[‐-‒–—―ー−]/g,"-").trim();
-
-  // 分類 (die / order / loc / other)
-  const classify = (raw) => {
-    const text = normalizeHyphen((raw || "").trim());
-    if (/^loc-/i.test(text)) return "loc"; // 今回のUIではlocは使わないがロジックとして残す
-    try { const url = new URL(text); if (url.searchParams.has("loc")) return "loc"; } catch {}
-    
-    if (/^die-/i.test(text)) return "die";
-    try { const url = new URL(text); if (url.searchParams.has("book") || url.searchParams.has("wc")) return "die"; } catch {}
-    
-    if (/^order-/i.test(text)) return "order";
-    if (/order[_-]?plain/i.test(text)) return "order";
-    try { const url = new URL(text); if (/order[_-]?plain/i.test(url.pathname + url.search)) return "order"; } catch {}
-    
-    return "other";
-  };
-
-  // Die (抜型) パース
-  const parseDie = (raw) => {
-    const t = normalizeHyphen((raw || "").trim());
-    // format: die-Ko-1234
-    let m = /^die-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(t);
-    if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-    
-    // format: URL param
-    try { 
-        const u=new URL(t); 
-        const bn=(u.searchParams.get("book")||"").trim(); 
-        const wc=(u.searchParams.get("wc")||"").trim(); 
-        if(bn||wc) return { bn, wc }; 
-    } catch {}
-    return null;
-  };
-
-  // Order (作業指示) パース - これが強力
-  const parseOrderPlain = (raw) => {
-    const t = normalizeHyphen((raw || "").trim());
-    
-    // format: order-Ko-1234
-    let m = /^order-([^-\n]+)-([^-]+)(?:-(.+))?$/i.exec(t);
-    if (m) return { bn: m[1].trim(), wc: m[2].trim() };
-    
-    // format: URL order-plain?book=...
-    try {
-      const url = new URL(t);
-      if (/order[_-]?plain/i.test(url.pathname + url.search)) {
-        const book = (url.searchParams.get("book") || url.searchParams.get("Book") || "").trim();
-        const wc   = (url.searchParams.get("wc")   || url.searchParams.get("WorkCord") || "").trim();
-        if (book || wc) return { bn: book, wc };
-      }
-    } catch {}
-    
-    // format: order plain: Ko 1234 (スペース区切りなど)
-    m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t);
-    return m ? { bn: m[1].trim(), wc: m[2].trim() } : null;
-  };
-  // ---------------------------------------------------------
-
 
   // --- CSRF & Cookie ---
   function readCookie(name){
@@ -396,8 +362,10 @@
   }
   document.addEventListener('DOMContentLoaded', ensureCsrf);
 
+  // --- Helpers ---
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
+  function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
 
   function setStatus(text, active=false){
     D.scanStatus.textContent = text;
@@ -413,68 +381,88 @@
     D.freeze.width = D.video.videoWidth;
     D.freeze.height = D.video.videoHeight;
   }
+  async function waitVideoSize(timeoutMs = 2000){
+    const t0 = performance.now();
+    while(performance.now() - t0 < timeoutMs){
+      if(D.video.videoWidth > 0 && D.video.videoHeight > 0) return true;
+      await new Promise(r => requestAnimationFrame(r));
+    }
+    return false;
+  }
 
-  // --- Camera ---
+  // --- Camera Control ---
   function stopCam({keepFrame=false}={}){
     if(S.rafId) cancelAnimationFrame(S.rafId);
     S.rafId=null;
-    if(S.holdTimer) clearTimeout(S.holdTimer);
-    
     if(!keepFrame){
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       D.freeze.style.display='none';
       D.lockEmoji.style.display='none';
       D.video.style.visibility='visible';
     }
-    if(S.stream){ try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){} S.stream=null; }
-    D.btnStart.disabled=false; D.btnStop.disabled=true;
+    if(S.stream){ 
+        try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){} 
+        S.stream=null; 
+    }
+    D.btnStart.disabled=false;
+    D.btnStop.disabled=true;
     setStatus('停止中');
   }
 
   async function startCam(){
-    D.freeze.style.display='none'; D.video.style.visibility='visible'; D.lockEmoji.style.display='none';
-    S.locked=false; stopCam(); D.errCam.textContent='';
+    D.freeze.style.display='none';
+    D.video.style.visibility='visible';
+    D.lockEmoji.style.display='none';
+    S.locked=false;
+    stopCam();
+    D.errCam.textContent='';
 
     try{
+      // カメラ制約を緩和
       S.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          // 制約を緩和（idealのみにする）
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       });
       D.video.srcObject=S.stream;
       await D.video.play();
       
-      D.btnStart.disabled=true; D.btnStop.disabled=false;
+      D.btnStart.disabled=true;
+      D.btnStop.disabled=false;
       
-      if(S.useBarcodeDetector){
-        try{
-          const fmts = await BarcodeDetector.getSupportedFormats();
-          if(fmts && fmts.includes('qr_code')) S.detector = new BarcodeDetector({formats:['qr_code']});
-          else S.useBarcodeDetector=false;
-        }catch{ S.useBarcodeDetector=false; }
+      
+      // BarcodeDetector Setup
+    if(S.useBarcodeDetector){
+      try{
+        const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+          ? await BarcodeDetector.getSupportedFormats()
+          : [];
+        if(!fmts || !fmts.includes('qr_code')) throw 0;
+        S.detector = new BarcodeDetector({formats:['qr_code']});
+      }catch{
+        S.useBarcodeDetector = false;
+        S.detector = null;
       }
+    }
       D.detectorInfo.textContent = S.useBarcodeDetector ? 'BD+jsQR' : 'jsQR';
+      
       fitOverlay();
       D.scanCanvas.width = D.video.videoWidth || 1280;
       D.scanCanvas.height = D.video.videoHeight || 720;
+      
       setStatus('スキャン中', true);
       tick();
     }catch(e){
-      D.errCam.textContent = `カメラエラー: ${e.name}`;
+      console.error(e);
+      D.errCam.textContent = `カメラ起動エラー: ${e.name} ${e.message}`;
       setStatus('エラー');
     }
   }
-
-  function drawBox(pts, color){
-     const sx = D.overlay.width / D.scanCanvas.width;
-     const sy = D.overlay.height / D.scanCanvas.height;
-     const p = (pts||[]).map(pt=>({x:pt.x*sx, y:pt.y*sy}));
-     if(p.length!==4) return;
-     ctx.strokeStyle=color; ctx.lineWidth=4; 
-     ctx.beginPath(); ctx.moveTo(p[0].x,p[0].y);
-     for(let i=1;i<4;i++) ctx.lineTo(p[i].x,p[i].y);
-     ctx.closePath(); ctx.stroke();
-  }
-
+  
   function freezeAndLock(){
     fitOverlay();
     freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
@@ -486,7 +474,7 @@
     setStatus('ロック完了');
   }
 
-  // --- Combined Detection with NEW LOGIC ---
+  // --- Detection Logic ---
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
     const w = D.scanCanvas.width, h = D.scanCanvas.height;
@@ -500,7 +488,8 @@
         codes.forEach(c => detections.push({ raw: c.rawValue, pts: c.cornerPoints }));
       }catch(e){ S.useBarcodeDetector=false; }
     }
-    // 2. jsQR
+    
+    // 2. jsQR (Fallback)
     const imgData = scanCtx.getImageData(0,0,w,h);
     const hit = jsQR(imgData.data, w, h, { inversionAttempts:'dontInvert' });
     if(hit && !detections.some(d=>d.raw===hit.data)){
@@ -519,52 +508,66 @@
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
       
       const dets = await detectCombined();
-      
       for(const d of dets){
         const raw = (d.raw||'').trim();
         if(!raw) continue;
-
-        // ★ 新しいロジックを利用
-        const type = classify(raw);
-        let matched = false;
-
-        // A. ORDER (指示書) -> ターゲットセット
-        if(type === 'order'){
-           const o = parseOrderPlain(raw);
-           if(o && (o.bn || o.wc)){
-             drawBox(d.pts, '#f59f00'); // Orange for Order
-             // オーダーは即座にセットして自動検索へ
-             setTarget(o.bn, o.wc);
-             S.locked=true; matched=true;
+        
+        let bn='', wc='';
+        const t = normHyphen(raw);
+        
+        // 1. URLパラメータ形式 (order-plain, die-plain など)
+        // 例: https://.../order-plain?book=Ko&wc=1234
+        if(/order[_-]?(plain|check)|die[_-]?check/i.test(t)){
+           try{
+             // URLとしてパースを試みる
+             const u = new URL(t);
+             bn = u.searchParams.get('book') || u.searchParams.get('Book') || '';
+             wc = u.searchParams.get('wc') || u.searchParams.get('WorkCord') || '';
+           }catch(e){
+             // URLでない場合、もしパス形式なら?
            }
         } 
-        // B. DIE (抜型) -> ターゲットと比較 or 検索
-        else if(type === 'die'){
-           const p = parseDie(raw);
-           if(p && (p.bn || p.wc)){
-              // ターゲット設定済なら、一致確認
-              if(S.current.book && S.current.wc){
-                 const keyScan = dieKey(p.bn, p.wc);
-                 const keyTgt  = dieKey(S.current.book, S.current.wc);
-                 if(keyScan === keyTgt){
-                    drawBox(d.pts, '#12b886'); // Green match
-                    S.locked=true; matched=true;
-                 } else {
-                    drawBox(d.pts, '#fa5252'); // Red mismatch
-                 }
-              } else {
-                 // ターゲット未設定なら、この型を検索対象にする
-                 drawBox(d.pts, '#228be6'); // Blue
-                 setTarget(p.bn, p.wc);
-                 S.locked=true; matched=true;
-              }
+        
+        // 2. パスパラメータ形式 (die-Ko-1234)
+        // 上記で取れていなければ試行
+        if((!bn || !wc) && /^(die|order)-([^-]+)-([^-]+)/i.test(t)){
+           const m = /^(die|order)-([^-\n]+)-([^-]+)/i.exec(t);
+           if(m){ 
+             bn = m[2]; 
+             wc = m[3]; 
            }
         }
 
-        if(matched){
+        // 3. 万が一 order-Ko-1234 のような単純文字列ではなくURLのパスに含まれている場合への対応強化
+        // 例: https://.../order-Ko-1234
+        if((!bn || !wc)){
+             // URLかもしれないのでパス部分だけ取り出してチェック
+             try {
+                const u = new URL(t);
+                const path = u.pathname; // /order-Ko-1234
+                const m = /(?:^|\/)(die|order)-([^-\/]+)-([^-\/]+)/i.exec(path);
+                if(m){
+                    bn = m[2];
+                    wc = m[3];
+                }
+             } catch {}
+        }
+
+        if(bn && wc){
+           const sx = D.overlay.width / D.scanCanvas.width;
+           const sy = D.overlay.height / D.scanCanvas.height;
+           const pts = (d.pts||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
+           if(pts.length===4){
+             ctx.strokeStyle='#228be6'; ctx.lineWidth=4; 
+             ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+             for(let i=1;i<4;i++) ctx.lineTo(pts[i].x,pts[i].y);
+             ctx.closePath(); ctx.stroke();
+           }
+           setTarget(bn, wc);
+           S.locked=true;
            freezeAndLock();
            querySpec();
-           return;
+           return; 
         }
       }
     }
@@ -579,7 +582,7 @@
     D.inpWc.value = S.current.wc;
   }
 
-  // --- API ---
+  // --- API & Rendering ---
   async function querySpec(){
     const {book, wc} = S.current;
     if(!book || !wc) return;
@@ -590,7 +593,9 @@
     D.errApi.textContent='';
     D.loading.style.display='inline';
     D.gsBox.innerHTML = '<div class="msg-empty">読み込み中...</div>';
-    D.driveActions.innerHTML = ''; D.driveView.innerHTML = ''; D.driveStatus.textContent = '';
+    D.driveActions.innerHTML = '';
+    D.driveView.innerHTML = '';
+    D.driveStatus.textContent = '';
 
     try{
       await ensureCsrf();
@@ -600,20 +605,28 @@
       });
       const j = await r.json();
       if(!j.ok) throw new Error(j.error||'API Error');
+      
       renderSpecs(j.gs);
       await findDriveFiles(book, wc);
+      
     }catch(e){
       D.errApi.textContent = e.message;
       D.gsBox.innerHTML = '<div class="msg-empty">取得失敗</div>';
-    }finally{ D.loading.style.display='none'; }
+    }finally{
+      D.loading.style.display='none';
+    }
   }
 
   function renderSpecs(gs){
-    if(!gs){ D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>'; return; }
+    if(!gs){
+      D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
+      return;
+    }
     const fields = [
       {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'}, 
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'}, 
-      {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'}, {k:'LastSeen', l:'確認日'}
+      {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'}, 
+      {k:'LastSeen', l:'確認日'}
     ];
     let html = '<div class="spec-table">';
     fields.forEach(f => {
@@ -630,37 +643,70 @@
       const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`);
       const j = await r.json();
       if(!j.ok){ D.driveStatus.textContent='検索エラー'; return; }
+
       const cands = j.candidates || (j.fileId ? [{id:j.fileId, name:j.fileName}] : []);
-      if(!cands.length){ D.driveStatus.textContent = 'ファイルなし'; return; }
+      if(!cands.length){
+        D.driveStatus.textContent = 'ファイルなし';
+        return;
+      }
 
       D.driveStatus.textContent = `${cands.length}件ヒット`;
-      const score = n => { n = n.toLowerCase(); if(/-zu\./.test(n)) return 1; if(/-si\./.test(n)) return 2; if(n.endsWith('.pdf')) return 3; return 9; };
+      
+      const score = n => {
+        n = n.toLowerCase();
+        if(/-zu\./.test(n)) return 1;
+        if(/-si\./.test(n)) return 2;
+        if(n.endsWith('.pdf')) return 3;
+        return 9;
+      };
       cands.sort((a,b) => score(a.name||'') - score(b.name||''));
 
+      // Actions (Buttons)
       let btnHtml = '';
       cands.forEach(f => {
         const name = f.name || '';
         const isPdf = /\.pdf$/i.test(name);
-        // 画像は直リンク、PDFはビューア
-        const url = isPdf ? `https://drive.google.com/file/d/${f.id}/view` : `https://drive.google.com/uc?export=view&id=${f.id}`;
-        let label = 'ファイル'; let icon = '📄'; let styleClass = 'drive-btn';
+        
+        // 【修正】PDFならビューア、画像なら直リンク(UIなし)にする
+        let url;
+        if (isPdf) {
+            // PDFはビューアでないとダウンロードされてしまうことがあるため view のまま
+            url = `https://drive.google.com/file/d/${f.id}/view`;
+        } else {
+            // 画像（-zu, -siなど）は GoogleのUIを挟まない直リンクにする
+            url = `https://drive.google.com/uc?export=view&id=${f.id}`;
+        }
+        
+        let label = 'ファイル';
+        let icon = '📄';
+        let styleClass = 'drive-btn';
+
         if(/-zu\./i.test(name)) { label = '図面 (-zu)'; icon='📐'; styleClass+=' primary-btn'; }
         else if(/-si\./i.test(name)) { label = 'シール (-si)'; icon='🏷️'; }
-        else if(isPdf) { label = 'PDF'; icon='📑'; }
+        else if(/\.pdf$/i.test(name)) { label = 'PDF'; icon='📑'; }
+
         btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
       });
       D.driveActions.innerHTML = btnHtml;
-    }catch(e){ D.driveStatus.textContent = '検索失敗'; }
+
+    }catch(e){
+      D.driveStatus.textContent = '検索失敗';
+    }
   }
 
   D.btnStart.onclick = startCam;
   D.btnStop.onclick = () => stopCam();
   window.onresize = fitOverlay;
+
   D.btnManual.onclick = () => {
-    const b = D.inpBook.value.trim(); const w = normalizeHyphen(D.inpWc.value.trim());
+    const b = D.inpBook.value.trim();
+    const w = normHyphen(D.inpWc.value.trim());
     if(!b || !w){ alert('BookとWCを入力してください'); return; }
-    setTarget(b, w); S.locked=false; S.lastQueryKey=''; querySpec();
+    setTarget(b, w);
+    S.locked=false; S.lastQueryKey='';
+    querySpec();
   };
+
 })();
 </script>
 </body>
