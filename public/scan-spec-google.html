@@ -15,6 +15,7 @@
     --border: #dee2e6;
     --ok: #12b886; /* 緑 */
     --ng: #fa5252; /* 赤 */
+    --info:#f59f00; /* オレンジ */
   }
 
   * { box-sizing: border-box; }
@@ -47,7 +48,7 @@
     z-index: 100;
   }
   .top-controls { display: flex; gap: 10px; }
-  
+
   .status-indicator {
     font-size: 12px;
     font-weight: bold;
@@ -111,9 +112,26 @@
   video { width: 100%; height: 100%; object-fit: cover; display: block; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #freeze, #lockEmoji { display: none; }
-  
+
   .lockmark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
   .lockmark .em { font-size: 60px; text-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+
+  /* ★ ガイド（lookup風）：中央200px */
+  .target-scope{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:200px; height:200px;
+    border:2px solid rgba(34,139,230,.85);
+    border-radius:12px;
+    pointer-events:none;
+    z-index:10;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.28);
+  }
+  .target-scope .scan-line{
+    position:absolute; left:0; top:0; width:100%; height:2px;
+    background:linear-gradient(90deg,transparent,rgba(34,139,230,.8),transparent);
+    animation:scan 2s linear infinite;
+  }
+  @keyframes scan{0%{top:0}100%{top:100%}}
 
   .target-info {
     margin-top: 10px;
@@ -150,7 +168,7 @@
   /* --- Specs (Google Sheets) --- */
   .spec-table {
     display: grid;
-    grid-template-columns: 100px 1fr; /* ラベル幅固定 */
+    grid-template-columns: 100px 1fr;
     font-size: 14px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -202,29 +220,8 @@
   .drive-btn.primary-btn { background: var(--primary); color: #fff; border-color: var(--primary); }
   .drive-btn.primary-btn:hover { opacity: 0.9; }
 
-  .fig-container {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .fig-block {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .fig-header {
-    font-size: 12px;
-    padding: 6px 10px;
-    background: #f1f3f5;
-    color: var(--text-sub);
-    border-bottom: 1px solid var(--border);
-  }
-  .fig-content iframe,
-  .fig-content img {
-    display: block;
-    width: 100%;
-    border: none;
-  }
+  .fig-container { display: flex; flex-direction: column; gap: 16px; }
+  .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
 
   /* --- Buttons --- */
   .btn {
@@ -240,8 +237,6 @@
   .btn-primary:hover { background: #1c7ed6; }
   .btn-sub { background: #fff; border: 1px solid var(--border); color: var(--text); }
   .btn-sub:disabled { background: #f1f3f5; color: #adb5bd; cursor: not-allowed; }
-
-  .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -256,7 +251,6 @@
   </div>
 
   <div class="main-grid">
-    
     <div class="card">
       <div class="card-header">
         <h2>📷 スキャン</h2>
@@ -269,8 +263,9 @@
           <canvas id="overlay"></canvas>
           <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
           <canvas id="scanCanvas" style="display:none"></canvas>
+          <div class="target-scope"><div class="scan-line"></div></div>
         </div>
-        
+
         <div id="nowTarget" class="target-info">ターゲット: — / —</div>
         <div id="errCam" style="color:var(--ng); font-size:12px; margin-top:4px;"></div>
 
@@ -298,12 +293,10 @@
         <h2>📄 結果</h2>
         <span id="loading" style="font-size:12px; color:var(--primary); display:none;">照会中...</span>
       </div>
-      
+
       <div class="card-body">
         <h3 style="font-size:14px; margin:0 0 8px; color:var(--text-sub);">基本スペック (Google Sheets)</h3>
-        <div id="gsBox">
-          <div class="msg-empty">データを取得していません</div>
-        </div>
+        <div id="gsBox"><div class="msg-empty">データを取得していません</div></div>
         <div id="errApi" style="color:var(--ng); font-size:12px; margin-top:6px;"></div>
 
         <div style="margin-top:24px; border-top:1px solid var(--border); padding-top:16px;">
@@ -318,7 +311,10 @@
       </div>
     </div>
 
-  </div></div><script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
 (() => {
   const D = {
@@ -338,12 +334,19 @@
   const freezeCtx = D.freeze.getContext('2d', { willReadFrequently:true });
   const scanCtx = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
 
-  const CFG = { JSQR_MAX_LOOPS: 5 };
+  const CFG = {
+    SCAN_EVERY_MS: 80,          // ★ 毎フレームやらず安定化(12.5fps程度)
+    JSQR_MULTI_MAX: 6,          // ★ lookup式 マスク検出
+    ROI_SCALE: 1.75,            // ★ 中央を拡大して再トライ（小さいQRに強く）
+    ROI_FRACTION: 0.62          // ★ 中央切り出しサイズ
+  };
+
   const S = {
     stream: null, rafId: null,
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
+    lastScanAt: 0,
   };
 
   // --- CSRF & Cookie ---
@@ -353,17 +356,17 @@
   }
   async function ensureCsrf(){
     let t = readCookie('xcsrf');
-    if(!t){ 
+    if(!t){
       const url = (location.protocol==='http:' && /localhost|127\.0\.0\.1/.test(location.host)) ? '/api/session?dev=1' : '/api/session';
-      await fetch(url,{method:'GET',credentials:'same-origin'}).catch(()=>{}); 
-      t = readCookie('xcsrf'); 
+      await fetch(url,{method:'GET',credentials:'same-origin',cache:'no-store'}).catch(()=>{});
+      t = readCookie('xcsrf');
     }
     if(t) S.csrf = t;
   }
   document.addEventListener('DOMContentLoaded', ensureCsrf);
 
   // --- Helpers ---
-  async function waitVideoSize(timeoutMs = 2000){
+  async function waitVideoSize(timeoutMs = 2500){
     const t0 = performance.now();
     while(performance.now() - t0 < timeoutMs){
       if(D.video.videoWidth > 0 && D.video.videoHeight > 0) return true;
@@ -371,7 +374,6 @@
     }
     return false;
   }
-
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
   function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
@@ -381,16 +383,58 @@
     if(active) D.scanStatus.classList.add('active');
     else D.scanStatus.classList.remove('active');
   }
-  function fitOverlay(){
+
+  function fitAll(){
     if(!D.video.videoWidth) return;
-    D.overlay.width = D.video.videoWidth;
-    D.overlay.height = D.video.videoHeight;
-    D.overlay.style.width = '100%'; 
-    D.overlay.style.height = '100%';
-    D.freeze.width = D.video.videoWidth;
-    D.freeze.height = D.video.videoHeight;
+    const vw = D.video.videoWidth, vh = D.video.videoHeight;
+    D.overlay.width = vw; D.overlay.height = vh;
+    D.freeze.width  = vw; D.freeze.height  = vh;
+    D.scanCanvas.width = vw; D.scanCanvas.height = vh;
   }
-  
+
+  function drawPoly(pts, stroke='#228be6', w=4, dash=null, alpha=1){
+    if(!pts || pts.length<4) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = w;
+    if(dash) ctx.setLineDash(dash);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ★ ガイド内判定（lookupの isDetectionInScope 相当）
+  function inScope(cornerPoints){
+    if(!cornerPoints || cornerPoints.length<4) return true;
+    const stackW = D.stack.clientWidth, stackH = D.stack.clientHeight;
+    if(!stackW || !stackH) return true;
+
+    const scopeCssSize = 200;
+    const scopeCssX = (stackW/2) - (scopeCssSize/2);
+    const scopeCssY = (stackH/2) - (scopeCssSize/2);
+
+    const scaleX = D.overlay.width / stackW;
+    const scaleY = D.overlay.height / stackH;
+
+    const scopeX = scopeCssX * scaleX;
+    const scopeY = scopeCssY * scaleY;
+    const scopeW = scopeCssSize * scaleX;
+    const scopeH = scopeCssSize * scaleY;
+
+    const marginX = 14 * scaleX;
+    const marginY = 14 * scaleY;
+
+    for(const pt of cornerPoints){
+      if(pt.x < scopeX - marginX) return false;
+      if(pt.x > scopeX + scopeW + marginX) return false;
+      if(pt.y < scopeY - marginY) return false;
+      if(pt.y > scopeY + scopeH + marginY) return false;
+    }
+    return true;
+  }
 
   // --- Camera Control ---
   function stopCam({keepFrame=false}={}){
@@ -402,81 +446,81 @@
       D.lockEmoji.style.display='none';
       D.video.style.visibility='visible';
     }
-    if(S.stream){ 
-        try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){} 
-        S.stream=null; 
+    if(S.stream){
+      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+      S.stream=null;
     }
     D.btnStart.disabled=false;
     D.btnStop.disabled=true;
     setStatus('停止中');
   }
 
+  async function setupDetector(){
+    S.useBarcodeDetector = ('BarcodeDetector' in window);
+    S.detector = null;
+    if(!S.useBarcodeDetector) return;
+    try{
+      const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
+        ? await BarcodeDetector.getSupportedFormats()
+        : [];
+      if(fmts && fmts.includes('qr_code')){
+        S.detector = new BarcodeDetector({formats:['qr_code']});
+      }else{
+        // Safari等で getSupportedFormats が無い/空でも、try だけはする
+        S.detector = new BarcodeDetector({formats:['qr_code']});
+      }
+    }catch{
+      S.useBarcodeDetector = false;
+      S.detector = null;
+    }
+  }
+
   async function startCam(){
+    // 初期化
+    S.locked=false;
+    stopCam(); // 既存停止（keepFrame=false）
+    D.errCam.textContent='';
     D.freeze.style.display='none';
     D.video.style.visibility='visible';
     D.lockEmoji.style.display='none';
-    S.locked=false;
-    stopCam();
-    D.errCam.textContent='';
 
     try{
-      // カメラ制約を緩和
       S.stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          // 制約を緩和（idealのみにする）
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width:  { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }  // ★ lookupに合わせる
         },
         audio: false
       });
+
       D.video.srcObject=S.stream;
       await D.video.play();
-      // ★追加：解像度が確定するまで待つ（失敗したらエラー表示して止める）
+
       const ok = await waitVideoSize();
       if(!ok) throw new Error('カメラ解像度が確定しませんでした');
 
-      fitOverlay();
-      D.scanCanvas.width  = D.video.videoWidth;
-      D.scanCanvas.height = D.video.videoHeight;
+      fitAll();
 
-      D.btnStart.disabled = true;
-      D.btnStop.disabled  = false;
+      await setupDetector();
+      D.detectorInfo.textContent = (S.useBarcodeDetector && S.detector) ? 'BD+jsQR' : 'jsQR';
 
-      setStatus('スキャン中', true);
-      tick();
-      
-      
-      // BarcodeDetector Setup
-    if(S.useBarcodeDetector){
-      try{
-        const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
-          ? await BarcodeDetector.getSupportedFormats()
-          : [];
-        if(!fmts || !fmts.includes('qr_code')) throw 0;
-        S.detector = new BarcodeDetector({formats:['qr_code']});
-      }catch{
-        S.useBarcodeDetector = false;
-        S.detector = null;
-      }
-    }
-      D.detectorInfo.textContent = S.useBarcodeDetector ? 'BD+jsQR' : 'jsQR';
-      
-      fitOverlay();
-      D.scanCanvas.width = D.video.videoWidth || 1280;
-      D.scanCanvas.height = D.video.videoHeight || 720;
-      
+      D.btnStart.disabled=true;
+      D.btnStop.disabled=false;
+
+      S.lastScanAt = 0;
       setStatus('スキャン中', true);
       tick();
     }catch(e){
       console.error(e);
-      D.errCam.textContent = `カメラ起動エラー: ${e.name} ${e.message}`;
+      D.errCam.textContent = `カメラ起動エラー: ${e.name||''} ${e.message||e}`;
       setStatus('エラー');
     }
   }
-  
+
   function freezeAndLock(){
-    fitOverlay();
+    fitAll();
     freezeCtx.drawImage(D.video,0,0,D.freeze.width,D.freeze.height);
     D.freeze.style.display='block';
     D.video.style.visibility='hidden';
@@ -486,112 +530,179 @@
     setStatus('ロック完了');
   }
 
-  // --- Detection Logic ---
+  // --- Parse（★ここが重要：die-plain / URL book,wc を確実に拾う） ---
+  function extractBookWc(raw){
+    const t = normHyphen((raw||'').trim());
+    let bn='', wc='';
+
+    // 1) 直文字列: die-Ko-1234 / order-Ko-1234
+    {
+      const m = /^(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(t);
+      if(m){ bn=m[2]; wc=m[3]; return {bn, wc}; }
+    }
+
+    // 2) URL: ?book=Ko&wc=1234 があれば “パス不問” で拾う（die-plain / order-plain 等もOK）
+    try{
+      const u = new URL(t);
+      bn = (u.searchParams.get('book') || u.searchParams.get('Book') || '').trim();
+      wc = (u.searchParams.get('wc')   || u.searchParams.get('WorkCord') || u.searchParams.get('workcord') || '').trim();
+      if(bn && wc) return {bn, wc};
+
+      // 3) URLの pathname に die-Ko-1234 / order-Ko-1234 が入ってるケース
+      const path = u.pathname || '';
+      const m2 = /(?:^|\/)(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(path);
+      if(m2){
+        bn = m2[2]; wc = m2[3];
+        if(bn && wc) return {bn, wc};
+      }
+    }catch{}
+
+    return null;
+  }
+
+  // --- Detection Logic（lookup式の “マスク複数検出” + 中央ROI拡大リトライ） ---
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
+    const vw = D.video.videoWidth, vh = D.video.videoHeight;
     const w = D.scanCanvas.width, h = D.scanCanvas.height;
-    scanCtx.drawImage(D.video, 0, 0, w, h);
-    
-    const detections = [];
-    // 1. BarcodeDetector
+
+    const dets = new Map();
+
+    // 1) BarcodeDetector（可能なら video 直も試す）
     if(S.useBarcodeDetector && S.detector){
       try{
-        const codes = await S.detector.detect(D.scanCanvas);
-        codes.forEach(c => detections.push({ raw: c.rawValue, pts: c.cornerPoints }));
-      }catch(e){ S.useBarcodeDetector=false; }
+        const codes = await S.detector.detect(D.video);
+        for(const c of codes){
+          const raw = (c.rawValue||'').trim();
+          if(raw && !dets.has(raw)) dets.set(raw, { raw, pts: c.cornerPoints });
+        }
+      }catch{
+        // video 直がダメなら scanCanvas へ
+        try{
+          scanCtx.drawImage(D.video, 0, 0, w, h);
+          const codes = await S.detector.detect(D.scanCanvas);
+          for(const c of codes){
+            const raw = (c.rawValue||'').trim();
+            if(raw && !dets.has(raw)) dets.set(raw, { raw, pts: c.cornerPoints });
+          }
+        }catch{
+          S.useBarcodeDetector=false; S.detector=null;
+        }
+      }
     }
-    
-    // 2. jsQR (Fallback)
-    const imgData = scanCtx.getImageData(0,0,w,h);
-    const hit = jsQR(imgData.data, w, h, { inversionAttempts:'dontInvert' });
-    if(hit && !detections.some(d=>d.raw===hit.data)){
-      detections.push({
-        raw: hit.data,
-        pts: [hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner]
-      });
+
+    // helper: jsQR multi with mask
+    const jsqrMulti = (imgData) => {
+      const hits = [];
+      const W = imgData.width, H = imgData.height;
+      const masked = new Uint8ClampedArray(imgData.data);
+      for(let k=0; k<CFG.JSQR_MULTI_MAX; k++){
+        const hit = jsQR(masked, W, H, { inversionAttempts:'attemptBoth' }); // ★ dontInvertやめる
+        if(!hit) break;
+        hits.push({
+          raw: (hit.data||'').trim(),
+          pts: [hit.location.topLeftCorner, hit.location.topRightCorner, hit.location.bottomRightCorner, hit.location.bottomLeftCorner]
+        });
+        const tl = hit.location.topLeftCorner, br = hit.location.bottomRightCorner;
+        for(let y=Math.floor(tl.y); y<Math.ceil(br.y); y++){
+          for(let x=Math.floor(tl.x); x<Math.ceil(br.x); x++){
+            const i = (y*W + x) * 4;
+            masked[i]=masked[i+1]=masked[i+2]=255;
+          }
+        }
+      }
+      return hits;
+    };
+
+    // 2) jsQR: full frame
+    scanCtx.drawImage(D.video, 0, 0, w, h);
+    let img = scanCtx.getImageData(0,0,w,h);
+    for(const h1 of jsqrMulti(img)){
+      if(h1.raw && !dets.has(h1.raw)) dets.set(h1.raw, h1);
     }
-    return detections;
+
+    // 3) jsQR: 中央ROI拡大（小さいQRに強い）
+    if(dets.size === 0){
+      const frac = CFG.ROI_FRACTION;
+      const sw = Math.floor(vw * frac);
+      const sh = Math.floor(vh * frac);
+      const sx = Math.floor((vw - sw) / 2);
+      const sy = Math.floor((vh - sh) / 2);
+
+      // ROIを scanCanvas 全面に引き伸ばして解析（見かけのQRサイズが大きくなる）
+      scanCtx.drawImage(D.video, sx, sy, sw, sh, 0, 0, w, h);
+      img = scanCtx.getImageData(0,0,w,h);
+      for(const h2 of jsqrMulti(img)){
+        if(h2.raw && !dets.has(h2.raw)) dets.set(h2.raw, h2);
+      }
+    }
+
+    return Array.from(dets.values());
   }
 
   async function tick(){
     if(!S.stream) return;
+
+    const now = performance.now();
+    if(now - S.lastScanAt < CFG.SCAN_EVERY_MS){
+      S.rafId = requestAnimationFrame(tick);
+      return;
+    }
+    S.lastScanAt = now;
+
     if(D.video.readyState === D.video.HAVE_ENOUGH_DATA){
-      fitOverlay();
+      fitAll();
       ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      
+
       const dets = await detectCombined();
+
+      // ★ 何もなければステータスだけ更新
+      if(!dets.length){
+        setStatus('スキャン中', true);
+        S.rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      // まず “検知できている” の可視化（形式不明でも枠を出す）
+      let anyInScope = false;
       for(const d of dets){
-        const raw = (d.raw||'').trim();
-        if(!raw) continue;
-        
-        let bn='', wc='';
-        const t = normHyphen(raw);
-        
-        // 1. URLパラメータ形式 (order-plain, die-plain など)
-        // 例: https://.../order-plain?book=Ko&wc=1234
-        if(/order[_-]?(plain|check)|die[_-]?check/i.test(t)){
-           try{
-             // URLとしてパースを試みる
-             const u = new URL(t);
-             bn = u.searchParams.get('book') || u.searchParams.get('Book') || '';
-             wc = u.searchParams.get('wc') || u.searchParams.get('WorkCord') || '';
-           }catch(e){
-             // URLでない場合、もしパス形式なら?
-           }
-        } 
-        
-        // 2. パスパラメータ形式 (die-Ko-1234)
-        // 上記で取れていなければ試行
-        if((!bn || !wc) && /^(die|order)-([^-]+)-([^-]+)/i.test(t)){
-           const m = /^(die|order)-([^-\n]+)-([^-]+)/i.exec(t);
-           if(m){ 
-             bn = m[2]; 
-             wc = m[3]; 
-           }
-        }
+        const raw = (d.raw||'').trim(); if(!raw) continue;
+        const pts = d.pts || [];
+        if(!pts.length) continue;
 
-        // 3. 万が一 order-Ko-1234 のような単純文字列ではなくURLのパスに含まれている場合への対応強化
-        // 例: https://.../order-Ko-1234
-        if((!bn || !wc)){
-             // URLかもしれないのでパス部分だけ取り出してチェック
-             try {
-                const u = new URL(t);
-                const path = u.pathname; // /order-Ko-1234
-                const m = /(?:^|\/)(die|order)-([^-\/]+)-([^-\/]+)/i.exec(path);
-                if(m){
-                    bn = m[2];
-                    wc = m[3];
-                }
-             } catch {}
-        }
+        // ガイド外は薄く赤（「読めてるけど外」も見える）
+        const okScope = inScope(pts);
+        anyInScope = anyInScope || okScope;
+        drawPoly(pts, okScope ? '#228be6' : '#fa5252', okScope ? 4 : 3, okScope ? null : [8,6], okScope ? 0.85 : 0.35);
 
-        if(bn && wc){
-           const sx = D.overlay.width / D.scanCanvas.width;
-           const sy = D.overlay.height / D.scanCanvas.height;
-           const pts = (d.pts||[]).map(p=>({x:p.x*sx, y:p.y*sy}));
-           if(pts.length===4){
-             ctx.strokeStyle='#228be6'; ctx.lineWidth=4; 
-             ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
-             for(let i=1;i<4;i++) ctx.lineTo(pts[i].x,pts[i].y);
-             ctx.closePath(); ctx.stroke();
-           }
-           setTarget(bn, wc);
-           S.locked=true;
-           freezeAndLock();
-           querySpec();
-           return; 
+        // ガイド内で、book/wc 抜けたらロック＆照会
+        if(okScope){
+          const p = extractBookWc(raw);
+          if(p && p.bn && p.wc){
+            setTarget(p.bn, p.wc);
+            S.locked=true;
+            freezeAndLock();
+            querySpec();
+            return;
+          }
         }
       }
+
+      // “検知したけど形式が違う/ガイド外” を表示
+      if(anyInScope) setStatus(`QR検知（形式/内容が一致しません）`, true);
+      else setStatus(`QR検知（ガイド外）`, true);
     }
+
     S.rafId = requestAnimationFrame(tick);
   }
 
   function setTarget(bn, wc){
-    S.current.book = bn.trim();
-    S.current.wc = wc.trim();
+    S.current.book = (bn||'').trim();
+    S.current.wc   = (wc||'').trim();
     D.nowTarget.textContent = `ターゲット: ${S.current.book} / ${S.current.wc}`;
     D.inpBook.value = S.current.book;
     D.inpWc.value = S.current.wc;
+    // 手入力後にも再照会できるよう lastQueryKey をクリアしたい場合はここでクリアOK
   }
 
   // --- API & Rendering ---
@@ -612,17 +723,19 @@
     try{
       await ensureCsrf();
       const r = await fetch('/api/die-check', {
-        method:'POST', headers:{ 'Content-Type':'application/json', 'X-CSRF':S.csrf },
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', ...(S.csrf?{'X-CSRF':S.csrf}:{}) },
+        credentials:'same-origin',
         body: JSON.stringify({ book, wc, json:true, limit:0, noAirtable:true, gsOnly:true })
       });
       const j = await r.json();
       if(!j.ok) throw new Error(j.error||'API Error');
-      
+
       renderSpecs(j.gs);
       await findDriveFiles(book, wc);
-      
+
     }catch(e){
-      D.errApi.textContent = e.message;
+      D.errApi.textContent = e.message || e;
       D.gsBox.innerHTML = '<div class="msg-empty">取得失敗</div>';
     }finally{
       D.loading.style.display='none';
@@ -635,9 +748,9 @@
       return;
     }
     const fields = [
-      {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'}, 
-      {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'}, 
-      {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'}, 
+      {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'},
+      {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
+      {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'},
       {k:'LastSeen', l:'確認日'}
     ];
     let html = '<div class="spec-table">';
@@ -652,7 +765,7 @@
   async function findDriveFiles(book, wc){
     D.driveStatus.textContent = '検索中...';
     try{
-      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`);
+      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,{credentials:'same-origin',cache:'no-store'});
       const j = await r.json();
       if(!j.ok){ D.driveStatus.textContent='検索エラー'; return; }
 
@@ -663,9 +776,9 @@
       }
 
       D.driveStatus.textContent = `${cands.length}件ヒット`;
-      
+
       const score = n => {
-        n = n.toLowerCase();
+        n = (n||'').toLowerCase();
         if(/-zu\./.test(n)) return 1;
         if(/-si\./.test(n)) return 2;
         if(n.endsWith('.pdf')) return 3;
@@ -673,22 +786,15 @@
       };
       cands.sort((a,b) => score(a.name||'') - score(b.name||''));
 
-      // Actions (Buttons)
       let btnHtml = '';
       cands.forEach(f => {
         const name = f.name || '';
         const isPdf = /\.pdf$/i.test(name);
-        
-        // 【修正】PDFならビューア、画像なら直リンク(UIなし)にする
+
         let url;
-        if (isPdf) {
-            // PDFはビューアでないとダウンロードされてしまうことがあるため view のまま
-            url = `https://drive.google.com/file/d/${f.id}/view`;
-        } else {
-            // 画像（-zu, -siなど）は GoogleのUIを挟まない直リンクにする
-            url = `https://drive.google.com/uc?export=view&id=${f.id}`;
-        }
-        
+        if (isPdf) url = `https://drive.google.com/file/d/${f.id}/view`;
+        else url = `https://drive.google.com/uc?export=view&id=${f.id}`;
+
         let label = 'ファイル';
         let icon = '📄';
         let styleClass = 'drive-btn';
@@ -706,9 +812,10 @@
     }
   }
 
+  // --- Events ---
   D.btnStart.onclick = startCam;
   D.btnStop.onclick = () => stopCam();
-  window.onresize = fitOverlay;
+  window.onresize = fitAll;
 
   D.btnManual.onclick = () => {
     const b = D.inpBook.value.trim();
