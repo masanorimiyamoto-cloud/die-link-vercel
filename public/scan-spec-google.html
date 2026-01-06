@@ -316,8 +316,22 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
+  function isAndroid(){ return /Android/i.test(navigator.userAgent); }
+  function isChrome(){
+    const ua = navigator.userAgent;
+    return /Chrome\//.test(ua) && !/EdgA\//.test(ua) && !/OPR\//.test(ua) && !/SamsungBrowser\//.test(ua);
+  }
+  function openInChrome(){
+    // intent:// で Chrome 指定（Androidのみ）
+    const scheme = location.protocol.replace(':',''); // https or http
+    const path = location.host + location.pathname + location.search + location.hash;
+    const intentUrl = `intent://${path}#Intent;scheme=${scheme};package=com.android.chrome;end`;
+    location.href = intentUrl;
+  }
+
 (() => {
   const D = {
+    
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
     btnStart: q('#btnStart'), btnStop: q('#btnStop'),
     detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'),
@@ -328,6 +342,33 @@
     driveStatus: q('#driveStatus'), driveView: q('#driveView'), driveActions: q('#driveActions'),
     nowTarget: q('#nowTarget'),
   };
+  
+ 
+
+  function isAndroid(){ return /Android/i.test(navigator.userAgent); }
+function isChrome(){
+  const ua = navigator.userAgent;
+  return /Chrome\//.test(ua) && !/EdgA\//.test(ua) && !/OPR\//.test(ua) && !/SamsungBrowser\//.test(ua);
+}
+function openInChrome(){
+  const scheme = location.protocol.replace(':',''); // https
+  const path = location.host + location.pathname + location.search + location.hash;
+  const intentUrl = `intent://${path}#Intent;scheme=${scheme};package=com.android.chrome;end`;
+  location.href = intentUrl;
+}
+
+// ★ Chrome以外で開かれていたら案内＆ボタン追加
+if(isAndroid() && !isChrome()){
+  const b = document.createElement('button');
+  b.textContent = 'Chromeで開く';
+  b.className = 'btn btn-sub';
+  b.onclick = openInChrome;
+  document.querySelector('.top-controls')?.appendChild(b);
+
+  D.errCam.textContent = 'このブラウザではカメラが動かない場合があります。「Chromeで開く」を押してください。';
+}
+
+
   function q(s){ return document.querySelector(s); }
 
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
