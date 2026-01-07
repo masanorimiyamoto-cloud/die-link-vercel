@@ -316,22 +316,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script>
-  function isAndroid(){ return /Android/i.test(navigator.userAgent); }
-  function isChrome(){
-    const ua = navigator.userAgent;
-    return /Chrome\//.test(ua) && !/EdgA\//.test(ua) && !/OPR\//.test(ua) && !/SamsungBrowser\//.test(ua);
-  }
-  function openInChrome(){
-    // intent:// で Chrome 指定（Androidのみ）
-    const scheme = location.protocol.replace(':',''); // https or http
-    const path = location.host + location.pathname + location.search + location.hash;
-    const intentUrl = `intent://${path}#Intent;scheme=${scheme};package=com.android.chrome;end`;
-    location.href = intentUrl;
-  }
-
 (() => {
   const D = {
-    
     video: q('#video'), overlay: q('#overlay'), freeze: q('#freeze'), stack: q('#stack'),
     btnStart: q('#btnStart'), btnStop: q('#btnStop'),
     detectorInfo: q('#detectorInfo'), scanStatus: q('#scanStatus'),
@@ -342,33 +328,6 @@
     driveStatus: q('#driveStatus'), driveView: q('#driveView'), driveActions: q('#driveActions'),
     nowTarget: q('#nowTarget'),
   };
-  
- 
-
-  function isAndroid(){ return /Android/i.test(navigator.userAgent); }
-function isChrome(){
-  const ua = navigator.userAgent;
-  return /Chrome\//.test(ua) && !/EdgA\//.test(ua) && !/OPR\//.test(ua) && !/SamsungBrowser\//.test(ua);
-}
-function openInChrome(){
-  const scheme = location.protocol.replace(':',''); // https
-  const path = location.host + location.pathname + location.search + location.hash;
-  const intentUrl = `intent://${path}#Intent;scheme=${scheme};package=com.android.chrome;end`;
-  location.href = intentUrl;
-}
-
-// ★ Chrome以外で開かれていたら案内＆ボタン追加
-if(isAndroid() && !isChrome()){
-  const b = document.createElement('button');
-  b.textContent = 'Chromeで開く';
-  b.className = 'btn btn-sub';
-  b.onclick = openInChrome;
-  document.querySelector('.top-controls')?.appendChild(b);
-
-  D.errCam.textContent = 'このブラウザではカメラが動かない場合があります。「Chromeで開く」を押してください。';
-}
-
-
   function q(s){ return document.querySelector(s); }
 
   const ctx = D.overlay.getContext('2d', { willReadFrequently:true });
@@ -478,23 +437,31 @@ if(isAndroid() && !isChrome()){
   }
 
   // --- Camera Control ---
-  function stopCam({keepFrame=false}={}){
-    if(S.rafId) cancelAnimationFrame(S.rafId);
-    S.rafId=null;
-    if(!keepFrame){
-      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-      D.freeze.style.display='none';
-      D.lockEmoji.style.display='none';
-      D.video.style.visibility='visible';
-    }
-    if(S.stream){
-      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
-      S.stream=null;
-    }
-    D.btnStart.disabled=false;
-    D.btnStop.disabled=true;
-    setStatus('停止中');
+ function stopCam({keepFrame=false}={}){
+  if(S.rafId) cancelAnimationFrame(S.rafId);
+  S.rafId=null;
+
+  // ★ videoを完全解放（これがないと掴みっぱなしになる端末がある）
+  try { D.video.pause(); } catch(e){}
+  try { D.video.srcObject = null; } catch(e){}
+
+  if(!keepFrame){
+    ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+    D.freeze.style.display='none';
+    D.lockEmoji.style.display='none';
+    D.video.style.visibility='visible';
   }
+
+  if(S.stream){
+    try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    S.stream=null;
+  }
+
+  D.btnStart.disabled=false;
+  D.btnStop.disabled=true;
+  setStatus('停止中');
+}
+
 
   async function setupDetector(){
     S.useBarcodeDetector = ('BarcodeDetector' in window);
@@ -517,48 +484,92 @@ if(isAndroid() && !isChrome()){
   }
 
   async function startCam(){
-    // 初期化
-    S.locked=false;
-    stopCam(); // 既存停止（keepFrame=false）
-    D.errCam.textContent='';
-    D.freeze.style.display='none';
-    D.video.style.visibility='visible';
-    D.lockEmoji.style.display='none';
-
-    try{
-      S.stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width:  { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 }  // ★ lookupに合わせる
-        },
-        audio: false
-      });
-
-      D.video.srcObject=S.stream;
-      await D.video.play();
-
-      const ok = await waitVideoSize();
-      if(!ok) throw new Error('カメラ解像度が確定しませんでした');
-
-      fitAll();
-
-      await setupDetector();
-      D.detectorInfo.textContent = (S.useBarcodeDetector && S.detector) ? 'BD+jsQR' : 'jsQR';
-
-      D.btnStart.disabled=true;
-      D.btnStop.disabled=false;
-
-      S.lastScanAt = 0;
-      setStatus('スキャン中', true);
-      tick();
-    }catch(e){
-      console.error(e);
-      D.errCam.textContent = `カメラ起動エラー: ${e.name||''} ${e.message||e}`;
-      setStatus('エラー');
-    }
+  // ★ 非HTTPSだとカメラ不可（念のため）
+  if(!window.isSecureContext){
+    D.errCam.textContent = 'このページがHTTPSではないため、カメラを起動できません。';
+    setStatus('エラー');
+    return;
   }
+
+  // ★ prerender/非表示中は NotAllowedError になりやすいのでブロック
+  if(document.prerendering || document.visibilityState !== 'visible'){
+    D.errCam.textContent = 'ページが非表示/先読み状態のため起動できません。画面を表示してからもう一度押してください。';
+    setStatus('待機中');
+    return;
+  }
+
+  // 初期化
+  S.locked=false;
+  stopCam(); // 既存停止（完全解放）
+  D.errCam.textContent='';
+  D.freeze.style.display='none';
+  D.video.style.visibility='visible';
+  D.lockEmoji.style.display='none';
+
+  // ★ まずは強め制約 → ダメなら弱め制約で再トライ
+  const constraintsStrong = {
+    video: {
+      facingMode: { ideal: 'environment' },
+      width:  { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 30 }
+    },
+    audio: false
+  };
+  const constraintsWeak = {
+    video: { facingMode: { ideal: 'environment' } },
+    audio: false
+  };
+
+  try{
+    // 1st try
+    try{
+      S.stream = await navigator.mediaDevices.getUserMedia(constraintsStrong);
+    }catch(e1){
+      // 2nd try（制約を緩める）
+      S.stream = await navigator.mediaDevices.getUserMedia(constraintsWeak);
+    }
+
+    D.video.srcObject = S.stream;
+
+    // ★ play() も失敗する端末があるので catch
+    try{ await D.video.play(); }catch(e){ /* 無視 */ }
+
+    const ok = await waitVideoSize();
+    if(!ok) throw new Error('カメラ解像度が確定しませんでした');
+
+    fitAll();
+
+    await setupDetector();
+    D.detectorInfo.textContent = (S.useBarcodeDetector && S.detector) ? 'BD+jsQR' : 'jsQR';
+
+    D.btnStart.disabled=true;
+    D.btnStop.disabled=false;
+
+    S.lastScanAt = 0;
+    setStatus('スキャン中', true);
+    tick();
+
+  }catch(e){
+    console.error(e);
+
+    // ★ エラー出し分け（ユーザーが次に何をすべきか分かる）
+    const name = e?.name || '';
+    let hint = '';
+    if(name === 'NotAllowedError'){
+      hint = '（権限ブロック/非表示状態/先読み/埋め込み等で拒否されました。別タブも含め同サイトを閉じてChromeを再起動→再試行）';
+    }else if(name === 'NotReadableError'){
+      hint = '（他アプリ/他タブがカメラを使用中の可能性。カメラ系アプリを終了して再試行）';
+    }else if(name === 'OverconstrainedError'){
+      hint = '（カメラ制約が合いません。端末依存です。弱め制約で再試行します）';
+    }
+
+    D.errCam.textContent = `カメラ起動エラー: ${name} ${e.message||e} ${hint}`;
+    setStatus('エラー');
+    stopCam(); // ★ 失敗時も解放
+  }
+}
+
 
   function freezeAndLock(){
     fitAll();
@@ -857,6 +868,8 @@ if(isAndroid() && !isChrome()){
   D.btnStart.onclick = startCam;
   D.btnStop.onclick = () => stopCam();
   window.onresize = fitAll;
+  window.addEventListener('pagehide', () => stopCam());
+  document.addEventListener('visibilitychange', () => { if(document.hidden) stopCam(); });
 
   D.btnManual.onclick = () => {
     const b = D.inpBook.value.trim();
