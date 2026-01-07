@@ -1,206 +1,137 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Tennis Score (0-6)</title>
-  <style>
-    :root{
-      --bg1:#070b16;
-      --bg2:#0b1020;
-      --card1:#101933;
-      --card2:#0f1730;
-      --stroke: rgba(0,0,0,.55);
-    }
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>できること三つ</title>
+<style>
+  :root{ --bg:#0b0f14; --txt:#e6f0ff; --a:#4f8cff; --b:#22c55e; --c:#f59e0b; }
+  *{ box-sizing:border-box }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
 
-    html, body {
-      height: 100%;
-      margin: 0;
-      background: radial-gradient(1200px 800px at 50% 10%, rgba(90,120,255,.20), transparent 55%),
-                  linear-gradient(180deg, var(--bg1), var(--bg2));
-      color: #fff;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
-      touch-action: manipulation;
-      -webkit-user-select: none;
-      user-select: none;
-    }
+  .wrap{ min-height:100dvh; display:flex; flex-direction:column; gap:14px; padding:18px;
+    max-width:640px; margin:0 auto }
 
-    .wrap{
-      height: 100%;
-      display: grid;
-      place-items: center;
-      padding: 12px;
-      box-sizing: border-box;
-    }
+  /* ★ Android Chrome誘導バー */
+  .hint{
+    display:none;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.06);
+    border-radius:14px;
+    padding:12px 12px;
+    box-shadow:0 10px 24px rgba(0,0,0,.25);
+  }
+  .hint .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
+  .hint .msg{ font-size:14px; line-height:1.35; color:rgba(230,240,255,.92); }
+  .hint .btn-mini{
+    flex:0 0 auto;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(79,140,255,.92);
+    color:#fff;
+    border-radius:12px;
+    padding:10px 12px;
+    font-weight:800;
+    letter-spacing:.04em;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hint .btn-mini:active{ transform:scale(.985) }
 
-    .row{
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-      width: min(980px, 100%);
-      height: min(86vh, 620px); /* ★ 画面をより使う */
-      box-sizing: border-box;
-    }
+  .btn{ display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
+    border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
+    font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
+    box-shadow:0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.06) }
+  .btn:active{ transform:scale(.985) }
+  .a{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#1b3bff 0%,var(--a) 55%,#38bdf8 110%) }
+  .b{ background:radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#059669 0%,var(--b) 55%,#86efac 110%) }
+  .c{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
+  @media (min-width:520px){ .btn{ min-height:20vh } }
+</style>
 
-    button.score{
-      position: relative;
-      display: grid;
-      place-items: center;
+<!-- フォールバック: 事前プリフェッチ（全ブラウザ） -->
+<link rel="prefetch" href="./scan-spec-google.html" as="document">
+<link rel="prefetch" href="./scan-lookup.html" as="document">
+<link rel="prefetch" href="./scan-register.html" as="document">
 
-      height: 100%;
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 28px;
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
-                  radial-gradient(900px 450px at 50% 0%, rgba(90,120,255,.15), transparent 60%),
-                  linear-gradient(180deg, var(--card1), var(--card2));
-      box-shadow: 0 18px 40px rgba(0,0,0,.40);
-      color: #fff;
-
-      /* ★ 数字を最大限大きく */
-      font-size: clamp(180px, 26vw, 420px);
-      font-weight: 900;
-      letter-spacing: .01em;
-
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-      padding: 0; /* ★ 余白ゼロで数字面積UP */
-      overflow: hidden;
-    }
-
-    button.score:active{
-      transform: scale(0.99);
-      filter: brightness(1.10);
-    }
-
-    /* 左右識別（先/後） */
-    button.score .tag{
-      position: absolute;
-      top: 14px;
-      font-size: 16px;
-      font-weight: 900;
-      opacity: .85;
-      line-height: 1;
-      padding: 8px 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.10);
-      border: 1px solid rgba(255,255,255,.10);
-      backdrop-filter: blur(6px);
-    }
-    button.score .tag.left{ left: 14px; }
-    button.score .tag.right{ right: 14px; }
-
-    /* ★ 数字の視認性強化（縁取り＋影） */
-    button.score .num{
-      font-size: inherit;
-      line-height: 1;
-      transform: translateY(2px); /* 見た目の中央寄せ微調整 */
-      text-shadow:
-        0 6px 18px rgba(0,0,0,.55),
-        0 2px 0 rgba(0,0,0,.35);
-      -webkit-text-stroke: 6px var(--stroke);
-      paint-order: stroke fill;
-    }
-
-    /* 画面が縦長のとき：2列は維持しつつ高さ確保 */
-    @media (max-width: 520px){
-      .row{ height: 88vh; gap: 12px; }
-      button.score{ font-size: clamp(170px, 34vw, 380px); border-radius: 26px; }
-      button.score .tag{ font-size: 15px; }
-      button.score .num{ -webkit-text-stroke: 5px var(--stroke); }
-    }
-  </style>
+<!-- Chrome系で瞬間遷移: Speculation Rules -->
+<script type="speculationrules">
+{
+  "prerender": [
+    { "source": "list", "urls": ["./scan-spec-google.html", "./scan-lookup.html", "./scan-register.html"] }
+  ],
+  "prefetch": [
+    { "source": "list", "urls": ["./scan-spec-google.html", "./scan-lookup.html", "./scan-register.html"] }
+  ]
+}
+</script>
 </head>
 <body>
-  <div class="wrap">
-    <div class="row">
-      <button class="score" id="a" aria-label="先攻">
-        <span class="tag left">先</span>
-        <span class="num">0</span>
-      </button>
-      <button class="score" id="b" aria-label="後攻">
-        <span class="tag right">後</span>
-        <span class="num">0</span>
-      </button>
-    </div>
-  </div>
+  <main class="wrap" role="navigation" aria-label="できること三つ">
 
-  <script>
-    const MAX = 6;
-    const LONG_PRESS_MS = 600;
+    <!-- ★ AndroidでChrome以外だったらここが表示される -->
+    <section id="chromeHint" class="hint" aria-live="polite">
+      <div class="row">
+        <div class="msg">
+          このブラウザではカメラが動かない場合があります。<br>
+          可能なら <b>Chromeで開く</b> を押してください。
+        </div>
+        <button id="btnChrome" class="btn-mini" type="button">Chromeで開く</button>
+      </div>
+    </section>
 
-    const els = {
-      a: document.getElementById('a'),
-      b: document.getElementById('b')
-    };
-    const numA = els.a.querySelector('.num');
-    const numB = els.b.querySelector('.num');
+    <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る</a>
+    <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す</a>
+    <a class="btn c" href="./scan-register.html"    aria-label="登録する">仕舞う</a>
+  </main>
 
-    const load = (k) => Number(localStorage.getItem(k) ?? 0);
-    const save = (k, v) => localStorage.setItem(k, String(v));
+<script>
+/* SW 登録（初回だけ）。公開ルートに /sw.js を置いてください。 */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
+}
 
-    let scoreA = load('scoreA');
-    let scoreB = load('scoreB');
+/* iOS/Safari 等: 触れた瞬間に事前fetch（フォールバック強化） */
+const prefetch = url => fetch(url, { mode:'no-cors', cache:'force-cache' }).catch(()=>{});
+['./scan-spec-google.html','./scan-lookup.html','./scan-register.html'].forEach(url=>{
+  const link = document.querySelector(`a[href="${url}"]`);
+  if(!link) return;
+  ['mouseenter','touchstart','pointerdown'].forEach(ev=>{
+    link.addEventListener(ev, ()=>prefetch(url), { passive:true, once:true });
+  });
+});
 
-    function render(){
-      numA.textContent = scoreA;
-      numB.textContent = scoreB;
-    }
-    function inc(v){ return (v >= MAX) ? 0 : (v + 1); }
+/* ===== ★ AndroidでChrome以外なら「Chromeで開く」を表示 ===== */
+function isAndroid(){ return /Android/i.test(navigator.userAgent); }
+function isChrome(){
+  const ua = navigator.userAgent;
+  return /Chrome\//.test(ua) && !/EdgA\//.test(ua) && !/OPR\//.test(ua) && !/SamsungBrowser\//.test(ua);
+}
+function openInChrome(){
+  const scheme = location.protocol.replace(':',''); // https
+  const path = location.host + location.pathname + location.search + location.hash;
+  const intentUrl = `intent://${path}#Intent;scheme=${scheme};package=com.android.chrome;end`;
+  location.href = intentUrl;
+}
 
-    function bindScoreButton(btn, get, set, key){
-      let timer = null;
-      let longPressed = false;
+(function setupChromeHint(){
+  // PWA/スタンドアロンで動かしているときは誘導しない（必要ならこの行を消してOK）
+  const isStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches;
+  if(isStandalone) return;
 
-      const clear = () => { if(timer){ clearTimeout(timer); timer = null; } };
-
-      btn.addEventListener('pointerdown', (e) => {
-        e.preventDefault?.();
-        longPressed = false;
-        clear();
-        timer = setTimeout(() => {
-          longPressed = true;
-          set(0);
-          save(key, 0);
-          render();
-          navigator.vibrate?.(20);
-        }, LONG_PRESS_MS);
-      });
-
-      btn.addEventListener('pointerup', () => {
-        clear();
-        if(!longPressed){
-          const v = inc(get());
-          set(v);
-          save(key, v);
-          render();
-        }
-      });
-
-      btn.addEventListener('pointercancel', clear);
-      btn.addEventListener('pointerleave', clear);
-    }
-
-    bindScoreButton(els.a, () => scoreA, (v)=>{ scoreA = v; }, 'scoreA');
-    bindScoreButton(els.b, () => scoreB, (v)=>{ scoreB = v; }, 'scoreB');
-
-    // Wake Lock
-    let wakeLock = null;
-    async function requestWakeLock(){
-      try{
-        if(!('wakeLock' in navigator)) return;
-        wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => { wakeLock = null; });
-      }catch(e){
-        wakeLock = null;
-      }
-    }
-    document.addEventListener('visibilitychange', () => {
-      if(document.visibilityState === 'visible') requestWakeLock();
-      else wakeLock = null;
-    });
-
-    render();
-    requestWakeLock();
-  </script>
+  if(isAndroid() && !isChrome()){
+    const hint = document.getElementById('chromeHint');
+    const btn  = document.getElementById('btnChrome');
+    if(hint) hint.style.display = 'block';
+    if(btn) btn.addEventListener('click', openInChrome);
+  }
+})();
+</script>
 </body>
 </html>
