@@ -437,30 +437,36 @@
   }
 
   // --- Camera Control ---
- function stopCam({keepFrame=false}={}){
+ async function stopCam({keepFrame=false}={}){
   if(S.rafId) cancelAnimationFrame(S.rafId);
-  S.rafId=null;
+  S.rafId = null;
 
-  // ★ videoを完全解放（これがないと掴みっぱなしになる端末がある）
+  // ★ video要素を完全にリセット
   try { D.video.pause(); } catch(e){}
   try { D.video.srcObject = null; } catch(e){}
+    try { D.video.load(); } catch(e){} // ★ これが効く端末がある
 
-  if(!keepFrame){
-    ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-    D.freeze.style.display='none';
-    D.lockEmoji.style.display='none';
-    D.video.style.visibility='visible';
+    // ★ streamを必ず停止
+    if(S.stream){
+      try{
+        for(const t of S.stream.getTracks()){
+          try{ t.stop(); }catch(e){}
+        }
+      }catch(e){}
+      S.stream = null;
+    }
+
+    if(!keepFrame){
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      D.freeze.style.display='none';
+      D.lockEmoji.style.display='none';
+      D.video.style.visibility='visible';
+    }
+
+    D.btnStart.disabled=false;
+    D.btnStop.disabled=true;
+    setStatus('停止中');
   }
-
-  if(S.stream){
-    try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
-    S.stream=null;
-  }
-
-  D.btnStart.disabled=false;
-  D.btnStop.disabled=true;
-  setStatus('停止中');
-}
 
 
   async function setupDetector(){
@@ -520,6 +526,12 @@
     video: { facingMode: { ideal: 'environment' } },
     audio: false
   };
+  // ★ 端末のカメラ列挙で“起こす”
+  try{
+    if(navigator.mediaDevices?.enumerateDevices){
+      await navigator.mediaDevices.enumerateDevices();
+    }
+  }catch(e){}
 
   try{
     // 1st try
