@@ -9,8 +9,35 @@
   *{ box-sizing:border-box }
   html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
+
   .wrap{ min-height:100dvh; display:flex; flex-direction:column; gap:14px; padding:18px;
     max-width:640px; margin:0 auto }
+
+  /* ★ Android Chrome誘導バー */
+  .hint{
+    display:none;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(255,255,255,.06);
+    border-radius:14px;
+    padding:12px 12px;
+    box-shadow:0 10px 24px rgba(0,0,0,.25);
+  }
+  .hint .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
+  .hint .msg{ font-size:14px; line-height:1.35; color:rgba(230,240,255,.92); }
+  .hint .btn-mini{
+    flex:0 0 auto;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(79,140,255,.92);
+    color:#fff;
+    border-radius:12px;
+    padding:10px 12px;
+    font-weight:800;
+    letter-spacing:.04em;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hint .btn-mini:active{ transform:scale(.985) }
+
   .btn{ display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
     border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
     font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
@@ -45,10 +72,21 @@
 </head>
 <body>
   <main class="wrap" role="navigation" aria-label="できること三つ">
-    
-    <a class="btn a" href="./scan-spec-google.html"     aria-label="調べる">知る</a>
-    <a class="btn b" href="./scan-lookup.html"   aria-label="探す">探す</a>
-    <a class="btn c" href="./scan-register.html" aria-label="登録する">仕舞う</a>
+
+    <!-- ★ AndroidでChrome以外だったらここが表示される -->
+    <section id="chromeHint" class="hint" aria-live="polite">
+      <div class="row">
+        <div class="msg">
+          このブラウザではカメラが動かない場合があります。<br>
+          可能なら <b>Chromeで開く</b> を押してください。
+        </div>
+        <button id="btnChrome" class="btn-mini" type="button">Chromeで開く</button>
+      </div>
+    </section>
+
+    <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る</a>
+    <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す</a>
+    <a class="btn c" href="./scan-register.html"    aria-label="登録する">仕舞う</a>
   </main>
 
 <script>
@@ -68,6 +106,32 @@ const prefetch = url => fetch(url, { mode:'no-cors', cache:'force-cache' }).catc
     link.addEventListener(ev, ()=>prefetch(url), { passive:true, once:true });
   });
 });
+
+/* ===== ★ AndroidでChrome以外なら「Chromeで開く」を表示 ===== */
+function isAndroid(){ return /Android/i.test(navigator.userAgent); }
+function isChrome(){
+  const ua = navigator.userAgent;
+  return /Chrome\//.test(ua) && !/EdgA\//.test(ua) && !/OPR\//.test(ua) && !/SamsungBrowser\//.test(ua);
+}
+function openInChrome(){
+  const scheme = location.protocol.replace(':',''); // https
+  const path = location.host + location.pathname + location.search + location.hash;
+  const intentUrl = `intent://${path}#Intent;scheme=${scheme};package=com.android.chrome;end`;
+  location.href = intentUrl;
+}
+
+(function setupChromeHint(){
+  // PWA/スタンドアロンで動かしているときは誘導しない（必要ならこの行を消してOK）
+  const isStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches;
+  if(isStandalone) return;
+
+  if(isAndroid() && !isChrome()){
+    const hint = document.getElementById('chromeHint');
+    const btn  = document.getElementById('btnChrome');
+    if(hint) hint.style.display = 'block';
+    if(btn) btn.addEventListener('click', openInChrome);
+  }
+})();
 </script>
 </body>
 </html>
