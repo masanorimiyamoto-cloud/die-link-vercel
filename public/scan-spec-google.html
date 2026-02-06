@@ -376,7 +376,16 @@
   }
   function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
-  function normHyphen(s){ return (s||'').replace(/[‐-‒–—―ー−]/g,'-').trim(); }
+  function normHyphen(s){
+    return (s||'')
+      .replace(/[‐-‒–—―ー−]/g,'-')   // ハイフン統一
+      .replace(/[：]/g, ':')          // 全角コロン→半角
+      .replace(/\s*-\s*/g,'-')        // "Ta - 230" → "Ta-230"
+      .replace(/\s*:\s*/g,':')        // "Ko : 1358" → "Ko:1358"
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+
 
   function setStatus(text, active=false){
     D.scanStatus.textContent = text;
@@ -535,16 +544,33 @@
   function extractBookWc(raw){
     const t = normHyphen((raw||'').trim());
     let bn='', wc='';
+
+    // 0) 例: "Ta:230" / "Ta-230"
+    {
+      const m = /^([A-Za-z]{1,3})[:\-](\d+)$/i.exec(t);
+      if(m){ bn=m[1]; wc=m[2]; return {bn, wc}; }
+    }
+
+    // 1) 直文字列: die-Ta-230 / order-Ko-1358 / ORDER Ko:1358
+    {
+      const m = /^(die|order)\s*[:\-]?\s*([A-Za-z]{1,3})[:\-](\d+)$/i.exec(t);
+      if(m){ bn=m[2]; wc=m[3]; return {bn, wc}; }
+    }
+
+    // 2) 直文字列（従来の die-Ko-1234 / order-Ko-1234 形式）
     {
       const m = /^(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(t);
       if(m){ bn=m[2]; wc=m[3]; return {bn, wc}; }
     }
+
+    // 3) URL: ?book=Ko&wc=1234
     try{
       const u = new URL(t);
       bn = (u.searchParams.get('book') || u.searchParams.get('Book') || '').trim();
       wc = (u.searchParams.get('wc')   || u.searchParams.get('WorkCord') || u.searchParams.get('workcord') || '').trim();
       if(bn && wc) return {bn, wc};
 
+      // 4) URL pathname: /die-Ko-1234 /order-Ko-1234
       const path = u.pathname || '';
       const m2 = /(?:^|\/)(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(path);
       if(m2){
@@ -552,8 +578,10 @@
         if(bn && wc) return {bn, wc};
       }
     }catch{}
-    return null;
-  }
+
+  return null;
+}
+
 
   async function detectCombined(){
     if(!D.video.videoWidth) return [];

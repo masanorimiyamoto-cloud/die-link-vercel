@@ -335,10 +335,10 @@
   const scanCtx = D.scanCanvas.getContext('2d',{ willReadFrequently:true });
 
   const CFG = {
-    SCAN_EVERY_MS: 80,          // ★ 毎フレームやらず安定化(12.5fps程度)
-    JSQR_MULTI_MAX: 6,          // ★ lookup式 マスク検出
-    ROI_SCALE: 1.75,            // ★ 中央を拡大して再トライ（小さいQRに強く）
-    ROI_FRACTION: 0.62          // ★ 中央切り出しサイズ
+    SCAN_EVERY_MS: 80,
+    JSQR_MULTI_MAX: 6,
+    ROI_SCALE: 1.75,
+    ROI_FRACTION: 0.62
   };
 
   const S = {
@@ -406,7 +406,6 @@
     ctx.restore();
   }
 
-  // ★ ガイド内判定（lookupの isDetectionInScope 相当）
   function inScope(cornerPoints){
     if(!cornerPoints || cornerPoints.length<4) return true;
     const stackW = D.stack.clientWidth, stackH = D.stack.clientHeight;
@@ -436,32 +435,29 @@
     return true;
   }
 
-  // --- Camera Control ---
- function stopCam({keepFrame=false}={}){
-  if(S.rafId) cancelAnimationFrame(S.rafId);
-  S.rafId=null;
+  // --- Camera Control（★読み取り優先：シンプルに戻す） ---
+  function stopCam({keepFrame=false}={}){
+    if(S.rafId) cancelAnimationFrame(S.rafId);
+    S.rafId=null;
 
-  // ★ videoを完全解放（これがないと掴みっぱなしになる端末がある）
-  try { D.video.pause(); } catch(e){}
-  try { D.video.srcObject = null; } catch(e){}
+    // 解放は維持（起動失敗の再発を減らす）
+    try{ D.video.pause(); }catch(e){}
+    try{ D.video.srcObject = null; }catch(e){}
 
-  if(!keepFrame){
-    ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
-    D.freeze.style.display='none';
-    D.lockEmoji.style.display='none';
-    D.video.style.visibility='visible';
+    if(!keepFrame){
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      D.freeze.style.display='none';
+      D.lockEmoji.style.display='none';
+      D.video.style.visibility='visible';
+    }
+    if(S.stream){
+      try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+      S.stream=null;
+    }
+    D.btnStart.disabled=false;
+    D.btnStop.disabled=true;
+    setStatus('停止中');
   }
-
-  if(S.stream){
-    try{ S.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
-    S.stream=null;
-  }
-
-  D.btnStart.disabled=false;
-  D.btnStop.disabled=true;
-  setStatus('停止中');
-}
-
 
   async function setupDetector(){
     S.useBarcodeDetector = ('BarcodeDetector' in window);
@@ -474,7 +470,6 @@
       if(fmts && fmts.includes('qr_code')){
         S.detector = new BarcodeDetector({formats:['qr_code']});
       }else{
-        // Safari等で getSupportedFormats が無い/空でも、try だけはする
         S.detector = new BarcodeDetector({formats:['qr_code']});
       }
     }catch{
@@ -484,92 +479,47 @@
   }
 
   async function startCam(){
-  // ★ 非HTTPSだとカメラ不可（念のため）
-  if(!window.isSecureContext){
-    D.errCam.textContent = 'このページがHTTPSではないため、カメラを起動できません。';
-    setStatus('エラー');
-    return;
-  }
+    S.locked=false;
+    stopCam(); // 既存停止（解放）
 
-  // ★ prerender/非表示中は NotAllowedError になりやすいのでブロック
-  if(document.prerendering || document.visibilityState !== 'visible'){
-    D.errCam.textContent = 'ページが非表示/先読み状態のため起動できません。画面を表示してからもう一度押してください。';
-    setStatus('待機中');
-    return;
-  }
+    D.errCam.textContent='';
+    D.freeze.style.display='none';
+    D.video.style.visibility='visible';
+    D.lockEmoji.style.display='none';
 
-  // 初期化
-  S.locked=false;
-  stopCam(); // 既存停止（完全解放）
-  D.errCam.textContent='';
-  D.freeze.style.display='none';
-  D.video.style.visibility='visible';
-  D.lockEmoji.style.display='none';
+    // ★ 余計な解像度/fps固定をやめる（端末が最適を選ぶ＝読み取りが戻りやすい）
+    const constraints = {
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    };
 
-  // ★ まずは強め制約 → ダメなら弱め制約で再トライ
-  const constraintsStrong = {
-    video: {
-      facingMode: { ideal: 'environment' },
-      width:  { ideal: 1280 },
-      height: { ideal: 720 },
-      frameRate: { ideal: 30 }
-    },
-    audio: false
-  };
-  const constraintsWeak = {
-    video: { facingMode: { ideal: 'environment' } },
-    audio: false
-  };
-
-  try{
-    // 1st try
     try{
-      S.stream = await navigator.mediaDevices.getUserMedia(constraintsStrong);
-    }catch(e1){
-      // 2nd try（制約を緩める）
-      S.stream = await navigator.mediaDevices.getUserMedia(constraintsWeak);
+      S.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      D.video.srcObject = S.stream;
+
+      // ★ play は握りつぶさず、失敗したらエラーにする（原因が見える）
+      await D.video.play();
+
+      const ok = await waitVideoSize();
+      if(!ok) throw new Error('カメラ解像度が確定しませんでした');
+
+      fitAll();
+      await setupDetector();
+      D.detectorInfo.textContent = (S.useBarcodeDetector && S.detector) ? 'BD+jsQR' : 'jsQR';
+
+      D.btnStart.disabled=true;
+      D.btnStop.disabled=false;
+
+      S.lastScanAt = 0;
+      setStatus('スキャン中', true);
+      tick();
+    }catch(e){
+      console.error(e);
+      D.errCam.textContent = `カメラ起動エラー: ${e.name||''} ${e.message||e}`;
+      setStatus('エラー');
+      stopCam();
     }
-
-    D.video.srcObject = S.stream;
-
-    // ★ play() も失敗する端末があるので catch
-    try{ await D.video.play(); }catch(e){ /* 無視 */ }
-
-    const ok = await waitVideoSize();
-    if(!ok) throw new Error('カメラ解像度が確定しませんでした');
-
-    fitAll();
-
-    await setupDetector();
-    D.detectorInfo.textContent = (S.useBarcodeDetector && S.detector) ? 'BD+jsQR' : 'jsQR';
-
-    D.btnStart.disabled=true;
-    D.btnStop.disabled=false;
-
-    S.lastScanAt = 0;
-    setStatus('スキャン中', true);
-    tick();
-
-  }catch(e){
-    console.error(e);
-
-    // ★ エラー出し分け（ユーザーが次に何をすべきか分かる）
-    const name = e?.name || '';
-    let hint = '';
-    if(name === 'NotAllowedError'){
-      hint = '（権限ブロック/非表示状態/先読み/埋め込み等で拒否されました。別タブも含め同サイトを閉じてChromeを再起動→再試行）';
-    }else if(name === 'NotReadableError'){
-      hint = '（他アプリ/他タブがカメラを使用中の可能性。カメラ系アプリを終了して再試行）';
-    }else if(name === 'OverconstrainedError'){
-      hint = '（カメラ制約が合いません。端末依存です。弱め制約で再試行します）';
-    }
-
-    D.errCam.textContent = `カメラ起動エラー: ${name} ${e.message||e} ${hint}`;
-    setStatus('エラー');
-    stopCam(); // ★ 失敗時も解放
   }
-}
-
 
   function freezeAndLock(){
     fitAll();
@@ -582,25 +532,19 @@
     setStatus('ロック完了');
   }
 
-  // --- Parse（★ここが重要：die-plain / URL book,wc を確実に拾う） ---
   function extractBookWc(raw){
     const t = normHyphen((raw||'').trim());
     let bn='', wc='';
-
-    // 1) 直文字列: die-Ko-1234 / order-Ko-1234
     {
       const m = /^(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(t);
       if(m){ bn=m[2]; wc=m[3]; return {bn, wc}; }
     }
-
-    // 2) URL: ?book=Ko&wc=1234 があれば “パス不問” で拾う（die-plain / order-plain 等もOK）
     try{
       const u = new URL(t);
       bn = (u.searchParams.get('book') || u.searchParams.get('Book') || '').trim();
       wc = (u.searchParams.get('wc')   || u.searchParams.get('WorkCord') || u.searchParams.get('workcord') || '').trim();
       if(bn && wc) return {bn, wc};
 
-      // 3) URLの pathname に die-Ko-1234 / order-Ko-1234 が入ってるケース
       const path = u.pathname || '';
       const m2 = /(?:^|\/)(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(path);
       if(m2){
@@ -608,11 +552,9 @@
         if(bn && wc) return {bn, wc};
       }
     }catch{}
-
     return null;
   }
 
-  // --- Detection Logic（lookup式の “マスク複数検出” + 中央ROI拡大リトライ） ---
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
@@ -620,7 +562,6 @@
 
     const dets = new Map();
 
-    // 1) BarcodeDetector（可能なら video 直も試す）
     if(S.useBarcodeDetector && S.detector){
       try{
         const codes = await S.detector.detect(D.video);
@@ -629,7 +570,6 @@
           if(raw && !dets.has(raw)) dets.set(raw, { raw, pts: c.cornerPoints });
         }
       }catch{
-        // video 直がダメなら scanCanvas へ
         try{
           scanCtx.drawImage(D.video, 0, 0, w, h);
           const codes = await S.detector.detect(D.scanCanvas);
@@ -643,13 +583,12 @@
       }
     }
 
-    // helper: jsQR multi with mask
     const jsqrMulti = (imgData) => {
       const hits = [];
       const W = imgData.width, H = imgData.height;
       const masked = new Uint8ClampedArray(imgData.data);
       for(let k=0; k<CFG.JSQR_MULTI_MAX; k++){
-        const hit = jsQR(masked, W, H, { inversionAttempts:'attemptBoth' }); // ★ dontInvertやめる
+        const hit = jsQR(masked, W, H, { inversionAttempts:'attemptBoth' });
         if(!hit) break;
         hits.push({
           raw: (hit.data||'').trim(),
@@ -666,14 +605,12 @@
       return hits;
     };
 
-    // 2) jsQR: full frame
     scanCtx.drawImage(D.video, 0, 0, w, h);
     let img = scanCtx.getImageData(0,0,w,h);
     for(const h1 of jsqrMulti(img)){
       if(h1.raw && !dets.has(h1.raw)) dets.set(h1.raw, h1);
     }
 
-    // 3) jsQR: 中央ROI拡大（小さいQRに強い）
     if(dets.size === 0){
       const frac = CFG.ROI_FRACTION;
       const sw = Math.floor(vw * frac);
@@ -681,7 +618,6 @@
       const sx = Math.floor((vw - sw) / 2);
       const sy = Math.floor((vh - sh) / 2);
 
-      // ROIを scanCanvas 全面に引き伸ばして解析（見かけのQRサイズが大きくなる）
       scanCtx.drawImage(D.video, sx, sy, sw, sh, 0, 0, w, h);
       img = scanCtx.getImageData(0,0,w,h);
       for(const h2 of jsqrMulti(img)){
@@ -708,26 +644,22 @@
 
       const dets = await detectCombined();
 
-      // ★ 何もなければステータスだけ更新
       if(!dets.length){
         setStatus('スキャン中', true);
         S.rafId = requestAnimationFrame(tick);
         return;
       }
 
-      // まず “検知できている” の可視化（形式不明でも枠を出す）
       let anyInScope = false;
       for(const d of dets){
         const raw = (d.raw||'').trim(); if(!raw) continue;
         const pts = d.pts || [];
         if(!pts.length) continue;
 
-        // ガイド外は薄く赤（「読めてるけど外」も見える）
         const okScope = inScope(pts);
         anyInScope = anyInScope || okScope;
         drawPoly(pts, okScope ? '#228be6' : '#fa5252', okScope ? 4 : 3, okScope ? null : [8,6], okScope ? 0.85 : 0.35);
 
-        // ガイド内で、book/wc 抜けたらロック＆照会
         if(okScope){
           const p = extractBookWc(raw);
           if(p && p.bn && p.wc){
@@ -740,7 +672,6 @@
         }
       }
 
-      // “検知したけど形式が違う/ガイド外” を表示
       if(anyInScope) setStatus(`QR検知（形式/内容が一致しません）`, true);
       else setStatus(`QR検知（ガイド外）`, true);
     }
@@ -754,10 +685,8 @@
     D.nowTarget.textContent = `ターゲット: ${S.current.book} / ${S.current.wc}`;
     D.inpBook.value = S.current.book;
     D.inpWc.value = S.current.wc;
-    // 手入力後にも再照会できるよう lastQueryKey をクリアしたい場合はここでクリアOK
   }
 
-  // --- API & Rendering ---
   async function querySpec(){
     const {book, wc} = S.current;
     if(!book || !wc) return;
@@ -868,8 +797,6 @@
   D.btnStart.onclick = startCam;
   D.btnStop.onclick = () => stopCam();
   window.onresize = fitAll;
-  window.addEventListener('pagehide', () => stopCam());
-  document.addEventListener('visibilitychange', () => { if(document.hidden) stopCam(); });
 
   D.btnManual.onclick = () => {
     const b = D.inpBook.value.trim();
