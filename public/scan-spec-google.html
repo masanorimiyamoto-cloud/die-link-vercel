@@ -773,7 +773,25 @@
       D.gsBox.innerHTML = `<div class="msg-empty" style="color:var(--ng)">${esc(e.message)}</div>`;
     }
   }
-
+  function renderSpecs(gs){
+    if(!gs){
+      D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
+      return;
+    }
+    const fields = [
+      {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'},
+      {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
+      {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'},
+      {k:'LastSeen', l:'確認日'}
+    ];
+    let html = '<div class="spec-table">';
+    fields.forEach(f => {
+      const val = gs[f.k] || '-';
+      html += `<div class="spec-row"><div class="spec-label">${esc(f.l)}</div><div class="spec-val">${esc(val)}</div></div>`;
+    });
+    html += '</div>';
+    D.gsBox.innerHTML = html;
+  }
   async function findDriveFiles(book, wc){
     try{
       // fetchをスタート
