@@ -842,7 +842,7 @@
 D.driveView.innerHTML = '';
 const frag = document.createDocumentFragment();
 
-// ここは1回だけ（ただし各画像に id を混ぜる）
+// ここは1回だけ
 const baseCb = Date.now().toString(36);
 
 cands.forEach(f => {
@@ -857,16 +857,13 @@ cands.forEach(f => {
     ? `https://drive.google.com/file/d/${id}/view`
     : `https://drive.google.com/uc?export=view&id=${id}`;
 
-  // ★thumbnail に戻す（uc直は<img>で失敗することがある）
-  // ★cbに「id」を混ぜて固定キャッシュを潰す
-  
-  //const thumbUrl =
-  //`https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w600&cb=${Date.now()}-${encodeURIComponent(id)}`;
-  const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${Date.now()}-${encodeURIComponent(id)}`;
+  // ★サムネはサーバ経由（キャッシュバスターは baseCb+id）
+  const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${baseCb}-${encodeURIComponent(id)}`;
 
   const a = document.createElement('a');
   a.href = url;
   a.target = '_blank';
+  a.rel = 'noopener';
   a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;';
 
   const img = document.createElement('img');
@@ -875,7 +872,10 @@ cands.forEach(f => {
   img.style.cssText = 'width:100%; display:block;';
   img.src = thumbUrl;
 
-  // 失敗したときに見えるようにしておく（原因特定用）
+  const cap = document.createElement('div');
+  cap.style.cssText = 'padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;';
+  cap.textContent = name;
+
   img.onerror = () => {
     img.style.display = 'none';
     const err = document.createElement('div');
@@ -884,22 +884,15 @@ cands.forEach(f => {
     a.insertBefore(err, cap);
   };
 
-  const cap = document.createElement('div');
-  cap.style.cssText = 'padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;';
-  cap.textContent = name;
-
-  // デバッグ（thumbが変わるか）
-  const dbg = document.createElement('div');
-  dbg.style.cssText = 'padding:2px 8px; font-size:10px; color:#999; background:#f9f9f9; border-top:1px dashed #eee;';
-  dbg.textContent = `id=${id} / thumb=${thumbUrl}`;
-
   a.appendChild(img);
   a.appendChild(cap);
-  a.appendChild(dbg);
+
+  // ★重要：dbg（id=.../thumb=...）は append しない
   frag.appendChild(a);
 });
 
 D.driveView.appendChild(frag);
+
 
 
   }catch(e){
