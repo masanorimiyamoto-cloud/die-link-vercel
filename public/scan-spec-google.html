@@ -787,83 +787,98 @@
     D.gsBox.innerHTML = html;
   }
   async function findDriveFiles(book, wc){
-    try{
-      const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,{
-        credentials:'same-origin',
-        cache:'no-store'
-      });
-      const j = await r.json();
-      
-      // ★【超重要】結果が返ってきた時に、今のターゲット(S.current)と一致するかチェック
-      // これをしないと、前のスキャン結果が遅れて届いた場合に上書きされてしまいます
-      if(S.current.book !== book || S.current.wc !== wc) {
-        console.log("Stale request ignored:", book, wc);
-        return; 
-      }
+  try{
+    const r = await fetch(
+      `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,
+      { credentials:'same-origin', cache:'no-store' }
+    );
+    const j = await r.json();
 
-      if(!j.ok){ 
-        D.driveStatus.textContent = '検索エラー'; 
-        return; 
-      }
-
-      const cands = j.candidates || (j.fileId ? [{id:j.fileId, name:j.fileName}] : []);
-      if(!cands.length){
-        D.driveStatus.textContent = 'ファイルなし';
-        D.driveView.innerHTML = ''; // ヒットなしなら空にする
-        return;
-      }
-
-      D.driveStatus.textContent = `${cands.length}件ヒット`;
-
-      // 優先順位づけ
-      const score = n => {
-        n = (n||'').toLowerCase();
-        if(/-zu\./.test(n)) return 1;
-        if(/-si\./.test(n)) return 2;
-        return 9;
-      };
-      cands.sort((a,b) => score(a.name) - score(b.name));
-
-      let btnHtml = '';
-      let imgHtml = ''; 
-
-      cands.forEach(f => {
-        const name = f.name || '';
-        const isPdf = /\.pdf$/i.test(name);
-        const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
-
-        let url = isPdf ? `https://drive.google.com/file/d/${f.id}/view` : `https://drive.google.com/uc?export=view&id=${f.id}`;
-        let label = 'ファイル';
-        let icon = '📄';
-        let styleClass = 'drive-btn';
-
-        if(/-zu\./i.test(name)) { label = '図面'; icon='📐'; styleClass+=' primary-btn'; }
-        else if(/-si\./i.test(name)) { label = 'シール'; icon='🏷️'; }
-
-        btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
-
-        // サムネイル表示（図面・シール・画像）
-        if(isImg || /-zu\./i.test(name) || /-si\./i.test(name)){
-           const thumbUrl = `https://drive.google.com/thumbnail?id=${f.id}&sz=w600`;
-           imgHtml += `
-             <a href="${url}" target="_blank" style="display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden; margin-bottom:10px;">
-               <img src="${thumbUrl}" style="width:100%; display:block;" loading="lazy">
-               <div style="padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;">${esc(name)}</div>
-             </a>`;
-        }
-      });
-
-      D.driveActions.innerHTML = btnHtml;
-      D.driveView.innerHTML = imgHtml; 
-
-    }catch(e){
-      console.error(e);
-      // ここでもターゲットチェックを入れておくと安全
-      if(S.current.book === book && S.current.wc === wc) {
-        D.driveStatus.textContent = '検索失敗';
-      }
+    if(!j.ok){
+      D.driveStatus.textContent = '検索エラー';
+      return;
     }
+
+    // candidates があればそれを使い、無ければ fileId/fileName から1件候補を作る
+    const candsRaw = j.candidates || (j.fileId ? [{ fileId:j.fileId, fileName:j.fileName }] : []);
+    if(!candsRaw.length){
+      D.driveStatus.textContent = 'ファイルなし';
+      return;
+    }
+
+    // ★ここが重要：id/name の表記ゆれを吸収して正規化
+    const cands = candsRaw
+      .map(f => {
+        const id   = f.id || f.fileId;
+        const name = f.name || f.fileName || '';
+        if(!id) return null;
+        return { id, name };
+      })
+      .filter(Boolean);
+
+    if(!cands.length){
+      D.driveStatus.textContent = 'ファイルなし';
+      return;
+    }
+
+    D.driveStatus.textContent = `${cands.length}件ヒット`;
+
+    // 優先順位づけ (図面 > シール > PDF > その他)
+    const score = (n) => {
+      n = (n||'').toLowerCase();
+      if(/-zu\./.test(n)) return 1;
+      if(/-si\./.test(n)) return 2;
+      if(n.endsWith('.pdf')) return 3;
+      return 9;
+    };
+    cands.sort((a,b) => score(a.name) - score(b.name));
+
+    let btnHtml = '';
+    let imgHtml = '';
+
+    cands.forEach(f => {
+      const id = f.id;
+      const name = f.name || '';
+      const isPdf = /\.pdf$/i.test(name);
+      const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
+
+      let url;
+      if(isPdf) url = `https://drive.google.com/file/d/${id}/view`;
+      else      url = `https://drive.google.com/uc?export=view&id=${id}`;
+
+      // ラベルとアイコン
+      let label = 'ファイル';
+      let icon = '📄';
+      let styleClass = 'drive-btn';
+
+      if(/-zu\./i.test(name)) { label = '図面 (-zu)'; icon='📐'; styleClass+=' primary-btn'; }
+      else if(/-si\./i.test(name)) { label = 'シール (-si)'; icon='🏷️'; }
+      else if(isPdf) { label = 'PDF'; icon='📑'; }
+      else if(isImg) { label = '画像'; icon='🖼️'; }
+
+      // ボタン
+      btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
+
+      // 画像/zu/si はサムネ表示（キャッシュ対策で cb を付ける）
+      if(isImg || /-zu\./i.test(name) || /-si\./i.test(name)){
+        const thumbUrl = `https://drive.google.com/thumbnail?id=${id}&sz=w600&cb=${Date.now()}`;
+        imgHtml += `
+          <a href="${url}" target="_blank" style="display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;">
+            <img src="${thumbUrl}" style="width:100%; display:block;" loading="lazy" alt="${esc(name)}">
+            <div style="padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;">${esc(name)}</div>
+          </a>`;
+      }
+    });
+
+    D.driveActions.innerHTML = btnHtml;
+    D.driveView.innerHTML = imgHtml;
+
+  }catch(e){
+    console.error(e);
+    D.driveStatus.textContent = '検索失敗';
   }
+}
+
 
   // --- Events ---
   D.btnStart.onclick = startCam;
