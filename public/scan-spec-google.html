@@ -222,6 +222,8 @@
 
   .fig-container { display: flex; flex-direction: column; gap: 16px; }
   .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
+  /* ★サムネイル（プレビュー）機能停止 */
+  #driveView { display: none !important; }
 
   /* --- Buttons --- */
   .btn {
@@ -839,7 +841,10 @@
 
     // ここ重要：毎回丸ごと作り直す
     // 画像プレビューは DOM で生成（innerHTMLでもOKだが、確実にする）
-D.driveView.innerHTML = '';
+    // ★サムネイル表示を停止（プレビュー生成しない）
+    D.driveView.innerHTML = '';
+    return;
+
 const frag = document.createDocumentFragment();
 
 // ここは1回だけ
