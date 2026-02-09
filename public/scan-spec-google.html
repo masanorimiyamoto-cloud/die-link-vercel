@@ -861,7 +861,9 @@
 
       // 画像/zu/si はサムネ表示（キャッシュ対策で cb を付ける）
       if(isImg || /-zu\./i.test(name) || /-si\./i.test(name)){
-        const thumbUrl = `https://drive.google.com/thumbnail?id=${id}&sz=w600&cb=${Date.now()}`;
+        //const thumbUrl = `https://drive.google.com/thumbnail?id=${id}&sz=w600&cb=${Date.now()}`;
+        const thumbUrl = `https://drive.google.com/uc?export=view&id=${id}&cb=${Date.now()}`;
+
         imgHtml += `
           <a href="${url}" target="_blank" style="display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;">
             <img src="${thumbUrl}" style="width:100%; display:block;" loading="lazy" alt="${esc(name)}">
