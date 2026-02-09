@@ -860,8 +860,9 @@ cands.forEach(f => {
   // ★thumbnail に戻す（uc直は<img>で失敗することがある）
   // ★cbに「id」を混ぜて固定キャッシュを潰す
   
-  const thumbUrl =
-  `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w600&cb=${Date.now()}-${encodeURIComponent(id)}`;
+  //const thumbUrl =
+  //`https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w600&cb=${Date.now()}-${encodeURIComponent(id)}`;
+  const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${Date.now()}-${encodeURIComponent(id)}`;
 
   const a = document.createElement('a');
   a.href = url;
