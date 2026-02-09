@@ -223,7 +223,7 @@
   .fig-container { display: flex; flex-direction: column; gap: 16px; }
   .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
   /* ★サムネイル（プレビュー）機能停止 */
-  #driveView { display: none !important; }
+  /*#driveView { display: none !important; }
 
   /* --- Buttons --- */
   .btn {
@@ -848,8 +848,8 @@
 const frag = document.createDocumentFragment();
 
 // ここは1回だけ
-const baseCb = Date.now().toString(36);
-
+//const baseCb = Date.now().toString(36);
+const uniqueCb = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${idx}`;
 cands.forEach(f => {
   const id = f.id;
   const name = f.name || '';
@@ -863,8 +863,8 @@ cands.forEach(f => {
     : `https://drive.google.com/uc?export=view&id=${id}`;
 
   // ★サムネはサーバ経由（キャッシュバスターは baseCb+id）
-  const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${baseCb}-${encodeURIComponent(id)}`;
-
+  //const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${baseCb}-${encodeURIComponent(id)}`;
+  const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${uniqueCb}`;
   const a = document.createElement('a');
   a.href = url;
   a.target = '_blank';
