@@ -799,23 +799,7 @@
       return;
     }
 
-    // candidates があればそれを使い、無ければ fileId/fileName から1件候補を作る
-    const candsRaw = j.candidates || (j.fileId ? [{ fileId:j.fileId, fileName:j.fileName }] : []);
-    if(!candsRaw.length){
-      D.driveStatus.textContent = 'ファイルなし';
-      return;
-    }
-
-    // ★ここが重要：id/name の表記ゆれを吸収して正規化
-    const cands = candsRaw
-      .map(f => {
-        const id   = f.id || f.fileId;
-        const name = f.name || f.fileName || '';
-        if(!id) return null;
-        return { id, name };
-      })
-      .filter(Boolean);
-
+    const cands = j.candidates || (j.fileId ? [{ id:j.fileId, name:j.fileName }] : []);
     if(!cands.length){
       D.driveStatus.textContent = 'ファイルなし';
       return;
@@ -823,7 +807,7 @@
 
     D.driveStatus.textContent = `${cands.length}件ヒット`;
 
-    // 優先順位づけ (図面 > シール > PDF > その他)
+    // 優先順
     const score = (n) => {
       n = (n||'').toLowerCase();
       if(/-zu\./.test(n)) return 1;
@@ -831,55 +815,82 @@
       if(n.endsWith('.pdf')) return 3;
       return 9;
     };
-    cands.sort((a,b) => score(a.name) - score(b.name));
+    cands.sort((a,b)=> score(a.name||'') - score(b.name||''));
 
+    // ボタン
     let btnHtml = '';
-    let imgHtml = '';
-
-    cands.forEach(f => {
+    for(const f of cands){
       const id = f.id;
       const name = f.name || '';
       const isPdf = /\.pdf$/i.test(name);
-      const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
+      const url = isPdf
+        ? `https://drive.google.com/file/d/${id}/view`
+        : `https://drive.google.com/uc?export=view&id=${id}`;
 
-      let url;
-      if(isPdf) url = `https://drive.google.com/file/d/${id}/view`;
-      else      url = `https://drive.google.com/uc?export=view&id=${id}`;
+      let label='ファイル', icon='📄', cls='drive-btn';
+      if(/-zu\./i.test(name)) { label='図面 (-zu)'; icon='📐'; cls+=' primary-btn'; }
+      else if(/-si\./i.test(name)) { label='シール (-si)'; icon='🏷️'; }
+      else if(isPdf) { label='PDF'; icon='📑'; }
+      else if(/\.(jpg|jpeg|png|gif)$/i.test(name)) { label='画像'; icon='🖼️'; }
 
-      // ラベルとアイコン
-      let label = 'ファイル';
-      let icon = '📄';
-      let styleClass = 'drive-btn';
-
-      if(/-zu\./i.test(name)) { label = '図面 (-zu)'; icon='📐'; styleClass+=' primary-btn'; }
-      else if(/-si\./i.test(name)) { label = 'シール (-si)'; icon='🏷️'; }
-      else if(isPdf) { label = 'PDF'; icon='📑'; }
-      else if(isImg) { label = '画像'; icon='🖼️'; }
-
-      // ボタン
-      btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
-
-      // 画像/zu/si はサムネ表示（キャッシュ対策で cb を付ける）
-      if(isImg || /-zu\./i.test(name) || /-si\./i.test(name)){
-        //const thumbUrl = `https://drive.google.com/thumbnail?id=${id}&sz=w600&cb=${Date.now()}`;
-        const thumbUrl = `https://drive.google.com/uc?export=view&id=${id}&cb=${Date.now()}`;
-
-        imgHtml += `
-          <a href="${url}" target="_blank" style="display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;">
-            <img src="${thumbUrl}" style="width:100%; display:block;" loading="lazy" alt="${esc(name)}">
-            <div style="padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;">${esc(name)}</div>
-          </a>`;
-      }
-    });
-
+      btnHtml += `<a href="${url}" target="_blank" class="${cls}">${icon} ${esc(label)}</a>`;
+    }
     D.driveActions.innerHTML = btnHtml;
-    D.driveView.innerHTML = imgHtml;
+
+    // ここ重要：毎回丸ごと作り直す
+    D.driveView.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    const baseCb = Date.now().toString(36); // 1回だけ
+
+    for(const f of cands){
+      const id = f.id;                  // ★候補ごとの id
+      const name = f.name || '';
+      const isPdf = /\.pdf$/i.test(name);
+      const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
+      const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
+      if(!isPreview) continue;
+
+      const url = isPdf
+        ? `https://drive.google.com/file/d/${id}/view`
+        : `https://drive.google.com/uc?export=view&id=${id}`;
+
+      // ★ここが最重要：thumbUrl は必ずこの id を使う
+      // （idをcbにも混ぜて、絶対にURLが変わるようにする）
+      const thumbUrl = `https://drive.google.com/uc?export=view&id=${encodeURIComponent(id)}&cb=${baseCb}-${encodeURIComponent(id)}`;
+
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank';
+      a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;';
+
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = name;
+      img.style.cssText = 'width:100%; display:block;';
+      img.src = thumbUrl;
+
+      const cap = document.createElement('div');
+      cap.style.cssText = 'padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;';
+      cap.textContent = name;
+
+      // デバッグ：id と thumbUrl を表示
+      const dbg = document.createElement('div');
+      dbg.style.cssText = 'padding:2px 8px; font-size:10px; color:#999; background:#f9f9f9; border-top:1px dashed #eee;';
+      dbg.textContent = `id=${id} / thumb=${thumbUrl}`;
+
+      a.appendChild(img);
+      a.appendChild(cap);
+      a.appendChild(dbg);
+      frag.appendChild(a);
+    }
+
+    D.driveView.appendChild(frag);
 
   }catch(e){
     console.error(e);
     D.driveStatus.textContent = '検索失敗';
   }
 }
+
 
 
   // --- Events ---
