@@ -715,22 +715,50 @@
     D.inpWc.value = S.current.wc;
   }
 
+  // ▼▼▼ ここから書き換え ▼▼▼
+
   async function querySpec(){
     const {book, wc} = S.current;
     if(!book || !wc) return;
     const key = dieKey(book, wc);
-    if(key===S.lastQueryKey) return;
+    // 同じ検索ならスキップ（連打防止）
+    if(key === S.lastQueryKey) return; 
     S.lastQueryKey = key;
 
     D.errApi.textContent='';
     D.loading.style.display='inline';
+    
+    // 表示エリアをリセット
     D.gsBox.innerHTML = '<div class="msg-empty">読み込み中...</div>';
     D.driveActions.innerHTML = '';
     D.driveView.innerHTML = '';
-    D.driveStatus.textContent = '';
+    D.driveStatus.textContent = '検索中...'; // Driveも即座に「検索中」にする
 
     try{
+      // 1. セッション確認 (これは必須なので待つ)
       await ensureCsrf();
+
+      // ★ここが並列処理のキモです★
+      // AとBを同時にスタートさせます（awaitしない）
+      const pSheet = fetchSpecs(book, wc);   // Sheets検索タスク
+      const pDrive = findDriveFiles(book, wc); // Drive検索タスク
+
+      // Sheetsの結果だけをここで待って表示制御（Driveは勝手に表示されます）
+      await pSheet; 
+
+    }catch(e){
+      D.errApi.textContent = e.message || e;
+      D.gsBox.innerHTML = '<div class="msg-empty">取得失敗</div>';
+    }finally{
+      // 両方の処理が終わっていなくても、メインの「照会中」表示は消してOK
+      // (Driveがまだなら、Drive欄に「検索中」が残るため)
+      D.loading.style.display='none';
+    }
+  }
+
+  // Sheets検索部分を分離（並列化しやすくするため）
+  async function fetchSpecs(book, wc){
+    try {
       const r = await fetch('/api/die-check', {
         method:'POST',
         headers:{ 'Content-Type':'application/json', ...(S.csrf?{'X-CSRF':S.csrf}:{}) },
@@ -739,18 +767,12 @@
       });
       const j = await r.json();
       if(!j.ok) throw new Error(j.error||'API Error');
-
       renderSpecs(j.gs);
-      await findDriveFiles(book, wc);
-
-    }catch(e){
-      D.errApi.textContent = e.message || e;
-      D.gsBox.innerHTML = '<div class="msg-empty">取得失敗</div>';
-    }finally{
-      D.loading.style.display='none';
+    } catch(e) {
+      // Sheetsのエラーはここで処理
+      D.gsBox.innerHTML = `<div class="msg-empty" style="color:var(--ng)">${esc(e.message)}</div>`;
     }
   }
-
   function renderSpecs(gs){
     if(!gs){
       D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
@@ -770,13 +792,16 @@
     html += '</div>';
     D.gsBox.innerHTML = html;
   }
-
   async function findDriveFiles(book, wc){
-    D.driveStatus.textContent = '検索中...';
     try{
+      // fetchをスタート
       const r = await fetch(`/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,{credentials:'same-origin',cache:'no-store'});
       const j = await r.json();
-      if(!j.ok){ D.driveStatus.textContent='検索エラー'; return; }
+      
+      if(!j.ok){ 
+        D.driveStatus.textContent='検索エラー'; 
+        return; 
+      }
 
       const cands = j.candidates || (j.fileId ? [{id:j.fileId, name:j.fileName}] : []);
       if(!cands.length){
@@ -786,6 +811,7 @@
 
       D.driveStatus.textContent = `${cands.length}件ヒット`;
 
+      // 優先順位づけ (図面 > シール > PDF > その他)
       const score = n => {
         n = (n||'').toLowerCase();
         if(/-zu\./.test(n)) return 1;
@@ -796,30 +822,53 @@
       cands.sort((a,b) => score(a.name||'') - score(b.name||''));
 
       let btnHtml = '';
+      let imgHtml = ''; // ★画像のプレビュー用
+
       cands.forEach(f => {
         const name = f.name || '';
         const isPdf = /\.pdf$/i.test(name);
+        const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name); // 画像判定
 
         let url;
         if (isPdf) url = `https://drive.google.com/file/d/${f.id}/view`;
         else url = `https://drive.google.com/uc?export=view&id=${f.id}`;
 
+        // ラベルとアイコン
         let label = 'ファイル';
         let icon = '📄';
         let styleClass = 'drive-btn';
 
         if(/-zu\./i.test(name)) { label = '図面 (-zu)'; icon='📐'; styleClass+=' primary-btn'; }
         else if(/-si\./i.test(name)) { label = 'シール (-si)'; icon='🏷️'; }
-        else if(/\.pdf$/i.test(name)) { label = 'PDF'; icon='📑'; }
+        else if(isPdf) { label = 'PDF'; icon='📑'; }
+        else if(isImg) { label = '画像'; icon='🖼️'; }
 
+        // ボタン生成
         btnHtml += `<a href="${url}" target="_blank" class="${styleClass}">${icon} ${esc(label)}</a>`;
+
+        // ★改善点: 画像ならサムネイルを直接表示する
+        // Google DriveのサムネイルAPIを使用 (sz=w600 で幅600px指定)
+        if(isImg || /-zu\./i.test(name) || /-si\./i.test(name)){
+           const thumbUrl = `https://drive.google.com/thumbnail?id=${f.id}&sz=w600`;
+           // クリックで拡大できるようにリンクで囲む
+           imgHtml += `
+             <a href="${url}" target="_blank" style="display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;">
+               <img src="${thumbUrl}" style="width:100%; display:block;" loading="lazy" alt="${esc(name)}">
+               <div style="padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;">${esc(name)}</div>
+             </a>`;
+        }
       });
+
       D.driveActions.innerHTML = btnHtml;
+      D.driveView.innerHTML = imgHtml; // 画像エリアに挿入
 
     }catch(e){
+      console.error(e);
       D.driveStatus.textContent = '検索失敗';
     }
   }
+
+  // ▲▲▲ ここまで書き換え ▲▲▲
 
   // --- Events ---
   D.btnStart.onclick = startCam;
