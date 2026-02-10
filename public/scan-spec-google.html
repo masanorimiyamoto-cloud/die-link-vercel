@@ -842,61 +842,56 @@
     // ここ重要：毎回丸ごと作り直す
     // 画像プレビューは DOM で生成（innerHTMLでもOKだが、確実にする）
     // ★サムネイル表示を停止（プレビュー生成しない）
-    D.driveView.innerHTML = '';
-    return;
+   D.driveView.innerHTML = '';
+  const frag = document.createDocumentFragment();
 
-const frag = document.createDocumentFragment();
+  cands.forEach((f, idx) => {
+    const id = f.id;
+    const name = f.name || '';
+    const isPdf = /\.pdf$/i.test(name);
+    const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
+    const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
+    if(!isPreview) return;
 
-// ここは1回だけ
-//const baseCb = Date.now().toString(36);
-const uniqueCb = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${idx}`;
-cands.forEach(f => {
-  const id = f.id;
-  const name = f.name || '';
-  const isPdf = /\.pdf$/i.test(name);
-  const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
-  const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
-  if(!isPreview) return;
+    const url = isPdf
+      ? `https://drive.google.com/file/d/${id}/view`
+      : `https://drive.google.com/uc?export=view&id=${id}`;
 
-  const url = isPdf
-    ? `https://drive.google.com/file/d/${id}/view`
-    : `https://drive.google.com/uc?export=view&id=${id}`;
+    // キャッシュバスター（毎回確実に変える）
+    const uniqueCb = `${Date.now()}-${Math.random().toString(36).slice(2)}-${idx}`;
+    const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${encodeURIComponent(uniqueCb)}`;
 
-  // ★サムネはサーバ経由（キャッシュバスターは baseCb+id）
-  //const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${baseCb}-${encodeURIComponent(id)}`;
-  const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${uniqueCb}`;
-  const a = document.createElement('a');
-  a.href = url;
-  a.target = '_blank';
-  a.rel = 'noopener';
-  a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;';
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;';
 
-  const img = document.createElement('img');
-  img.loading = 'lazy';
-  img.alt = name;
-  img.style.cssText = 'width:100%; display:block;';
-  img.src = thumbUrl;
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = name;
+    img.style.cssText = 'width:100%; display:block;';
+    img.src = thumbUrl;
 
-  const cap = document.createElement('div');
-  cap.style.cssText = 'padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;';
-  cap.textContent = name;
+    const cap = document.createElement('div');
+    cap.style.cssText = 'padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;';
+    cap.textContent = name;
 
-  img.onerror = () => {
-    img.style.display = 'none';
-    const err = document.createElement('div');
-    err.style.cssText = 'padding:8px; font-size:12px; color:#fa5252; background:#fff5f5;';
-    err.textContent = `サムネ読み込み失敗: ${name}`;
-    a.insertBefore(err, cap);
-  };
+    img.onerror = () => {
+      img.style.display = 'none';
+      const err = document.createElement('div');
+      err.style.cssText = 'padding:8px; font-size:12px; color:#fa5252; background:#fff5f5;';
+      err.textContent = `サムネ読み込み失敗: ${name}`;
+      a.insertBefore(err, cap);
+    };
 
-  a.appendChild(img);
-  a.appendChild(cap);
+    a.appendChild(img);
+    a.appendChild(cap);
+    frag.appendChild(a);
+  });
 
-  // ★重要：dbg（id=.../thumb=...）は append しない
-  frag.appendChild(a);
-});
+  D.driveView.appendChild(frag);
 
-D.driveView.appendChild(frag);
 
 
 
