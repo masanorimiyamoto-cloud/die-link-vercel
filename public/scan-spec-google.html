@@ -778,7 +778,9 @@
       {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'},
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
       {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'},
-      {k:'LastSeen', l:'確認日'}
+      {k:'LastSeen', l:'確認日'},
+      // ★追加：一番下
+      {k:'LastDelivery', l:'前回納品日'}
     ];
     let html = '<div class="spec-table">';
     fields.forEach(f => {
@@ -859,7 +861,9 @@
 
     // キャッシュバスター（毎回確実に変える）
     const uniqueCb = `${Date.now()}-${Math.random().toString(36).slice(2)}-${idx}`;
-    const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${encodeURIComponent(uniqueCb)}`;
+    //const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${encodeURIComponent(uniqueCb)}`;
+    const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    img.src = thumbUrl;
 
     const a = document.createElement('a');
     a.href = url;

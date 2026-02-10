@@ -299,6 +299,8 @@ async function fetchSheetRowByBookWc(book, wc) {
         Location : get(row,'Location'),
         LastSeen : get(row,'LastSeen'),
         Ndate    : get(row,'Ndate'),
+        // ★追加（8列目）
+        LastDelivery: row[7],
       };
     }
   }
