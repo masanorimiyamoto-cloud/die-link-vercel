@@ -834,7 +834,7 @@ async function findDriveFiles(book, wc) {
       const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
       const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
       
-      // ボタンの生成
+      // 1. ボタン（リンク）の生成
       const isPdf = /\.pdf$/i.test(name);
       const url = isPdf ? `https://drive.google.com/file/d/${id}/view` : `https://drive.google.com/uc?export=view&id=${id}`;
       const btn = document.createElement('a');
@@ -844,30 +844,31 @@ async function findDriveFiles(book, wc) {
       btn.innerHTML = `📄 ${name.split('.').pop().toUpperCase()}表示`;
       D.driveActions.appendChild(btn);
 
+      // プレビュー対象外ならここで終了
       if (!isPreview) return;
 
-      // --- サムネイル要素の構築（ここを修正） ---
+      // 2. サムネイル要素の構築
       const a = document.createElement('a');
       a.href = url;
       a.target = '_blank';
       a.rel = 'noopener';
-      a.className = 'fig-item'; // CSSでスタイル調整しやすいようクラス付与
       a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden; margin-bottom:12px; background:#fff;';
 
       const img = document.createElement('img');
-      img.style.cssText = 'width:100%; display:block; min-height:100px; background:#f0f0f0;';
+      img.style.cssText = 'width:100%; display:block; min-height:100px; background:#eee;';
       
-      // キャッシュを強制回避するクエリパラメータ
-      const cacheBuster = `t=${Date.now()}_${idx}`;
-      img.src = `/api/drive-thumb?id=${encodeURIComponent(id)}&${cacheBuster}`;
+      // ★ ここが肝：パラメータ名を「cb」に戻し、確実にimg定義後に代入
+      const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${Date.now()}_${idx}`;
+      img.src = thumbUrl;
 
       const cap = document.createElement('div');
-      cap.style.cssText = 'padding:6px 10px; font-size:11px; color:#555; background:#f8f9fa; border-top:1px solid #eee;';
+      cap.style.cssText = 'padding:6px 10px; font-size:11px; color:#555; background:#f8f9fa;';
       cap.textContent = name;
 
+      // エラーハンドリング
       img.onerror = () => {
         img.style.display = 'none';
-        cap.innerHTML = `<span style="color:red">⚠️ 画像読み込み失敗: ${name}</span>`;
+        cap.innerHTML = `<span style="color:red">⚠️ 読み込み失敗: ${name}</span>`;
       };
 
       a.appendChild(img);
@@ -875,6 +876,7 @@ async function findDriveFiles(book, wc) {
       frag.appendChild(a);
     });
 
+    // 最後に一気にDOMへ追加
     D.driveView.appendChild(frag);
 
   } catch (e) {
