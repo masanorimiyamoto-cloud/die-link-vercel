@@ -853,7 +853,8 @@ async function findDriveFiles(book, wc) {
       btn.innerHTML = `📄 ${name.split('.').pop().toUpperCase()}表示`;
       D.driveActions.appendChild(btn);
 
-      // プレビュー対象外ならここで終了
+      // プレビュー対象外ならここで終了  サムナイルがまだ未完成なので　Returnで終了 2026-2-10
+      return;
       if (!isPreview) return;
 
       // 2. サムネイル要素の構築
