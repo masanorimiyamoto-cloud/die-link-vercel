@@ -791,11 +791,19 @@
     D.gsBox.innerHTML = html;
   }
   // --- 関連ファイル検索・表示の修正版 ---
+// --- 関連ファイル検索・表示の修正版 ---
 async function findDriveFiles(book, wc) {
   try {
     const r = await fetch(
-      `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,
-      { credentials: 'same-origin', cache: 'no-store' }
+      `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&t=${Date.now()}`,
+      { 
+        credentials: 'same-origin', 
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      }
     );
     const j = await r.json();
 
@@ -827,6 +835,7 @@ async function findDriveFiles(book, wc) {
     cands.sort((a, b) => score(a.name) - score(b.name));
 
     const frag = document.createDocumentFragment();
+    const timestamp = Date.now(); // 共通のタイムスタンプを生成
 
     cands.forEach((f, idx) => {
       const id = f.id;
@@ -857,8 +866,14 @@ async function findDriveFiles(book, wc) {
       const img = document.createElement('img');
       img.style.cssText = 'width:100%; display:block; min-height:100px; background:#eee;';
       
-      // ★ ここが肝：パラメータ名を「cb」に戻し、確実にimg定義後に代入
-      const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${Date.now()}_${idx}`;
+      // ★ 強力なキャッシュバスティング
+      const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&v=${timestamp}&idx=${idx}&r=${Math.random().toString(36).substr(2, 9)}`;
+      
+      // ★ キャッシュ無効化のヘッダーも設定
+      img.onload = () => {
+        console.log(`Thumbnail loaded: ${name}`);
+      };
+      
       img.src = thumbUrl;
 
       const cap = document.createElement('div');
@@ -867,6 +882,7 @@ async function findDriveFiles(book, wc) {
 
       // エラーハンドリング
       img.onerror = () => {
+        console.error(`Failed to load thumbnail: ${name}`);
         img.style.display = 'none';
         cap.innerHTML = `<span style="color:red">⚠️ 読み込み失敗: ${name}</span>`;
       };
@@ -884,6 +900,7 @@ async function findDriveFiles(book, wc) {
     D.driveStatus.textContent = '検索失敗';
   }
 }
+
 
 
   // --- Events ---
