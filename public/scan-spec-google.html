@@ -790,121 +790,98 @@
     html += '</div>';
     D.gsBox.innerHTML = html;
   }
-  async function findDriveFiles(book, wc){
-  try{
+  // --- 関連ファイル検索・表示の修正版 ---
+async function findDriveFiles(book, wc) {
+  try {
     const r = await fetch(
       `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}`,
-      { credentials:'same-origin', cache:'no-store' }
+      { credentials: 'same-origin', cache: 'no-store' }
     );
     const j = await r.json();
 
-    if(!j.ok){
+    if (!j.ok) {
       D.driveStatus.textContent = '検索エラー';
       return;
     }
 
-    const cands = j.candidates || (j.fileId ? [{ id:j.fileId, name:j.fileName }] : []);
-    if(!cands.length){
+    const cands = j.candidates || (j.fileId ? [{ id: j.fileId, name: j.fileName }] : []);
+    
+    // 表示エリアを完全にリセット
+    D.driveActions.innerHTML = '';
+    D.driveView.innerHTML = ''; 
+
+    if (!cands.length) {
       D.driveStatus.textContent = 'ファイルなし';
       return;
     }
 
     D.driveStatus.textContent = `${cands.length}件ヒット`;
 
-    // 優先順
+    // 優先順位ソート（図面→シール→その他）
     const score = (n) => {
-      n = (n||'').toLowerCase();
-      if(/-zu\./.test(n)) return 1;
-      if(/-si\./.test(n)) return 2;
-      if(n.endsWith('.pdf')) return 3;
+      n = (n || '').toLowerCase();
+      if (/-zu\./.test(n)) return 1;
+      if (/-si\./.test(n)) return 2;
       return 9;
     };
-    cands.sort((a,b)=> score(a.name||'') - score(b.name||''));
+    cands.sort((a, b) => score(a.name) - score(b.name));
 
-    // ボタン
-    let btnHtml = '';
-    for(const f of cands){
+    const frag = document.createDocumentFragment();
+
+    cands.forEach((f, idx) => {
       const id = f.id;
       const name = f.name || '';
+      const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
+      const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
+      
+      // ボタンの生成
       const isPdf = /\.pdf$/i.test(name);
-      const url = isPdf
-        ? `https://drive.google.com/file/d/${id}/view`
-        : `https://drive.google.com/uc?export=view&id=${id}`;
+      const url = isPdf ? `https://drive.google.com/file/d/${id}/view` : `https://drive.google.com/uc?export=view&id=${id}`;
+      const btn = document.createElement('a');
+      btn.href = url;
+      btn.target = '_blank';
+      btn.className = (/-zu\./i.test(name)) ? 'drive-btn primary-btn' : 'drive-btn';
+      btn.innerHTML = `📄 ${name.split('.').pop().toUpperCase()}表示`;
+      D.driveActions.appendChild(btn);
 
-      let label='ファイル', icon='📄', cls='drive-btn';
-      if(/-zu\./i.test(name)) { label='図面 (-zu)'; icon='📐'; cls+=' primary-btn'; }
-      else if(/-si\./i.test(name)) { label='シール (-si)'; icon='🏷️'; }
-      else if(isPdf) { label='PDF'; icon='📑'; }
-      else if(/\.(jpg|jpeg|png|gif)$/i.test(name)) { label='画像'; icon='🖼️'; }
+      if (!isPreview) return;
 
-      btnHtml += `<a href="${url}" target="_blank" class="${cls}">${icon} ${esc(label)}</a>`;
-    }
-    D.driveActions.innerHTML = btnHtml;
+      // --- サムネイル要素の構築（ここを修正） ---
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.className = 'fig-item'; // CSSでスタイル調整しやすいようクラス付与
+      a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden; margin-bottom:12px; background:#fff;';
 
-    // ここ重要：毎回丸ごと作り直す
-    // 画像プレビューは DOM で生成（innerHTMLでもOKだが、確実にする）
-    // ★サムネイル表示を停止（プレビュー生成しない）
-   D.driveView.innerHTML = '';
-  const frag = document.createDocumentFragment();
+      const img = document.createElement('img');
+      img.style.cssText = 'width:100%; display:block; min-height:100px; background:#f0f0f0;';
+      
+      // キャッシュを強制回避するクエリパラメータ
+      const cacheBuster = `t=${Date.now()}_${idx}`;
+      img.src = `/api/drive-thumb?id=${encodeURIComponent(id)}&${cacheBuster}`;
 
-  cands.forEach((f, idx) => {
-    const id = f.id;
-    const name = f.name || '';
-    const isPdf = /\.pdf$/i.test(name);
-    const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
-    const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
-    if(!isPreview) return;
+      const cap = document.createElement('div');
+      cap.style.cssText = 'padding:6px 10px; font-size:11px; color:#555; background:#f8f9fa; border-top:1px solid #eee;';
+      cap.textContent = name;
 
-    const url = isPdf
-      ? `https://drive.google.com/file/d/${id}/view`
-      : `https://drive.google.com/uc?export=view&id=${id}`;
+      img.onerror = () => {
+        img.style.display = 'none';
+        cap.innerHTML = `<span style="color:red">⚠️ 画像読み込み失敗: ${name}</span>`;
+      };
 
-    // キャッシュバスター（毎回確実に変える）
-    const uniqueCb = `${Date.now()}-${Math.random().toString(36).slice(2)}-${idx}`;
-    //const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${encodeURIComponent(uniqueCb)}`;
-    const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&cb=${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    img.src = thumbUrl;
+      a.appendChild(img);
+      a.appendChild(cap);
+      frag.appendChild(a);
+    });
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden;';
+    D.driveView.appendChild(frag);
 
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.alt = name;
-    img.style.cssText = 'width:100%; display:block;';
-    img.src = thumbUrl;
-
-    const cap = document.createElement('div');
-    cap.style.cssText = 'padding:4px 8px; font-size:11px; color:#666; background:#f9f9f9;';
-    cap.textContent = name;
-
-    img.onerror = () => {
-      img.style.display = 'none';
-      const err = document.createElement('div');
-      err.style.cssText = 'padding:8px; font-size:12px; color:#fa5252; background:#fff5f5;';
-      err.textContent = `サムネ読み込み失敗: ${name}`;
-      a.insertBefore(err, cap);
-    };
-
-    a.appendChild(img);
-    a.appendChild(cap);
-    frag.appendChild(a);
-  });
-
-  D.driveView.appendChild(frag);
-
-
-
-
-  }catch(e){
-    console.error(e);
+  } catch (e) {
+    console.error('Drive API Error:', e);
     D.driveStatus.textContent = '検索失敗';
   }
 }
-
 
 
   // --- Events ---
