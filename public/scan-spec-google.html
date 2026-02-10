@@ -796,8 +796,8 @@ async function findDriveFiles(book, wc) {
   try {
     const r = await fetch(
       `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&t=${Date.now()}`,
-      { 
-        credentials: 'same-origin', 
+      {
+        credentials: 'same-origin',
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -807,19 +807,20 @@ async function findDriveFiles(book, wc) {
     );
     const j = await r.json();
 
+    // 表示エリアを完全にリセット
+    D.driveActions.innerHTML = '';
+    D.driveView.innerHTML = '';
+
     if (!j.ok) {
       D.driveStatus.textContent = '検索エラー';
+      D.driveView.innerHTML = '<div class="msg-empty">取得に失敗しました</div>';
       return;
     }
 
     const cands = j.candidates || (j.fileId ? [{ id: j.fileId, name: j.fileName }] : []);
-    
-    // 表示エリアを完全にリセット
-    D.driveActions.innerHTML = '';
-    D.driveView.innerHTML = ''; 
-
     if (!cands.length) {
       D.driveStatus.textContent = 'ファイルなし';
+      D.driveView.innerHTML = '<div class="msg-empty">関連ファイルはありません</div>';
       return;
     }
 
@@ -830,77 +831,49 @@ async function findDriveFiles(book, wc) {
       n = (n || '').toLowerCase();
       if (/-zu\./.test(n)) return 1;
       if (/-si\./.test(n)) return 2;
+      if (/\.pdf$/.test(n)) return 3;
       return 9;
     };
     cands.sort((a, b) => score(a.name) - score(b.name));
 
-    const frag = document.createDocumentFragment();
-    const timestamp = Date.now(); // 共通のタイムスタンプを生成
-
-    cands.forEach((f, idx) => {
+    // 1) ボタン（リンク）のみ生成
+    for (const f of cands) {
       const id = f.id;
       const name = f.name || '';
-      const isImg = /\.(jpg|jpeg|png|gif)$/i.test(name);
-      const isPreview = isImg || /-zu\./i.test(name) || /-si\./i.test(name);
-      
-      // 1. ボタン（リンク）の生成
       const isPdf = /\.pdf$/i.test(name);
-      const url = isPdf ? `https://drive.google.com/file/d/${id}/view` : `https://drive.google.com/uc?export=view&id=${id}`;
+
+      const url = isPdf
+        ? `https://drive.google.com/file/d/${id}/view`
+        : `https://drive.google.com/uc?export=view&id=${id}`;
+
+      // ラベル
+      let label = 'ファイル';
+      let icon = '📄';
+      let cls = 'drive-btn';
+      if (/-zu\./i.test(name)) { label = '図面'; icon = '📐'; cls += ' primary-btn'; }
+      else if (/-si\./i.test(name)) { label = 'シール'; icon = '🏷️'; }
+      else if (isPdf) { label = 'PDF'; icon = '📑'; }
+      else if (/\.(jpg|jpeg|png|gif)$/i.test(name)) { label = '画像'; icon = '🖼️'; }
+
       const btn = document.createElement('a');
       btn.href = url;
       btn.target = '_blank';
-      btn.className = (/-zu\./i.test(name)) ? 'drive-btn primary-btn' : 'drive-btn';
-      btn.innerHTML = `📄 ${name.split('.').pop().toUpperCase()}表示`;
+      btn.rel = 'noopener';
+      btn.className = cls;
+      btn.textContent = `${icon} ${label}`;
       D.driveActions.appendChild(btn);
+    }
 
-      // プレビュー対象外ならここで終了  サムナイルがまだ未完成なので　Returnで終了 2026-2-10
-      return;
-      if (!isPreview) return;
-
-      // 2. サムネイル要素の構築
-      const a = document.createElement('a');
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      a.style.cssText = 'display:block; border:1px solid #ddd; border-radius:8px; overflow:hidden; margin-bottom:12px; background:#fff;';
-
-      const img = document.createElement('img');
-      img.style.cssText = 'width:100%; display:block; min-height:100px; background:#eee;';
-      
-      // ★ 強力なキャッシュバスティング
-      const thumbUrl = `/api/drive-thumb?id=${encodeURIComponent(id)}&v=${timestamp}&idx=${idx}&r=${Math.random().toString(36).substr(2, 9)}`;
-      
-      // ★ キャッシュ無効化のヘッダーも設定
-      img.onload = () => {
-        console.log(`Thumbnail loaded: ${name}`);
-      };
-      
-      img.src = thumbUrl;
-
-      const cap = document.createElement('div');
-      cap.style.cssText = 'padding:6px 10px; font-size:11px; color:#555; background:#f8f9fa;';
-      cap.textContent = name;
-
-      // エラーハンドリング
-      img.onerror = () => {
-        console.error(`Failed to load thumbnail: ${name}`);
-        img.style.display = 'none';
-        cap.innerHTML = `<span style="color:red">⚠️ 読み込み失敗: ${name}</span>`;
-      };
-
-      a.appendChild(img);
-      a.appendChild(cap);
-      frag.appendChild(a);
-    });
-
-    // 最後に一気にDOMへ追加
-    D.driveView.appendChild(frag);
+    // 2) サムネは一時停止（メッセージだけ）
+    D.driveView.innerHTML = '<div class="msg-empty">サムネイル表示は一時停止中です</div>';
 
   } catch (e) {
     console.error('Drive API Error:', e);
     D.driveStatus.textContent = '検索失敗';
+    D.driveView.innerHTML = '<div class="msg-empty">検索に失敗しました</div>';
   }
 }
+
 
 
 
