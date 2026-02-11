@@ -864,8 +864,40 @@ async function findDriveFiles(book, wc) {
       D.driveActions.appendChild(btn);
     }
 
-    // 2) サムネは一時停止（メッセージだけ）
-    D.driveView.innerHTML = '<div class="msg-empty">サムネイル表示は一時停止中です</div>';
+    // 2) サムネイル表示（有効化）: Service Account 経由の /api/drive-thumb を優先し、
+    //    エラー時には Google Drive の直接 UC URL にフォールバックする。
+    //    各画像にはキャッシュバスターを付与して更新を反映しやすくする。
+    const imgCands = cands.filter(f => /\.(jpg|jpeg|png|gif)$/i.test(f.name || ''));
+    if (!imgCands.length) {
+      D.driveView.innerHTML = '<div class="msg-empty">サムネイル表示は一時停止中です</div>';
+    } else {
+      D.driveView.innerHTML = '';
+      for (const fimg of imgCands) {
+        const fid = fimg.id;
+        const fname = fimg.name || '';
+
+        const img = document.createElement('img');
+        img.alt = fname;
+        img.loading = 'lazy';
+        img.style.maxWidth = '320px';
+        img.style.borderRadius = '8px';
+        img.style.display = 'block';
+        img.style.marginTop = '8px';
+
+        // 優先: own API proxy (no-cache headers)
+        img.src = `/api/drive-thumb?id=${encodeURIComponent(fid)}&t=${Date.now()}`;
+
+        // フォールバック: drive.uc (キャッシュバスター付き)
+        img.onerror = () => {
+          img.onerror = null;
+          img.src = `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fid)}&t=${Date.now()}`;
+        };
+
+        const fig = document.createElement('div');
+        fig.appendChild(img);
+        D.driveView.appendChild(fig);
+      }
+    }
 
   } catch (e) {
     console.error('Drive API Error:', e);
