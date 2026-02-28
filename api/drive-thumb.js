@@ -3,6 +3,11 @@
 // 目的：ブラウザ/端末差・Google thumbnail/uc の癖・CDNキャッシュを避けて安定サムネ表示
 
 export const config = { runtime: 'edge' };
+// ▼ 以下2行を追加（Next.jsの強制キャッシュ無効化）
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
+// ---- JWT helpers (Drive-find と同じ) ----
 
 // ---- JWT helpers (Drive-find と同じ) ----
 function bytesToBase64Url(bytes){

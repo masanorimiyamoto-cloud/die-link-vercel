@@ -1365,10 +1365,30 @@
       unlockTTS();
       startCam();
     });
+    // イベント
+    // ★修正: 連打による多重起動を防止
+    DOM.btnStart.addEventListener("click", async () => {
+      if (DOM.btnStart.disabled) return;
+      DOM.btnStart.disabled = true;
+      initTTS();
+      unlockTTS();
+      await startCam();
+    });
+    
     DOM.btnStop.addEventListener("click", stopCam);
     DOM.btnHistory.addEventListener("click", showHistoryModal);
     DOM.closeModal.addEventListener("click", () => DOM.historyModal.style.display = 'none');
     window.addEventListener("click", (event) => { if (event.target == DOM.historyModal) DOM.historyModal.style.display = "none"; });
+    
+    // ★追加: 別アプリへの切り替えや画面スリープ時に確実にカメラを解放する
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && state.stream) {
+        console.log('バックグラウンドに移行したためカメラを停止します');
+        stopCam();
+      }
+    });
+
+    
     DOM.fileTest.addEventListener("change", async (ev) => {
       const file = ev.target.files?.[0];
       if (!file) return;

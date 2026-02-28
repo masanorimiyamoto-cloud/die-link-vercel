@@ -532,11 +532,25 @@ async function submitUpdate() {
 }
 
 // ========= 初期化 =========
-$("#btnStart").addEventListener("click", startCam);
+// ★修正: 連打によるカメラの多重起動を防止
+$("#btnStart").addEventListener("click", async () => {
+  if ($("#btnStart").disabled) return;
+  $("#btnStart").disabled = true;
+  await startCam();
+});
+
 $("#btnStop").addEventListener("click", stopCam);
 $("#btnClearDies").addEventListener("click", () => { fixedDies.clear(); renderDies(); });
 $("#btnUpdate").addEventListener("click", submitUpdate);
 document.addEventListener('DOMContentLoaded', () => { updateUIState(); });
+
+// ★追加: 別アプリへの切り替えや画面スリープ時に確実にカメラを解放する
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && stream) { // このコードではグローバル変数の stream を参照
+    console.log('バックグラウンドに移行したためカメラを停止します');
+    stopCam();
+  }
+});
 </script>
 </body>
 </html>
