@@ -223,7 +223,7 @@
   .fig-container { display: flex; flex-direction: column; gap: 16px; }
   .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
   /* ★サムネイル（プレビュー）機能停止 */
-  /*#driveView { display: none !important; }
+  /*#driveView { display: none !important; } /*
 
   /* --- Buttons --- */
   .btn {
@@ -491,8 +491,9 @@
 
   async function startCam(){
     S.locked=false;
+    S.lastQueryKey = ''; // ★追加：カメラ起動時に前回の検索履歴をリセットし、同じQRでも再取得する
     stopCam(); // 既存停止（解放）
-
+    
     D.errCam.textContent='';
     D.freeze.style.display='none';
     D.video.style.visibility='visible';
@@ -910,9 +911,25 @@ async function findDriveFiles(book, wc) {
 
 
   // --- Events ---
-  D.btnStart.onclick = startCam;
+  // --- Events ---
+  D.btnStart.onclick = async () => {
+    // ★追加：連打によるカメラの多重起動（メモリリーク）を防止
+    if (D.btnStart.disabled) return; 
+    D.btnStart.disabled = true;
+    await startCam();
+  };
   D.btnStop.onclick = () => stopCam();
   window.onresize = fitAll;
+
+  // ★追加：別アプリへの切り替えや画面スリープ時に確実にカメラを解放する
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && S.stream) {
+      console.log('バックグラウンドに移行したためカメラを停止します');
+      stopCam();
+    }
+  });
+
+   
 
   D.btnManual.onclick = () => {
     const b = D.inpBook.value.trim();
