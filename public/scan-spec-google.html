@@ -116,7 +116,6 @@
   .lockmark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
   .lockmark .em { font-size: 60px; text-shadow: 0 4px 12px rgba(0,0,0,0.5); }
 
-  /* ★ ガイド（lookup風）：中央200px */
   .target-scope{
     position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
     width:200px; height:200px;
@@ -222,8 +221,56 @@
 
   .fig-container { display: flex; flex-direction: column; gap: 16px; }
   .msg-empty { text-align: center; padding: 20px; color: var(--text-sub); font-size: 13px; }
-  /* ★サムネイル（プレビュー）機能停止 */
-  /*#driveView { display: none !important; } /*
+
+  /* ★ 新規追加: プレビュー用iframeのラッパー */
+  .preview-wrapper {
+    width: 100%;
+    aspect-ratio: 4 / 3; /* 見やすい比率 */
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #f8f9fa;
+  }
+  .preview-wrapper iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+
+  /* ★ 新規追加: 詳細情報（アコーディオン）のスタイル */
+  .spec-details {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.2s;
+  }
+  .spec-details[open] {
+    background: #f8f9fa;
+  }
+  .spec-details summary {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
+    cursor: pointer;
+    outline: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* デフォルトの矢印をカスタム */
+  .spec-details summary::after {
+    content: "▼";
+    font-size: 10px;
+    color: var(--primary);
+    transition: transform 0.2s;
+  }
+  .spec-details[open] summary::after {
+    transform: rotate(180deg);
+  }
+  .spec-details summary::-webkit-details-marker {
+    display: none; /* Safari用 */
+  }
 
   /* --- Buttons --- */
   .btn {
@@ -296,20 +343,28 @@
         <span id="loading" style="font-size:12px; color:var(--primary); display:none;">照会中...</span>
       </div>
 
-      <div class="card-body">
-        <h3 style="font-size:14px; margin:0 0 8px; color:var(--text-sub);">基本スペック (Google Sheets)</h3>
-        <div id="gsBox"><div class="msg-empty">データを取得していません</div></div>
-        <div id="errApi" style="color:var(--ng); font-size:12px; margin-top:6px;"></div>
-
-        <div style="margin-top:24px; border-top:1px solid var(--border); padding-top:16px;">
+      <div class="card-body" style="display: flex; flex-direction: column; gap: 16px;">
+        
+        <div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <h3 style="font-size:14px; margin:0; color:var(--text-sub);">関連ファイル (Google Drive)</h3>
-            <div id="driveStatus" style="font-size:11px; color:#aaa;"></div>
+            <h3 style="font-size:14px; margin:0; color:var(--text-sub);">図面プレビュー</h3>
+            <div id="driveStatus" style="font-size:11px; color:#aaa;">未照会</div>
           </div>
-
-          <div id="driveActions" class="drive-actions"></div>
-          <div id="driveView" class="fig-container"></div>
+          
+          <div id="driveView" class="fig-container">
+            <div class="msg-empty">スキャンするとここに図面が表示されます</div>
+          </div>
+          <div id="driveActions" class="drive-actions" style="margin-top: 12px;"></div>
         </div>
+
+        <details class="spec-details">
+          <summary>詳細情報を確認する (スペック)</summary>
+          <div style="margin-top:16px;">
+            <div id="gsBox"><div class="msg-empty">データを取得していません</div></div>
+            <div id="errApi" style="color:var(--ng); font-size:12px; margin-top:6px;"></div>
+          </div>
+        </details>
+
       </div>
     </div>
 
@@ -380,14 +435,13 @@
   function dieKey(bn,wc){ return (bn||'').toLowerCase()+'@@'+(wc||'').toLowerCase(); }
   function normHyphen(s){
     return (s||'')
-      .replace(/[‐-‒–—―ー−]/g,'-')   // ハイフン統一
-      .replace(/[：]/g, ':')          // 全角コロン→半角
-      .replace(/\s*-\s*/g,'-')        // "Ta - 230" → "Ta-230"
-      .replace(/\s*:\s*/g,':')        // "Ko : 1358" → "Ko:1358"
+      .replace(/[‐-‒–—―ー−]/g,'-')
+      .replace(/[：]/g, ':')
+      .replace(/\s*-\s*/g,'-')
+      .replace(/\s*:\s*/g,':')
       .replace(/\s+/g,' ')
       .trim();
   }
-
 
   function setStatus(text, active=false){
     D.scanStatus.textContent = text;
@@ -446,12 +500,10 @@
     return true;
   }
 
-  // --- Camera Control（★読み取り優先：シンプルに戻す） ---
   function stopCam({keepFrame=false}={}){
     if(S.rafId) cancelAnimationFrame(S.rafId);
     S.rafId=null;
 
-    // 解放は維持（起動失敗の再発を減らす）
     try{ D.video.pause(); }catch(e){}
     try{ D.video.srcObject = null; }catch(e){}
 
@@ -491,15 +543,14 @@
 
   async function startCam(){
     S.locked=false;
-    S.lastQueryKey = ''; // ★追加：カメラ起動時に前回の検索履歴をリセットし、同じQRでも再取得する
-    stopCam(); // 既存停止（解放）
+    S.lastQueryKey = ''; 
+    stopCam(); 
     
     D.errCam.textContent='';
     D.freeze.style.display='none';
     D.video.style.visibility='visible';
     D.lockEmoji.style.display='none';
 
-    // ★ 余計な解像度/fps固定をやめる（端末が最適を選ぶ＝読み取りが戻りやすい）
     const constraints = {
       video: { facingMode: { ideal: 'environment' } },
       audio: false
@@ -509,7 +560,6 @@
       S.stream = await navigator.mediaDevices.getUserMedia(constraints);
       D.video.srcObject = S.stream;
 
-      // ★ play は握りつぶさず、失敗したらエラーにする（原因が見える）
       await D.video.play();
 
       const ok = await waitVideoSize();
@@ -548,43 +598,31 @@
     const t = normHyphen((raw||'').trim());
     let bn='', wc='';
 
-    // 0) 例: "Ta:230" / "Ta-230"
-    {
-      const m = /^([A-Za-z]{1,3})[:\-](\d+)$/i.exec(t);
-      if(m){ bn=m[1]; wc=m[2]; return {bn, wc}; }
-    }
+    const m0 = /^([A-Za-z]{1,3})[:\-](\d+)$/i.exec(t);
+    if(m0){ bn=m0[1]; wc=m0[2]; return {bn, wc}; }
 
-    // 1) 直文字列: die-Ta-230 / order-Ko-1358 / ORDER Ko:1358
-    {
-      const m = /^(die|order)\s*[:\-]?\s*([A-Za-z]{1,3})[:\-](\d+)$/i.exec(t);
-      if(m){ bn=m[2]; wc=m[3]; return {bn, wc}; }
-    }
+    const m1 = /^(die|order)\s*[:\-]?\s*([A-Za-z]{1,3})[:\-](\d+)$/i.exec(t);
+    if(m1){ bn=m1[2]; wc=m1[3]; return {bn, wc}; }
 
-    // 2) 直文字列（従来の die-Ko-1234 / order-Ko-1234 形式）
-    {
-      const m = /^(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(t);
-      if(m){ bn=m[2]; wc=m[3]; return {bn, wc}; }
-    }
+    const m2 = /^(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(t);
+    if(m2){ bn=m2[2]; wc=m2[3]; return {bn, wc}; }
 
-    // 3) URL: ?book=Ko&wc=1234
     try{
       const u = new URL(t);
       bn = (u.searchParams.get('book') || u.searchParams.get('Book') || '').trim();
       wc = (u.searchParams.get('wc')   || u.searchParams.get('WorkCord') || u.searchParams.get('workcord') || '').trim();
       if(bn && wc) return {bn, wc};
 
-      // 4) URL pathname: /die-Ko-1234 /order-Ko-1234
       const path = u.pathname || '';
-      const m2 = /(?:^|\/)(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(path);
-      if(m2){
-        bn = m2[2]; wc = m2[3];
+      const mPath = /(?:^|\/)(die|order)-([^-\n\/?#]+)-([^-\n\/?#]+)/i.exec(path);
+      if(mPath){
+        bn = mPath[2]; wc = mPath[3];
         if(bn && wc) return {bn, wc};
       }
     }catch{}
 
   return null;
 }
-
 
   async function detectCombined(){
     if(!D.video.videoWidth) return [];
@@ -718,8 +756,6 @@
     D.inpWc.value = S.current.wc;
   }
 
-  // ▼▼▼ ここから書き換え ▼▼▼
-
   async function querySpec(){
     const {book, wc} = S.current;
     if(!book || !wc) return;
@@ -730,22 +766,23 @@
     D.errApi.textContent='';
     D.loading.style.display='inline';
     
-    // ★ 表示エリアを「即座に」完全に空にする（これが重要）
+    // UI即座クリア
     D.gsBox.innerHTML = '<div class="msg-empty">読み込み中...</div>';
     D.driveActions.innerHTML = '';
-    D.driveView.innerHTML = ''; // ここを確実にクリア
+    D.driveView.innerHTML = '<div class="msg-empty">図面データを検索中...</div>'; 
     D.driveStatus.textContent = '検索中...';
+
+    // 検索ごとにアコーディオンを閉じてスッキリさせる設定（お好みで外してください）
+    document.querySelector('.spec-details').removeAttribute('open');
 
     try{
       await ensureCsrf();
 
-      // 並列で走らせる
+      // 並列実行
       const pSheet = fetchSpecs(book, wc);   
       const pDrive = findDriveFiles(book, wc); 
 
-      // Sheetsの完了を待つ（Driveは内部で表示まで完結させる）
       await pSheet; 
-
     }catch(e){
       D.errApi.textContent = e.message || e;
     }finally{
@@ -753,7 +790,6 @@
     }
   }
 
-  // Sheets検索部分を分離（並列化しやすくするため）
   async function fetchSpecs(book, wc){
     try {
       const r = await fetch('/api/die-check', {
@@ -766,10 +802,10 @@
       if(!j.ok) throw new Error(j.error||'API Error');
       renderSpecs(j.gs);
     } catch(e) {
-      // Sheetsのエラーはここで処理
       D.gsBox.innerHTML = `<div class="msg-empty" style="color:var(--ng)">${esc(e.message)}</div>`;
     }
   }
+
   function renderSpecs(gs){
     if(!gs){
       D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
@@ -780,7 +816,6 @@
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
       {k:'Cut_Size', l:'断裁'}, {k:'Location', l:'棚番'},
       {k:'LastSeen', l:'確認日'},
-      // ★追加：一番下
       {k:'LastDelivery', l:'前回納品日'}
     ];
     let html = '<div class="spec-table">';
@@ -791,97 +826,99 @@
     html += '</div>';
     D.gsBox.innerHTML = html;
   }
-  // --- 関連ファイル検索・表示の修正版 ---
-// --- 関連ファイル検索・表示の修正版 ---
-async function findDriveFiles(book, wc) {
-  try {
-    const r = await fetch(
-      `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&t=${Date.now()}`,
-      {
-        credentials: 'same-origin',
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
+
+  // ★変更箇所: サムネイル機能をiframeプレビューに書き換え
+  async function findDriveFiles(book, wc) {
+    try {
+      const r = await fetch(
+        `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&t=${Date.now()}`,
+        {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
         }
+      );
+      const j = await r.json();
+
+      D.driveActions.innerHTML = '';
+      D.driveView.innerHTML = '';
+
+      if (!j.ok) {
+        D.driveStatus.textContent = '検索エラー';
+        D.driveView.innerHTML = '<div class="msg-empty">取得に失敗しました</div>';
+        return;
       }
-    );
-    const j = await r.json();
 
-    // 表示エリアを完全にリセット
-    D.driveActions.innerHTML = '';
-    D.driveView.innerHTML = '';
+      const cands = j.candidates || (j.fileId ? [{ id: j.fileId, name: j.fileName }] : []);
+      if (!cands.length) {
+        D.driveStatus.textContent = 'ファイルなし';
+        D.driveView.innerHTML = '<div class="msg-empty">関連ファイルはありません</div>';
+        return;
+      }
 
-    if (!j.ok) {
-      D.driveStatus.textContent = '検索エラー';
-      D.driveView.innerHTML = '<div class="msg-empty">取得に失敗しました</div>';
-      return;
+      D.driveStatus.textContent = `${cands.length}件ヒット`;
+
+      // 優先順位ソート（図面→シール→その他）
+      const score = (n) => {
+        n = (n || '').toLowerCase();
+        if (/-zu\./.test(n)) return 1;
+        if (/-si\./.test(n)) return 2;
+        if (/\.pdf$/.test(n)) return 3;
+        return 9;
+      };
+      cands.sort((a, b) => score(a.name) - score(b.name));
+
+      // 1) 関連ファイルのリンクボタン生成
+      for (const f of cands) {
+        const id = f.id;
+        const name = f.name || '';
+        const isPdf = /\.pdf$/i.test(name);
+
+        const url = isPdf
+          ? `https://drive.google.com/file/d/${id}/view`
+          : `https://drive.google.com/uc?export=view&id=${id}`;
+
+        let label = 'ファイル';
+        let icon = '📄';
+        let cls = 'drive-btn';
+        if (/-zu\./i.test(name)) { label = '図面'; icon = '📐'; cls += ' primary-btn'; }
+        else if (/-si\./i.test(name)) { label = 'シール'; icon = '🏷️'; }
+        else if (isPdf) { label = 'PDF'; icon = '📑'; }
+        else if (/\.(jpg|jpeg|png|gif)$/i.test(name)) { label = '画像'; icon = '🖼️'; }
+
+        const btn = document.createElement('a');
+        btn.href = url;
+        btn.target = '_blank';
+        btn.rel = 'noopener';
+        btn.className = cls;
+        btn.textContent = `${icon} ${label}`;
+        D.driveActions.appendChild(btn);
+      }
+
+      // 2) 最も優先度の高いファイル（最上位）をiframeでプレビュー表示
+      const topFile = cands[0];
+      if (topFile) {
+        const previewUrl = `https://drive.google.com/file/d/${topFile.id}/preview`;
+        D.driveView.innerHTML = `
+          <div class="preview-wrapper">
+            <iframe src="${previewUrl}"></iframe>
+          </div>
+        `;
+      } else {
+        D.driveView.innerHTML = '<div class="msg-empty">プレビューできるファイルがありません</div>';
+      }
+
+    } catch (e) {
+      console.error('Drive API Error:', e);
+      D.driveStatus.textContent = '検索失敗';
+      D.driveView.innerHTML = '<div class="msg-empty">検索に失敗しました</div>';
     }
-
-    const cands = j.candidates || (j.fileId ? [{ id: j.fileId, name: j.fileName }] : []);
-    if (!cands.length) {
-      D.driveStatus.textContent = 'ファイルなし';
-      D.driveView.innerHTML = '<div class="msg-empty">関連ファイルはありません</div>';
-      return;
-    }
-
-    D.driveStatus.textContent = `${cands.length}件ヒット`;
-
-    // 優先順位ソート（図面→シール→その他）
-    const score = (n) => {
-      n = (n || '').toLowerCase();
-      if (/-zu\./.test(n)) return 1;
-      if (/-si\./.test(n)) return 2;
-      if (/\.pdf$/.test(n)) return 3;
-      return 9;
-    };
-    cands.sort((a, b) => score(a.name) - score(b.name));
-
-    // 1) ボタン（リンク）のみ生成
-    for (const f of cands) {
-      const id = f.id;
-      const name = f.name || '';
-      const isPdf = /\.pdf$/i.test(name);
-
-      const url = isPdf
-        ? `https://drive.google.com/file/d/${id}/view`
-        : `https://drive.google.com/uc?export=view&id=${id}`;
-
-      // ラベル
-      let label = 'ファイル';
-      let icon = '📄';
-      let cls = 'drive-btn';
-      if (/-zu\./i.test(name)) { label = '図面'; icon = '📐'; cls += ' primary-btn'; }
-      else if (/-si\./i.test(name)) { label = 'シール'; icon = '🏷️'; }
-      else if (isPdf) { label = 'PDF'; icon = '📑'; }
-      else if (/\.(jpg|jpeg|png|gif)$/i.test(name)) { label = '画像'; icon = '🖼️'; }
-
-      const btn = document.createElement('a');
-      btn.href = url;
-      btn.target = '_blank';
-      btn.rel = 'noopener';
-      btn.className = cls;
-      btn.textContent = `${icon} ${label}`;
-      D.driveActions.appendChild(btn);
-    }
-
-    // 2) サムネイル表示（機能を一時停止し、通信も行わない）
-    D.driveView.innerHTML = '<div class="msg-empty">サムネイル表示は一時停止中です</div>';
-
-  } catch (e) {
-    console.error('Drive API Error:', e);
-    D.driveStatus.textContent = '検索失敗';
-    D.driveView.innerHTML = '<div class="msg-empty">検索に失敗しました</div>';
   }
-}
 
-
-
-
-  // --- Events ---
-  // --- Events ---
   D.btnStart.onclick = async () => {
-    // ★追加：連打によるカメラの多重起動（メモリリーク）を防止
     if (D.btnStart.disabled) return; 
     D.btnStart.disabled = true;
     await startCam();
@@ -889,15 +926,12 @@ async function findDriveFiles(book, wc) {
   D.btnStop.onclick = () => stopCam();
   window.onresize = fitAll;
 
-  // ★追加：別アプリへの切り替えや画面スリープ時に確実にカメラを解放する
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && S.stream) {
       console.log('バックグラウンドに移行したためカメラを停止します');
       stopCam();
     }
   });
-
-   
 
   D.btnManual.onclick = () => {
     const b = D.inpBook.value.trim();
