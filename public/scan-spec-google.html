@@ -865,45 +865,49 @@ async function findDriveFiles(book, wc) {
       D.driveActions.appendChild(btn);
     }
 
-    // 2) サムネイル表示（有効化）
+    // 2) サムネイル表示（強制Fetch方式）
     const imgCands = cands.filter(f => /\.(jpg|jpeg|png|gif)$/i.test(f.name || ''));
     
     if (!imgCands.length) {
-      // 対象のQRに画像がない場合のメッセージ
       D.driveView.innerHTML = '<div class="msg-empty">プレビューできる画像ファイルがありません</div>';
     } else {
-      D.driveView.innerHTML = ''; // 画面を確実にリセット
+      D.driveView.innerHTML = '';
       
       for (const fimg of imgCands) {
         const fid = fimg.id;
         const fname = fimg.name || '';
-        
-        // ★原因切り分け用：裏側で新しいIDが取れているかログを出す
-        console.log(`[画像取得] ファイル名: ${fname}, ID: ${fid}`);
 
+        const fig = document.createElement('div');
         const img = document.createElement('img');
         img.alt = fname;
-        img.loading = 'lazy';
-        img.style.maxWidth = '100%'; // スマホ画面に収まるよう調整
+        img.style.maxWidth = '100%';
         img.style.borderRadius = '8px';
         img.style.display = 'block';
         img.style.marginTop = '8px';
-
-        // ★修正: Safariの強力なキャッシュを無効化するためのランダム文字列
-        const noCache = Date.now() + '-' + Math.random().toString(36).substring(2);
-
-        // 優先: サーバーAPI経由（キャッシュバスター強化）
-        img.src = `/api/drive-thumb?id=${encodeURIComponent(fid)}&_nc=${noCache}`;
-
-        // フォールバック: 直接Driveから取得
-        img.onerror = () => {
-          img.onerror = null;
-          img.src = `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fid)}&_nc=${noCache}`;
-        };
-
-        const fig = document.createElement('div');
+        
+        // 読み込み中のダミー画像（透明な1px）を入れておく
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+        
         fig.appendChild(img);
         D.driveView.appendChild(fig);
+
+        // ★ HTMLの img タグのキャッシュ仕様を無視するため、fetch APIで直接ダウンロードする
+        (async () => {
+          try {
+            const url = `/api/drive-thumb?id=${encodeURIComponent(fid)}&_nc=${Date.now()}`;
+            // cache: 'no-store' でブラウザとService Workerのキャッシュを完全バイパス
+            const res = await fetch(url, { cache: 'no-store' });
+            if (!res.ok) throw new Error('サムネイル取得エラー');
+            
+            // 画像データをバイナリ(Blob)として受け取り、ブラウザ内でURLを生成して表示
+            const blob = await res.blob();
+            img.src = URL.createObjectURL(blob);
+          } catch (err) {
+            console.warn(`[Drive API] ${fname} の取得に失敗、ucへフォールバックします`, err);
+            // エラー時（Drive APIの制限など）はGoogle Drive直リンクへ
+            img.src = `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fid)}&_nc=${Date.now()}`;
+          }
+        })();
       }
     }
 
