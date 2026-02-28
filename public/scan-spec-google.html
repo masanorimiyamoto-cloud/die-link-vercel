@@ -577,6 +577,12 @@
       tick();
     }catch(e){
       console.error(e);
+      // ★ ここを追加: AbortError（中断エラー）の場合は画面にエラーを出さない
+      if (e.name === 'AbortError' || (e.message && e.message.includes('aborted'))) {
+        console.warn('カメラ起動が一度中断されましたが、動作に影響はありません。');
+        D.btnStart.disabled = false; // ボタンだけ押せる状態に戻しておく
+        return; 
+      }
       D.errCam.textContent = `カメラ起動エラー: ${e.name||''} ${e.message||e}`;
       setStatus('エラー');
       stopCam();
