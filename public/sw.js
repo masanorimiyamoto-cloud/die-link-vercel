@@ -1,11 +1,12 @@
 /* sw.js */
-const CACHE = 'die-link-v1';
+const CACHE = 'die-link-v2';
 const ASSETS = [
   '/',                         // ルート
   '/index.html',
-  '/scan-spec.html',
+  '/scan-spec-google.html',
   '/scan-lookup.html',
   '/scan-register.html',
+  '/find-die.html',            // Airtableからのリンク入口
   // CDN資材も温め（opaqueでもOK）
   'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
 ];
