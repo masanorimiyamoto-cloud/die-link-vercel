@@ -271,6 +271,16 @@
   .spec-details summary::-webkit-details-marker {
     display: none; /* Safari用 */
   }
+  /* 登録状況バッジ（畳んだ状態でも見える） */
+  .spec-status {
+    display: none; /* 照会前は非表示 */
+    font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 10px;
+    vertical-align: middle; margin-left: 4px;
+  }
+  .spec-status.ok { display: inline-block; background: rgba(18,184,134,.12); color: var(--ok); }
+  .spec-status.ng { display: inline-block; background: rgba(250,82,82,.12); color: var(--ng); }
+  .spec-status.loading { display: inline-block; background: var(--primary-bg); color: var(--primary); }
 
   /* --- Buttons --- */
   .btn {
@@ -358,7 +368,7 @@
         </div>
 
         <details class="spec-details">
-          <summary>詳細情報を確認する (スペック)</summary>
+          <summary><span>詳細情報を確認する (スペック) <span id="specStatus" class="spec-status"></span></span></summary>
           <div style="margin-top:16px;">
             <div id="gsBox"><div class="msg-empty">データを取得していません</div></div>
             <div id="errApi" style="color:var(--ng); font-size:12px; margin-top:6px;"></div>
@@ -381,7 +391,7 @@
     errCam: q('#errCam'), errApi: q('#errApi'), loading: q('#loading'),
     lockEmoji: q('#lockEmoji'), scanCanvas: q('#scanCanvas'),
     inpBook: q('#inpBook'), inpWc: q('#inpWc'), btnManual: q('#btnManual'),
-    gsBox: q('#gsBox'),
+    gsBox: q('#gsBox'), specStatus: q('#specStatus'),
     driveStatus: q('#driveStatus'), driveView: q('#driveView'), driveActions: q('#driveActions'),
     nowTarget: q('#nowTarget'),
   };
@@ -773,6 +783,8 @@
     D.loading.style.display='inline';
     
     // UI即座クリア
+    D.specStatus.className = 'spec-status loading';
+    D.specStatus.textContent = '照会中…';
     D.gsBox.innerHTML = '<div class="msg-empty">読み込み中...</div>';
     D.driveActions.innerHTML = '';
     D.driveView.innerHTML = '<div class="msg-empty">図面データを検索中...</div>'; 
@@ -808,15 +820,21 @@
       if(!j.ok) throw new Error(j.error||'API Error');
       renderSpecs(j.gs);
     } catch(e) {
+      D.specStatus.className = 'spec-status ng';
+      D.specStatus.textContent = '照会エラー';
       D.gsBox.innerHTML = `<div class="msg-empty" style="color:var(--ng)">${esc(e.message)}</div>`;
     }
   }
 
   function renderSpecs(gs){
     if(!gs){
+      D.specStatus.className = 'spec-status ng';
+      D.specStatus.textContent = '未登録';
       D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
       return;
     }
+    D.specStatus.className = 'spec-status ok';
+    D.specStatus.textContent = '✓ 登録あり';
     const fields = [
       {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'},
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
@@ -860,8 +878,8 @@
 
       const cands = j.candidates || (j.fileId ? [{ id: j.fileId, name: j.fileName }] : []);
       if (!cands.length) {
-        D.driveStatus.textContent = 'ファイルなし';
-        D.driveView.innerHTML = '<div class="msg-empty">関連ファイルはありません</div>';
+        D.driveStatus.textContent = '図面なし';
+        D.driveView.innerHTML = '<div class="msg-empty">この型には図面ファイルが登録されていません<br><small>（登録状況は下の「詳細情報」のバッジを確認してください）</small></div>';
         return;
       }
 
