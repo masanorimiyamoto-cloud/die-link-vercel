@@ -38,11 +38,13 @@
   }
   .hint .btn-mini:active{ transform:scale(.985) }
 
-  .btn{ display:flex; align-items:center; justify-content:center; text-decoration:none; color:#fff;
+  .btn{ display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; color:#fff;
     border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
     font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
     box-shadow:0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.06) }
+  .btn .sub{ margin-top:12px; font-size:clamp(13px,3.4vw,18px); font-weight:600;
+    letter-spacing:.06em; opacity:.9 }
   .btn:active{ transform:scale(.985) }
   .a{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
                 linear-gradient(135deg,#1b3bff 0%,var(--a) 55%,#38bdf8 110%) }
@@ -84,9 +86,9 @@
       </div>
     </section>
 
-    <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る</a>
-    <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す</a>
-    <a class="btn c" href="./scan-register.html"    aria-label="登録する">仕舞う</a>
+    <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る<span class="sub">仕様・図面</span></a>
+    <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す<span class="sub">棚・在庫</span></a>
+    <a class="btn c" href="./scan-register.html"    aria-label="登録する">仕舞う<span class="sub">棚へ登録</span></a>
   </main>
 
 <script>
