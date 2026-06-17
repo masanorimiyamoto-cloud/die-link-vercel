@@ -27,6 +27,20 @@
     .btn.primary{background:var(--ok);color:#fff;border-color:var(--ok)}
     .btn:disabled{opacity:.6;cursor:not-allowed}
 
+    /* モード切替（抜型を探す / 生地を照合） */
+    .modeseg{display:inline-flex;border:1px solid var(--bd);border-radius:999px;overflow:hidden}
+    .modebtn{padding:6px 12px;border:none;background:#fff;font-size:13px;font-weight:700;color:var(--sub);cursor:pointer}
+    .modebtn.active{background:var(--ok);color:#fff}
+
+    /* 生地照合の結果 */
+    .fabric-verdict{padding:14px;border-radius:12px;border:1px solid var(--bd);text-align:center}
+    .fabric-verdict .vmark{font-size:1.4rem;font-weight:800}
+    .fabric-verdict .vconf{font-size:12px;color:var(--sub);margin-top:2px}
+    .fabric-verdict .vreason{font-size:13px;margin-top:8px;line-height:1.5}
+    .fabric-verdict.match{background:var(--bg-ok);border-color:#a5d8ff;color:#1c7ed6}
+    .fabric-verdict.mismatch{background:var(--bg-ng);border-color:#ffc9c9;color:#e03131}
+    .fabric-verdict.uncertain{background:#fff9db;border-color:#ffe066;color:#b08900}
+
     .wrap{max-width:1200px;margin:0 auto;padding:12px}
     .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
     .panel{flex:1 1 360px;min-width:320px}
@@ -91,6 +105,10 @@
     <span id="detectorInfo" class="chip">検出器: —</span>
     <span id="csrfStatus" class="chip">CSRF: 検査中…</span>
     <span id="targetNow" class="chip">Target: — / —</span>
+    <span class="modeseg">
+      <button id="modeFind" class="modebtn active" type="button">🔍 抜型を探す</button>
+      <button id="modeFabric" class="modebtn" type="button">🧵 生地を照合</button>
+    </span>
   </div>
 
   <div class="wrap">
@@ -122,6 +140,16 @@
             <b>WC</b><div id="tgtWC">-</div>
             <b>WorkName</b><div id="tgtWN" class="muted">—</div>
           </div>
+        </div>
+
+        <div class="card" id="fabricCard" style="display:none">
+          <h4>🧵 生地を照合</h4>
+          <div class="muted" style="margin-bottom:8px">
+            型QRをスキャンしてターゲットを設定し、目の前の生地にカメラを向けて照合ボタンを押してください。
+            <br><small>※登録図面と見た目を見比べる補助です。素材の確定判定ではありません。</small>
+          </div>
+          <button id="btnMatchFabric" class="btn primary" disabled style="width:100%">📸 この生地を照合</button>
+          <div id="fabricResult" style="margin-top:10px"></div>
         </div>
 
         <div class="card shelf-card">
@@ -198,7 +226,10 @@
       inBook: $('#inBook'), inWc: $('#inWc'), btnSetTarget: $('#btnSetTarget'),
       // Spec / drive
       loading: $('#loading'), gsBox: $('#gsBox'), errApi: $('#errApi'),
-      driveStatus: $('#driveStatus'), driveView: $('#driveView')
+      driveStatus: $('#driveStatus'), driveView: $('#driveView'),
+      // Mode / 生地照合
+      modeFind: $('#modeFind'), modeFabric: $('#modeFabric'),
+      fabricCard: $('#fabricCard'), btnMatchFabric: $('#btnMatchFabric'), fabricResult: $('#fabricResult')
     };
     const ctx = DOM.overlay.getContext('2d', { willReadFrequently:true });
 
@@ -206,6 +237,7 @@
       stream:null, rafId:null,
       detector:null, useBarcodeDetector: ('BarcodeDetector' in window),
       isLocked:false, holdTimer:null,
+      mode:'find', // 'find'=抜型を探す / 'fabric'=生地を照合
       currentTarget:{ book:'', wc:'', wn:'' }, targetKey:'',
       currentShelf:null,
       scanHistory:new Map(),
@@ -381,6 +413,7 @@
 
         fitOverlay(); addTargetScope(); tick();
         updateStatus('探索中…');
+        updateFabricUI();
       }catch(e){
         console.error(e);
         DOM.error.textContent = `❌ ${e.name||''} ${e.message||e}`;
@@ -392,6 +425,7 @@
       if(state.stream){ try{ state.stream.getTracks().forEach(t=>t.stop()); }catch{} }
       state.stream=null;
       DOM.btnStart.disabled=false; DOM.btnStop.disabled=true; updateStatus('停止中');
+      updateFabricUI();
     }
     function holdScan(ms){
       if(state.holdTimer) clearTimeout(state.holdTimer);
@@ -549,6 +583,7 @@
       DOM.tgtBN.textContent = state.currentTarget.book || '-';
       DOM.tgtWC.textContent = state.currentTarget.wc || '-';
       DOM.tgtWN.textContent = state.currentTarget.wn || '—';
+      updateFabricUI();
       DOM.targetNow.textContent = `Target: ${DOM.tgtBN.textContent} / ${DOM.tgtWC.textContent}`;
     }
 
@@ -753,6 +788,76 @@
       }
       return hits;
     }
+
+    /* ==== モード切替（抜型を探す / 生地を照合） ==== */
+    function setMode(mode){
+      state.mode = mode;
+      const fabric = (mode==='fabric');
+      DOM.modeFind.classList.toggle('active', !fabric);
+      DOM.modeFabric.classList.toggle('active', fabric);
+      DOM.fabricCard.style.display = fabric ? 'block' : 'none';
+      updateFabricUI();
+    }
+    function updateFabricUI(){
+      if(!DOM.btnMatchFabric) return;
+      const { book, wc } = state.currentTarget;
+      DOM.btnMatchFabric.disabled = !(book && wc) || !state.stream;
+    }
+    DOM.modeFind.addEventListener('click', ()=> setMode('find'));
+    DOM.modeFabric.addEventListener('click', ()=> setMode('fabric'));
+
+    /* ==== 生地照合：現在のカメラ画像を縮小して送信 ==== */
+    function captureFrameDataURL(maxEdge=1000){
+      const v = DOM.video;
+      const vw = v.videoWidth, vh = v.videoHeight;
+      if(!vw || !vh) return null;
+      const scale = Math.min(1, maxEdge / Math.max(vw, vh));
+      const w = Math.round(vw*scale), h = Math.round(vh*scale);
+      const c = document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(v, 0, 0, w, h);
+      return c.toDataURL('image/jpeg', 0.8);
+    }
+    async function matchFabric(){
+      const { book, wc } = state.currentTarget;
+      if(!book || !wc){ alert('先に型QRをスキャンしてターゲットを設定してください。'); return; }
+      const image = captureFrameDataURL();
+      if(!image){ alert('カメラ画像を取得できません。カメラを開始してください。'); return; }
+
+      DOM.btnMatchFabric.disabled = true;
+      DOM.fabricResult.innerHTML = '<div class="muted" style="text-align:center">照合中…（数秒）</div>';
+      try{
+        if(!state.csrf) await ensureCsrf();
+        const r = await fetch('/api/material-match', {
+          method:'POST', credentials:'same-origin',
+          headers:{ 'Content-Type':'application/json', ...(state.csrf?{'X-CSRF':state.csrf}:{}) },
+          body: JSON.stringify({ book, wc, image })
+        });
+        const j = await r.json();
+        if(!r.ok || j.ok!==true) throw new Error(j?.error || `HTTP ${r.status}`);
+        if(j.found===false){ DOM.fabricResult.innerHTML = '<div class="muted" style="text-align:center">参照画像が登録されていません</div>'; return; }
+        renderFabricVerdict(j);
+      }catch(e){
+        DOM.fabricResult.innerHTML = `<div class="fabric-verdict mismatch"><div class="vreason">❌ 照合エラー: ${esc(e.message||e)}</div></div>`;
+      }finally{
+        updateFabricUI();
+      }
+    }
+    function renderFabricVerdict(j){
+      const map = {
+        match:    { mark:'✅ 一致',   cls:'match' },
+        mismatch: { mark:'❌ 不一致', cls:'mismatch' },
+        uncertain:{ mark:'⚠️ 要確認', cls:'uncertain' },
+      };
+      const v = map[j.verdict] || map.uncertain;
+      DOM.fabricResult.innerHTML = `
+        <div class="fabric-verdict ${v.cls}">
+          <div class="vmark">${v.mark}</div>
+          <div class="vconf">確信度 ${Number.isFinite(j.confidence)?j.confidence:'-'}％ ・ 参照: ${esc(j.refFileName||'-')}</div>
+          <div class="vreason">${esc(j.reason||'')}</div>
+        </div>`;
+      if(j.verdict==='match'){ try{ navigator.vibrate?.(60); }catch{} }
+    }
+    DOM.btnMatchFabric.addEventListener('click', matchFabric);
 
     // 初期化：URL指定あれば即フェッチ
     (async function initialize(){
