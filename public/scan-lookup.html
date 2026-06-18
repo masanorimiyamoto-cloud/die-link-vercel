@@ -29,8 +29,10 @@
 
     /* モード切替（抜型を探す / 生地を照合） */
     .modeseg{display:inline-flex;border:1px solid var(--bd);border-radius:999px;overflow:hidden}
-    .modebtn{padding:6px 12px;border:none;background:#fff;font-size:13px;font-weight:700;color:var(--sub);cursor:pointer}
+    .modebtn{padding:6px 12px;border:none;background:#fff;font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:opacity .12s,transform .08s,filter .12s}
     .modebtn.active{background:var(--ok);color:#fff}
+    .modebtn:active{transform:scale(.96);filter:brightness(.9)}
+    .modebtn:disabled{opacity:.45;cursor:default;transform:none}
 
     /* 生地照合の結果 */
     .fabric-verdict{padding:14px;border-radius:12px;border:1px solid var(--bd);text-align:center}
