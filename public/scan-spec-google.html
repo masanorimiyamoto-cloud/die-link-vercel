@@ -296,6 +296,22 @@
   .btn-primary:hover { background: #1c7ed6; }
   .btn-sub { background: #fff; border: 1px solid var(--border); color: var(--text); }
   .btn-sub:disabled { background: #f1f3f5; color: #adb5bd; cursor: not-allowed; }
+
+  /* --- 半製品照合（box overlay）--- */
+  .modeseg{ display:inline-flex; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+  .modebtn{ padding:6px 12px; border:none; background:#fff; font-size:13px; font-weight:700; color:var(--text-sub); cursor:pointer; }
+  .modebtn.active{ background:var(--primary); color:#fff; }
+  #boxOverlay{
+    position:absolute; left:0; top:0; display:none; z-index:20;
+    pointer-events:auto; cursor:move; touch-action:none; opacity:.5;
+    transform-origin:center center; -webkit-user-drag:none; user-select:none;
+  }
+  #boxPanel .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  #boxPanel label{ font-size:13px; color:var(--text); }
+  #boxStatus{ font-size:12px; font-weight:700; padding:4px 10px; border-radius:8px; background:#eee; color:#777; }
+  #boxStatus.active{ background:rgba(18,184,134,.12); color:var(--ok); }
+  .box-rec-ok{ background:var(--ok); color:#fff; }
+  .box-rec-ng{ background:var(--ng); color:#fff; }
 </style>
 </head>
 <body>
@@ -306,6 +322,10 @@
       <button id="btnStart" class="btn btn-primary">カメラ開始</button>
       <button id="btnStop" class="btn btn-sub" disabled>停止</button>
     </div>
+    <span class="modeseg">
+      <button id="modeSpec" class="modebtn active" type="button">📐 仕様を見る</button>
+      <button id="modeBox" class="modebtn" type="button">🧩 半製品を照合</button>
+    </span>
     <div id="scanStatus" class="status-indicator">待機中</div>
   </div>
 
@@ -323,6 +343,7 @@
           <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
           <canvas id="scanCanvas" style="display:none"></canvas>
           <div class="target-scope"><div class="scan-line"></div></div>
+          <img id="boxOverlay" alt="図面オーバーレイ" draggable="false" />
         </div>
 
         <div id="nowTarget" class="target-info">ターゲット: — / —</div>
@@ -343,6 +364,35 @@
             <input id="inpWc" type="text" inputmode="numeric" class="inp-control" placeholder="WorkCord" />
           </div>
           <button id="btnManual" class="btn btn-sub" style="align-self:flex-end; height:38px;">照会</button>
+        </div>
+
+        <div id="boxPanel" style="display:none; margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
+          <div class="row">
+            <span id="boxStatus">基準QR(CAL-50)を映してください</span>
+          </div>
+          <div class="row" style="font-size:12px; color:var(--text-sub)">
+            目の前の半製品にカメラを向け、図面（半透明）が現物に重なるよう位置を合わせて目視確認してください。
+          </div>
+          <div class="row">
+            <label>透明度</label>
+            <input id="boxOpacity" type="range" min="10" max="100" value="50" style="flex:1">
+          </div>
+          <div class="row">
+            <label>サイズ</label>
+            <button id="boxScaleDown" class="btn btn-sub">−</button>
+            <button id="boxScaleUp" class="btn btn-sub">＋</button>
+            <button id="boxRotate" class="btn btn-sub">90°回転</button>
+            <button id="boxReset" class="btn btn-sub">中央へ</button>
+          </div>
+          <div class="row">
+            <label><input type="checkbox" id="boxChkFrame"> 外枠OK</label>
+            <label><input type="checkbox" id="boxChkRule"> 罫線OK</label>
+          </div>
+          <div class="row">
+            <button id="boxRecOk" class="btn box-rec-ok">✅ OK記録</button>
+            <button id="boxRecNg" class="btn box-rec-ng">❌ NG記録</button>
+            <span id="boxRecMsg" style="font-size:12px; color:var(--text-sub)"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -394,6 +444,13 @@
     gsBox: q('#gsBox'), specStatus: q('#specStatus'),
     driveStatus: q('#driveStatus'), driveView: q('#driveView'), driveActions: q('#driveActions'),
     nowTarget: q('#nowTarget'),
+    // 半製品照合
+    modeSpec: q('#modeSpec'), modeBox: q('#modeBox'),
+    boxOverlay: q('#boxOverlay'), boxPanel: q('#boxPanel'), boxStatus: q('#boxStatus'),
+    boxOpacity: q('#boxOpacity'), boxScaleDown: q('#boxScaleDown'), boxScaleUp: q('#boxScaleUp'),
+    boxRotate: q('#boxRotate'), boxReset: q('#boxReset'),
+    boxChkFrame: q('#boxChkFrame'), boxChkRule: q('#boxChkRule'),
+    boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -414,6 +471,10 @@
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
     lastScanAt: 0,
+    // 半製品照合
+    boxMode:false, boxRaf:null, boxLastAt:0, pxPerMm:0,
+    cutW:null, cutH:null, drawingId:null, drawingName:null, drawingReady:false,
+    oScale:1, oRot:0, _boxUrl:null, _boxPositioned:false,
   };
 
   // --- CSRF & Cookie ---
@@ -715,6 +776,7 @@
 
   async function tick(){
     if(!S.stream) return;
+    if(S.boxMode) return;
 
     const now = performance.now();
     if(now - S.lastScanAt < CFG.SCAN_EVERY_MS){
@@ -831,10 +893,14 @@
       D.specStatus.className = 'spec-status ng';
       D.specStatus.textContent = '未登録';
       D.gsBox.innerHTML = '<div class="msg-empty">該当データなし</div>';
+      S.cutW = null; S.cutH = null;
       return;
     }
     D.specStatus.className = 'spec-status ok';
     D.specStatus.textContent = '✓ 登録あり';
+    const _dim = parseDims(gs.Cut_Size);
+    S.cutW = _dim ? _dim.w : null;
+    S.cutH = _dim ? _dim.h : null;
     const fields = [
       {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'},
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
@@ -854,6 +920,7 @@
   // ★変更箇所: サムネイル機能をiframeプレビューに書き換え
   async function findDriveFiles(book, wc) {
     try {
+      S.drawingId = null; S.drawingName = null; S.drawingReady = false; S._boxPositioned = false;
       const r = await fetch(
         `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&t=${Date.now()}`,
         {
@@ -894,6 +961,11 @@
         return 9;
       };
       cands.sort((a, b) => score(a.name) - score(b.name));
+
+      // 半製品照合用：オーバーレイに使う画像（-zu/-si/画像）のIDを控える
+      const _img = cands.find(c => /\.(jpe?g|png)$/i.test(c.name || ''));
+      S.drawingId = _img ? _img.id : null;
+      S.drawingName = _img ? _img.name : null;
 
       // 1) 関連ファイルのリンクボタン生成
       for (const f of cands) {
@@ -965,6 +1037,191 @@
     S.locked=false; S.lastQueryKey='';
     querySpec();
   };
+
+  /* ===========================================================
+     半製品照合（図面 1:1 オーバーレイ・目視確認）
+     - 基準QR「CAL-50」(1辺50mm) からスケール(px/mm)を算出
+     - Cut_Size(縦横mm) で図面を実寸スケールしカメラ映像に重ねる
+     - 本番スキャンとは別の独立ライブループ（boxTick）で動かす
+     =========================================================== */
+  function parseDims(s){
+    const nums = String(s || '').match(/\d+(?:\.\d+)?/g);
+    if(!nums || nums.length < 2) return null;
+    return { w: parseFloat(nums[0]), h: parseFloat(nums[1]) };
+  }
+  function avgSide(p){
+    const d = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+    return (d(p[0],p[1]) + d(p[1],p[2]) + d(p[2],p[3]) + d(p[3],p[0])) / 4;
+  }
+  function setBoxStatus(t, ok){ D.boxStatus.textContent = t; D.boxStatus.classList.toggle('active', !!ok); }
+
+  function applyOverlaySize(){
+    if(!S.pxPerMm || !S.cutW || !S.cutH || !S.drawingReady) return;
+    D.boxOverlay.style.width  = (S.cutW * S.pxPerMm * S.oScale) + 'px';
+    D.boxOverlay.style.height = (S.cutH * S.pxPerMm * S.oScale) + 'px';
+  }
+  function centerOverlay(){
+    applyOverlaySize();
+    const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+    const w = D.boxOverlay.offsetWidth || 120, h = D.boxOverlay.offsetHeight || 120;
+    D.boxOverlay.style.left = ((sw - w)/2) + 'px';
+    D.boxOverlay.style.top  = ((sh - h)/2) + 'px';
+  }
+
+  async function loadBoxDrawing(){
+    S.drawingReady = false;
+    if(!S.drawingId){ return; }
+    await ensureCsrf();
+    try{
+      const url = `/api/drive-proxy?id=${encodeURIComponent(S.drawingId)}&name=${encodeURIComponent(S.drawingName||'zu')}&_nc=${Date.now()}`;
+      const r = await fetch(url, { credentials:'same-origin', cache:'no-store', headers: S.csrf ? {'X-CSRF':S.csrf} : {} });
+      if(!r.ok) throw new Error('drive-proxy ' + r.status);
+      const blob = await r.blob();
+      if(S._boxUrl) URL.revokeObjectURL(S._boxUrl);
+      S._boxUrl = URL.createObjectURL(blob);
+      D.boxOverlay.src = S._boxUrl;
+      S.drawingReady = true;
+    }catch(e){ console.warn('overlay drawing load failed', e); }
+  }
+
+  async function ensureLiveCam(){
+    if(S.stream && D.video.srcObject && !D.video.paused){ fitAll(); return; }
+    try{
+      if(!S.stream){
+        S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false });
+      }
+      D.video.srcObject = S.stream;
+      D.video.style.visibility = 'visible';
+      D.freeze.style.display = 'none';
+      D.lockEmoji.style.display = 'none';
+      await D.video.play();
+      await waitVideoSize();
+      fitAll();
+      if(!S.detector) await setupDetector();
+      D.btnStart.disabled = true; D.btnStop.disabled = false;
+    }catch(e){ D.errCam.textContent = 'カメラ起動エラー: ' + (e.message || e); }
+  }
+
+  async function boxTick(){
+    if(!S.boxMode){ return; }
+    const now = performance.now();
+    if(now - (S.boxLastAt||0) >= 120 && D.video.readyState === D.video.HAVE_ENOUGH_DATA){
+      S.boxLastAt = now;
+      fitAll();
+      if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      let cal = null;
+      try{
+        const dets = await detectCombined();
+        for(const d of dets){
+          const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
+          if(m && d.pts && d.pts.length >= 4){ cal = { mm: parseFloat(m[1]), pts: d.pts }; break; }
+        }
+      }catch{}
+      if(cal){
+        drawPoly(cal.pts, '#12b886', 4, null, 0.9);
+        const coverScale = Math.max(
+          D.stack.clientWidth / (D.video.videoWidth || 1),
+          D.stack.clientHeight / (D.video.videoHeight || 1)
+        );
+        S.pxPerMm = (avgSide(cal.pts) * coverScale) / cal.mm;
+        if(S.drawingReady){
+          applyOverlaySize();
+          if(!S._boxPositioned){ centerOverlay(); S._boxPositioned = true; }
+        }
+        setBoxStatus(`基準QR ${cal.mm}mm 検出（${S.pxPerMm.toFixed(2)} px/mm）`, true);
+      }else{
+        setBoxStatus('基準QR(CAL-50)を映してください', false);
+      }
+    }
+    S.boxRaf = requestAnimationFrame(boxTick);
+  }
+
+  async function enterBoxMode(){
+    if(!S.current.book || !S.current.wc){
+      alert('先に品番をスキャン／照会してください');
+      D.modeBox.classList.remove('active'); D.modeSpec.classList.add('active');
+      return;
+    }
+    S.boxMode = true;
+    if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
+    const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
+    D.boxPanel.style.display = 'block';
+    D.boxRecMsg.textContent = '';
+    if(!S.cutW || !S.cutH){ setBoxStatus('この品番にCut_Size(寸法)が無いため実寸不可', false); }
+    await ensureLiveCam();
+    await loadBoxDrawing();
+    if(S.drawingReady){
+      S.oScale = 1; S.oRot = 0; S._boxPositioned = false;
+      D.boxOverlay.style.transform = 'rotate(0deg)';
+      D.boxOverlay.style.opacity = (D.boxOpacity.value/100);
+      D.boxOverlay.style.display = 'block';
+    }else{
+      setBoxStatus('図面画像が見つかりません（-zu/-si の画像が必要）', false);
+    }
+    if(!S.boxRaf) boxTick();
+  }
+
+  function exitBoxMode(){
+    S.boxMode = false;
+    if(S.boxRaf){ cancelAnimationFrame(S.boxRaf); S.boxRaf = null; }
+    D.boxPanel.style.display = 'none';
+    D.boxOverlay.style.display = 'none';
+    const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = '';
+    if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+    // カメラが生きていれば本番スキャンを再開
+    if(S.stream && D.video.srcObject && !S.rafId){ S.lastScanAt = 0; setStatus('スキャン中', true); tick(); }
+  }
+
+  async function setMode(mode){
+    if(mode === 'box'){
+      D.modeBox.classList.add('active'); D.modeSpec.classList.remove('active');
+      await enterBoxMode();
+    }else{
+      D.modeSpec.classList.add('active'); D.modeBox.classList.remove('active');
+      exitBoxMode();
+    }
+  }
+
+  function recordBox(result){
+    const rec = {
+      ts: new Date().toISOString(),
+      book: S.current.book, wc: S.current.wc,
+      cut: (S.cutW && S.cutH) ? `${S.cutW}x${S.cutH}` : '',
+      frameOk: D.boxChkFrame.checked, ruleOk: D.boxChkRule.checked,
+      result
+    };
+    try{
+      const arr = JSON.parse(localStorage.getItem('boxMatchLog') || '[]');
+      arr.push(rec); localStorage.setItem('boxMatchLog', JSON.stringify(arr));
+    }catch{}
+    D.boxRecMsg.textContent = `${result==='OK'?'✅':'❌'} 記録しました (${S.current.book}/${S.current.wc})`;
+    if(result==='OK' && navigator.vibrate) navigator.vibrate(60);
+  }
+
+  // --- 配線 ---
+  D.modeSpec.onclick = () => setMode('spec');
+  D.modeBox.onclick  = () => setMode('box');
+  D.boxOpacity.oninput   = () => { D.boxOverlay.style.opacity = (D.boxOpacity.value/100); };
+  D.boxScaleDown.onclick = () => { S.oScale *= 0.98; applyOverlaySize(); };
+  D.boxScaleUp.onclick   = () => { S.oScale *= 1.02; applyOverlaySize(); };
+  D.boxRotate.onclick    = () => { S.oRot = (S.oRot + 90) % 360; D.boxOverlay.style.transform = `rotate(${S.oRot}deg)`; };
+  D.boxReset.onclick     = () => { S.oScale = 1; centerOverlay(); };
+  D.boxRecOk.onclick     = () => recordBox('OK');
+  D.boxRecNg.onclick     = () => recordBox('NG');
+
+  let _drag = null;
+  D.boxOverlay.addEventListener('pointerdown', e => {
+    _drag = { x:e.clientX, y:e.clientY, l:parseFloat(D.boxOverlay.style.left)||0, t:parseFloat(D.boxOverlay.style.top)||0 };
+    try{ D.boxOverlay.setPointerCapture(e.pointerId); }catch{}
+    e.preventDefault();
+  });
+  D.boxOverlay.addEventListener('pointermove', e => {
+    if(!_drag) return;
+    D.boxOverlay.style.left = (_drag.l + (e.clientX - _drag.x)) + 'px';
+    D.boxOverlay.style.top  = (_drag.t + (e.clientY - _drag.y)) + 'px';
+  });
+  D.boxOverlay.addEventListener('pointerup',     () => { _drag = null; });
+  D.boxOverlay.addEventListener('pointercancel', () => { _drag = null; });
 
 })();
 </script>
