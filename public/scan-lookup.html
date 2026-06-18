@@ -832,8 +832,13 @@
         });
         const j = await r.json();
         if(!r.ok || j.ok!==true) throw new Error(j?.error || `HTTP ${r.status}`);
-        if(j.found===false){ DOM.fabricResult.innerHTML = '<div class="muted" style="text-align:center">参照画像が登録されていません</div>'; return; }
+        if(j.found===false){
+          DOM.fabricResult.innerHTML = '<div class="muted" style="text-align:center">参照画像が登録されていません</div>';
+          announceFabricResult();
+          return;
+        }
         renderFabricVerdict(j);
+        announceFabricResult();
       }catch(e){
         DOM.fabricResult.innerHTML = `<div class="fabric-verdict mismatch"><div class="vreason">❌ 照合エラー: ${esc(e.message||e)}</div></div>`;
       }finally{
@@ -855,6 +860,10 @@
           <div class="vreason">${esc(j.reason||'')}</div>
         </div>`;
       if(j.verdict==='match'){ try{ navigator.vibrate?.(60); }catch{} }
+    }
+    function announceFabricResult(){
+      showBigMessage('照合が完了しました','照合結果が下に出ました');
+      speakLineOnce('照合結果が下に出ました',{cooldown:0});
     }
 
     // 初期化：URL指定あれば即フェッチ
