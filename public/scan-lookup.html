@@ -144,8 +144,7 @@
 
         <div class="card" id="fabricCard" style="display:none">
           <h4>🧵 生地を照合</h4>
-          <button id="btnMatchFabric" class="btn primary" disabled style="width:100%">📸 この生地を照合</button>
-          <div id="fabricResult" style="margin-top:10px"></div>
+          <div id="fabricResult"></div>
         </div>
 
         <div class="card shelf-card">
@@ -225,7 +224,7 @@
       driveStatus: $('#driveStatus'), driveView: $('#driveView'),
       // Mode / 生地照合
       modeFind: $('#modeFind'), modeFabric: $('#modeFabric'),
-      fabricCard: $('#fabricCard'), btnMatchFabric: $('#btnMatchFabric'), fabricResult: $('#fabricResult')
+      fabricCard: $('#fabricCard'), fabricResult: $('#fabricResult')
     };
     const ctx = DOM.overlay.getContext('2d', { willReadFrequently:true });
 
@@ -234,6 +233,7 @@
       detector:null, useBarcodeDetector: ('BarcodeDetector' in window),
       isLocked:false, holdTimer:null,
       mode:'find', // 'find'=抜型を探す / 'fabric'=生地を照合
+      matching:false,
       currentTarget:{ book:'', wc:'', wn:'' }, targetKey:'',
       currentShelf:null,
       scanHistory:new Map(),
@@ -536,9 +536,9 @@
               setTarget(od.bn||'', od.wc||'', '');
               state.__lastOrderKey=newKey; state.__orderSetAt=now;
 
-              showBigMessage('作業指示QRを読み取りました','ターゲットを設定しました　抜型のQRをスキャンしてください');
+              showBigMessage('作業指示QRを読み取りました','ターゲットを設定しました　ターゲットにカメラを向けて「抜型を探す」または「生地を照合」ボタンを押してください');
               showToastNearBox('ターゲット更新',pts);
-              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。　抜型のQRをスキャンしてください`,{cooldown:2500});
+              speakLineOnce(`ターゲットを book ${state.currentTarget.book} 、 ${state.currentTarget.wc} に設定しました。　ターゲットにカメラを向けて、抜型を探すまたは生地を照合するボタンを押してください`,{cooldown:2500});
 
               // ★ ターゲット設定直後に GS/Drive を必ず取得
               querySpec();
@@ -753,7 +753,7 @@
         setTarget(book,wc,'');
         updateStatus('ターゲット設定','ok');
         showBigMessage('手動でターゲット設定', `ターゲット: Book=${book} / WC=${wc}`);
-        speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　抜型のQRをスキャンしてください`);
+        speakLineOnce(`ターゲットを book ${book} 、 ${wc} に設定しました。　ターゲットにカメラを向けて、抜型を探すまたは生地を照合するボタンを押してください`);
         querySpec();  // ← 追加
       });
     }
@@ -795,12 +795,12 @@
       updateFabricUI();
     }
     function updateFabricUI(){
-      if(!DOM.btnMatchFabric) return;
       const { book, wc } = state.currentTarget;
-      DOM.btnMatchFabric.disabled = !(book && wc) || !state.stream;
+      DOM.modeFabric.disabled = state.matching || !(book && wc) || !state.stream;
     }
     DOM.modeFind.addEventListener('click', ()=> setMode('find'));
-    DOM.modeFabric.addEventListener('click', ()=> setMode('fabric'));
+    // 「生地を照合」ボタンをそのまま照合開始ボタンとして使う
+    DOM.modeFabric.addEventListener('click', ()=>{ setMode('fabric'); matchFabric(); });
 
     /* ==== 生地照合：現在のカメラ画像を縮小して送信 ==== */
     function captureFrameDataURL(maxEdge=1000){
@@ -818,8 +818,10 @@
       if(!book || !wc){ alert('先に型QRをスキャンしてターゲットを設定してください。'); return; }
       const image = captureFrameDataURL();
       if(!image){ alert('カメラ画像を取得できません。カメラを開始してください。'); return; }
+      if(state.matching) return;
 
-      DOM.btnMatchFabric.disabled = true;
+      state.matching = true;
+      DOM.modeFabric.disabled = true;
       DOM.fabricResult.innerHTML = '<div class="muted" style="text-align:center">照合中…（数秒）</div>';
       try{
         if(!state.csrf) await ensureCsrf();
@@ -835,6 +837,7 @@
       }catch(e){
         DOM.fabricResult.innerHTML = `<div class="fabric-verdict mismatch"><div class="vreason">❌ 照合エラー: ${esc(e.message||e)}</div></div>`;
       }finally{
+        state.matching = false;
         updateFabricUI();
       }
     }
@@ -853,7 +856,6 @@
         </div>`;
       if(j.verdict==='match'){ try{ navigator.vibrate?.(60); }catch{} }
     }
-    DOM.btnMatchFabric.addEventListener('click', matchFabric);
 
     // 初期化：URL指定あれば即フェッチ
     (async function initialize(){
