@@ -381,7 +381,8 @@
 
           <!-- ① 寸法照合（自動エッジ検出） -->
           <div class="row" style="font-size:12px; color:var(--text-sub)">
-            手順：①基準QR「CAL-50」を映して基準セット → ②現物を画面中央に収めて「現物の寸法を測る」
+            手順：①CAL-50を映して基準セット → ②<b>CAL-50を現物の横に置いたまま同じ画面に入れ</b>、現物を中央に収めて「測る」。<br>
+            ※CAL-50を一緒に写せば撮影の高さ・距離が変わっても正確（別撮りの場合はセット時と同じ高さで撮影）。
           </div>
           <div class="row" style="font-size:12px;">
             基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
@@ -926,9 +927,10 @@
     }
     D.specStatus.className = 'spec-status ok';
     D.specStatus.textContent = '✓ 登録あり';
+    // Cut_Size は「縦*横」順（例: 350*500 → 縦350・横500）
     const _dim = parseDims(gs.Cut_Size);
-    S.cutW = _dim ? _dim.w : null;
-    S.cutH = _dim ? _dim.h : null;
+    S.cutH = _dim ? _dim.w : null;   // 1番目 = 縦(高さ, Y)
+    S.cutW = _dim ? _dim.h : null;   // 2番目 = 横(幅, X)
     const fields = [
       {k:'ItemName', l:'品名'}, {k:'Kname', l:'型名'},
       {k:'Material', l:'材質'}, {k:'Paper_Size', l:'原紙'},
@@ -1212,6 +1214,22 @@
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
     if(!vw){ return; }
 
+    // 同じフレームに CAL-50 が写っていれば、その場の px/mm を再計算（距離・高さ非依存）。
+    // 写っていなければセット時のロック値を使う（その場合は撮影距離を変えないこと）。
+    let pxmm = S.pxPerMmVideo, calPts = S.calPts, liveCal = false;
+    try{
+      const dets = await detectCombined();
+      for(const d of dets){
+        const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
+        if(m && d.pts && d.pts.length >= 4){
+          pxmm = avgSide(d.pts) / parseFloat(m[1]);
+          calPts = d.pts.map(p=>({x:p.x,y:p.y}));
+          liveCal = true;
+          break;
+        }
+      }
+    }catch{}
+
     // 速度のため縮小キャプチャ
     const MAXW = 480;
     const cs = Math.min(1, MAXW / vw);
@@ -1235,8 +1253,8 @@
 
     // 基準QRの領域は除外（現物のbboxに混ざらないように）
     let cb=null;
-    if(S.calPts){
-      const xs=S.calPts.map(p=>p.x*cs), ys=S.calPts.map(p=>p.y*cs), m=8;
+    if(calPts){
+      const xs=calPts.map(p=>p.x*cs), ys=calPts.map(p=>p.y*cs), m=8;
       cb={ x0:Math.min(...xs)-m, x1:Math.max(...xs)+m, y0:Math.min(...ys)-m, y1:Math.max(...ys)+m };
     }
 
@@ -1265,26 +1283,31 @@
       return;
     }
 
-    // 映像px→mm
-    const wMm = ((right-left)/cs) / S.pxPerMmVideo;
-    const hMm = ((bottom-top)/cs) / S.pxPerMmVideo;
+    // 映像px→mm（横=X=幅, 縦=Y=高さ）
+    const wMm = ((right-left)/cs) / pxmm;   // 横
+    const hMm = ((bottom-top)/cs) / pxmm;   // 縦
     S.lastMeasure = {
       box:[{x:left/cs,y:top/cs},{x:right/cs,y:top/cs},{x:right/cs,y:bottom/cs},{x:left/cs,y:bottom/cs}],
       wMm, hMm, ok:false
     };
-    evaluateMeasure(wMm, hMm);
+    evaluateMeasure(wMm, hMm, liveCal);
   }
 
-  function evaluateMeasure(wMm, hMm){
+  function evaluateMeasure(wMm, hMm, liveCal){
     const TOL = 5; // ±5mm
-    const xs = `${Math.round(wMm)}mm`, ys = `${Math.round(hMm)}mm`;
+    const yoko = `${Math.round(wMm)}mm`, tate = `${Math.round(hMm)}mm`;
+    // 基準の出所メモ（同フレームQR=距離非依存 / ロック値=要同距離）
+    const note = liveCal
+      ? '基準QRを同時測定（距離非依存）'
+      : '⚠ セット時のロック値を使用（基準セット時と同じ高さ・距離で撮影してください）';
     D.boxResult.style.display='flex';
 
     if(!S.cutW || !S.cutH){
       S.lastMeasure.ok = false;
       D.boxResult.className='row';
-      D.boxResult.innerHTML=`<div class="res-head">📏 X ${xs} × Y ${ys}</div>`
-        +`<div class="res-detail">この品番に登録寸法(Cut_Size)が無いため自動照合できません。</div>`;
+      D.boxResult.innerHTML=`<div class="res-head">📏 横 ${yoko} × 縦 ${tate}</div>`
+        +`<div class="res-detail">この品番に登録寸法(Cut_Size)が無いため自動照合できません。</div>`
+        +`<div class="res-detail">${note}</div>`;
       speakBox(`横 ${Math.round(wMm)}ミリ、縦 ${Math.round(hMm)}ミリ`);
       return;
     }
@@ -1296,17 +1319,19 @@
     const ok = dShort<=TOL && dLong<=TOL;
     S.lastMeasure.ok = ok;
 
-    const tgtTxt = `${Math.round(S.cutW)}×${Math.round(S.cutH)}`;
+    // 登録は「縦×横」で表示
+    const tgtTxt = `縦${Math.round(S.cutH)}×横${Math.round(S.cutW)}`;
     D.boxResult.className = 'row ' + (ok ? 'ok' : 'ng');
     D.boxResult.innerHTML =
       `<div class="res-head">${ok ? '✅ 一致' : '❌ 不一致'}（±${TOL}mm）</div>`
-      + `<div class="res-detail">推定 X <b>${xs}</b> × Y <b>${ys}</b>（短辺 ${Math.round(meas[0])} / 長辺 ${Math.round(meas[1])}）</div>`
-      + `<div class="res-detail">登録 ${tgtTxt}　差 短辺 ${dShort.toFixed(0)} / 長辺 ${dLong.toFixed(0)}mm</div>`;
+      + `<div class="res-detail">推定 横 <b>${yoko}</b> × 縦 <b>${tate}</b>（短辺 ${Math.round(meas[0])} / 長辺 ${Math.round(meas[1])}）</div>`
+      + `<div class="res-detail">登録 ${tgtTxt}　差 短辺 ${dShort.toFixed(0)} / 長辺 ${dLong.toFixed(0)}mm</div>`
+      + `<div class="res-detail">${note}</div>`;
 
     if(navigator.vibrate) try{ navigator.vibrate(ok ? 60 : [60,60,60]); }catch{}
     speakBox(ok
       ? `一致しました。横 ${Math.round(wMm)}、縦 ${Math.round(hMm)}ミリ。`
-      : `不一致です。横 ${Math.round(wMm)}、縦 ${Math.round(hMm)}ミリ。登録は ${Math.round(S.cutW)}かける${Math.round(S.cutH)}。`);
+      : `不一致です。横 ${Math.round(wMm)}、縦 ${Math.round(hMm)}ミリ。登録は縦 ${Math.round(S.cutH)}、横 ${Math.round(S.cutW)}。`);
   }
 
   async function enterBoxMode(){
