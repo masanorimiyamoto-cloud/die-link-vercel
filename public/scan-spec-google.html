@@ -108,6 +108,8 @@
     border-radius: 8px;
     overflow: hidden;
     aspect-ratio: 16/9;
+    max-height: 72vh;
+    margin: 0 auto;
   }
   video { width: 100%; height: 100%; object-fit: cover; display: block; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -399,9 +401,9 @@
             <button id="boxRecalib" class="btn btn-sub" style="display:none;">基準を取り直す</button>
           </div>
 
-          <!-- ① 寸法照合（手動メジャー枠） -->
+          <!-- ① 寸法照合（自動で枠当て→手で微調整） -->
           <div class="row" style="font-size:12px; color:var(--text-sub)">
-            ①<b>現物の全体とCAL-50が画面に余裕で収まるまでカメラを離す</b>（真上から）→ ②CAL-50を映して基準セット → ③<b>オレンジ枠の四隅を現物の外形いっぱい（一番外の張り出しまで）に合わせる</b> → ④「この枠で照合」。<br>
+            ①<b>現物全体とCAL-50が画面に余裕で収まるまでカメラを離す</b>（真上から）→ ②CAL-50を映して基準セット → ③<b>「🔍 自動で枠を当てる」</b>（ずれた角だけドラッグで微調整）→ ④「この枠で照合」。<br>
             ※現物が画面からはみ出していると正しく測れません。枠の上に出る数値が実寸(mm)です。
           </div>
           <div class="row" style="font-size:12px;">
@@ -413,6 +415,9 @@
                      style="width:66px; padding:4px 6px; margin:0 4px;">mm
             </label>
             <span style="font-size:11px; color:var(--text-sub)">印刷したQRを定規で測った1辺を入力</span>
+          </div>
+          <div class="row">
+            <button id="boxAutoFit" class="btn btn-sub" style="flex:1; height:40px;" disabled>🔍 自動で枠を当てる</button>
           </div>
           <div class="row">
             <button id="boxMeasure" class="btn btn-primary" style="flex:1; height:44px; font-size:15px;" disabled>📏 この枠で照合</button>
@@ -510,7 +515,7 @@
     boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'),
-    measRect: q('#measRect'), measLabel: q('#measLabel'),
+    measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -592,6 +597,8 @@
     D.overlay.width = vw; D.overlay.height = vh;
     D.freeze.width  = vw; D.freeze.height  = vh;
     D.scanCanvas.width = vw; D.scanCanvas.height = vh;
+    // プレビューをカメラの縦横比に合わせる（クロップ無し＝最大表示・枠合わせが容易）
+    D.stack.style.aspectRatio = vw + '/' + vh;
   }
 
   function drawPoly(pts, stroke='#228be6', w=4, dash=null, alpha=1){
@@ -1199,6 +1206,7 @@
     S.pxPerMm = (avgSide(cal.pts) * coverScale) / refMm; // 表示px/mm（オーバーレイ用）
     D.boxMeasure.disabled = false;
     D.boxCalibrate.disabled = false;
+    D.boxAutoFit.disabled = false;
     D.boxRecalib.style.display = '';
     if(!S.calSet){
       S.calSet = true;
@@ -1215,6 +1223,7 @@
     S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null;
     D.boxMeasure.disabled = true;
     D.boxCalibrate.disabled = true;
+    D.boxAutoFit.disabled = true;
     D.boxRecalib.style.display = 'none';
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
@@ -1295,6 +1304,68 @@
       hMm: m ? (m.h / S.pxPerMm * k) : 0,
       scaleOk
     };
+  }
+
+  // 自動で枠を現物に当てる（背景差分＋最大連結領域）。当てた後は手で微調整可能。
+  function autoFitFrame(){
+    if(!S.calSet){ alert('先に50mm基準をセットしてください'); return; }
+    const vw = D.video.videoWidth, vh = D.video.videoHeight;
+    if(!vw){ return; }
+    const MAXW = 480;
+    const cs = Math.min(1, MAXW / vw);
+    const cw = Math.max(1, Math.round(vw*cs)), ch = Math.max(1, Math.round(vh*cs));
+    const mc = S._measCanvas || (S._measCanvas = document.createElement('canvas'));
+    mc.width = cw; mc.height = ch;
+    const mctx = mc.getContext('2d', { willReadFrequently:true });
+    mctx.drawImage(D.video, 0, 0, cw, ch);
+    const data = mctx.getImageData(0, 0, cw, ch).data;
+
+    // 背景色＝四隅平均
+    const patch = Math.max(4, Math.round(Math.min(cw, ch)*0.06));
+    let br=0,bg=0,bb=0,bn=0;
+    for(const [ox,oy] of [[0,0],[cw-patch,0],[0,ch-patch],[cw-patch,ch-patch]]){
+      for(let y=oy;y<oy+patch;y++) for(let x=ox;x<ox+patch;x++){ const i=(y*cw+x)*4; br+=data[i]; bg+=data[i+1]; bb+=data[i+2]; bn++; }
+    }
+    br/=bn; bg/=bn; bb/=bn;
+
+    // QR領域を除外
+    let cb=null;
+    if(S.calPts){ const xs=S.calPts.map(p=>p.x*cs), ys=S.calPts.map(p=>p.y*cs), m=8;
+      cb={ x0:Math.min(...xs)-m, x1:Math.max(...xs)+m, y0:Math.min(...ys)-m, y1:Math.max(...ys)+m }; }
+
+    const TH=42, fg=new Uint8Array(cw*ch);
+    for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+      if(cb && x>=cb.x0 && x<=cb.x1 && y>=cb.y0 && y<=cb.y1) continue;
+      const i=(y*cw+x)*4, dr=data[i]-br, dg=data[i+1]-bg, db=data[i+2]-bb;
+      if((dr*dr+dg*dg+db*db) > TH*TH) fg[y*cw+x]=1;
+    }
+    // 最大連結領域
+    const lab=new Uint8Array(cw*ch), st=new Int32Array(cw*ch);
+    let best=0, bL=0,bR=0,bT=0,bB=0;
+    for(let s=0;s<cw*ch;s++){
+      if(!fg[s]||lab[s]) continue;
+      let sp=0; st[sp++]=s; lab[s]=1; let c=0,mnx=cw,mxx=0,mny=ch,mxy=0;
+      while(sp>0){ const p=st[--sp], py=(p/cw)|0, px=p-py*cw; c++;
+        if(px<mnx)mnx=px; if(px>mxx)mxx=px; if(py<mny)mny=py; if(py>mxy)mxy=py;
+        for(let dy=-1;dy<=1;dy++){ const ny=py+dy; if(ny<0||ny>=ch)continue;
+          for(let dx=-1;dx<=1;dx++){ const nx=px+dx; if(nx<0||nx>=cw)continue; const np=ny*cw+nx;
+            if(fg[np]&&!lab[np]){ lab[np]=1; st[sp++]=np; } } } }
+      if(c>best){ best=c; bL=mnx; bR=mxx; bT=mny; bB=mxy; }
+    }
+    if(best < cw*ch*0.02 || bR-bL<6 || bB-bT<6){
+      return boxResultError('⚠ 自動検出できませんでした','背景と色差が出るよう明るくし、現物全体を画面に収めてから再度。難しければ手で枠を合わせてください。');
+    }
+    // capture px → 映像px(/cs) → CSS px（cover変換）
+    const sw=D.stack.clientWidth, sh=D.stack.clientHeight;
+    const coverScale = Math.max(sw/vw, sh/vh);
+    const offX=(sw - vw*coverScale)/2, offY=(sh - vh*coverScale)/2;
+    const vL=bL/cs, vR=bR/cs, vT=bT/cs, vB=bB/cs;
+    S.meas = {
+      l: vL*coverScale + offX, t: vT*coverScale + offY,
+      w: (vR-vL)*coverScale,   h: (vB-vT)*coverScale
+    };
+    showMeasRect();
+    speakBox('枠を当てました。ずれていたら角を合わせてください。');
   }
 
   function measureObject(){
@@ -1393,6 +1464,7 @@
     S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null;
     D.boxMeasure.disabled = true;
     D.boxCalibrate.disabled = true;
+    D.boxAutoFit.disabled = true;
     D.boxRecalib.style.display = 'none';
     D.boxResult.style.display = 'none';
     if(S.calFactor && Math.abs(S.calFactor-1) > 0.001){
@@ -1463,6 +1535,7 @@
   D.boxRecOk.onclick     = () => recordBox('OK');
   D.boxRecNg.onclick     = () => recordBox('NG');
   D.boxMeasure.onclick   = () => measureObject();
+  D.boxAutoFit.onclick   = () => autoFitFrame();
   D.boxCalibrate.onclick = () => calibrateWithBox();
   D.boxRecalib.onclick   = () => clearCalibration();
   // 基準の実測サイズ（印刷誤差の補正）
