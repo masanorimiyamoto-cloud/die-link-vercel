@@ -515,7 +515,7 @@
     cutW:null, cutH:null, drawingId:null, drawingName:null, drawingReady:false,
     oScale:1, oRot:0, _boxUrl:null, _boxPositioned:false,
     // 基準セット＆寸法測定
-    calSet:false, pxPerMmVideo:0, calPts:null, lastMeasure:null, _measCanvas:null,
+    calSet:false, pxPerMmVideo:0, calPts:null, calSeenAt:0, lastMeasure:null, _measCanvas:null,
     refMm:50,      // 基準マーカーの実測サイズ(mm)。印刷誤差はここで補正
     calFactor:1,   // 実地校正係数（正しい現物で校正して系統誤差を吸収）
   };
@@ -1164,6 +1164,7 @@
     const refMm = S.refMm || cal.mm;                     // 実測サイズ優先（印刷誤差補正）
     S.pxPerMmVideo = avgSide(cal.pts) / refMm;           // 映像px/mm（測定用）
     S.calPts = cal.pts.map(p => ({ x:p.x, y:p.y }));     // QR位置（測定時マスク用）
+    S.calSeenAt = performance.now();                     // 直近にQRを見た時刻（測定時の取りこぼし防止）
     const coverScale = Math.max(
       D.stack.clientWidth / (D.video.videoWidth || 1),
       D.stack.clientHeight / (D.video.videoHeight || 1)
@@ -1236,19 +1237,24 @@
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
     if(!vw) return { error:'カメラ映像がありません' };
 
-    // 測定の瞬間に CAL-50 が写っていることを必須にする
+    // CAL-50は必須。まず boxTick が直近(<800ms)に捕捉した位置を使う（単発検出の取りこぼし対策）。
     let side = 0, calPts = null;
-    try{
-      const dets = await detectCombined();
-      for(const d of dets){
-        const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
-        if(m && d.pts && d.pts.length >= 4){
-          side = avgSide(d.pts);                              // QRの1辺(px)
-          calPts = d.pts.slice(0,4).map(p=>({x:p.x,y:p.y}));
-          break;
+    if(S.calPts && S.calPts.length >= 4 && S.calSeenAt && (performance.now() - S.calSeenAt) < 800){
+      calPts = S.calPts; side = avgSide(S.calPts);
+    }
+    if(!side){
+      try{
+        const dets = await detectCombined();
+        for(const d of dets){
+          const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
+          if(m && d.pts && d.pts.length >= 4){
+            side = avgSide(d.pts);
+            calPts = d.pts.slice(0,4).map(p=>({x:p.x,y:p.y}));
+            break;
+          }
         }
-      }
-    }catch{}
+      }catch{}
+    }
     if(!side || !calPts) return { error:'noCal' };
 
     // 速度のため縮小キャプチャ
@@ -1276,24 +1282,46 @@
     const xs=calPts.map(p=>p.x*cs), ys=calPts.map(p=>p.y*cs), mg=8;
     const cb={ x0:Math.min(...xs)-mg, x1:Math.max(...xs)+mg, y0:Math.min(...ys)-mg, y1:Math.max(...ys)+mg };
 
-    // 背景差分→列/行プロファイル
+    // 背景差分で前景マスク（QR領域は除外）
     const TH = 42; // 色距離しきい値
-    const colP = new Int32Array(cw), rowP = new Int32Array(ch);
+    const fg = new Uint8Array(cw*ch);
     for(let y=0; y<ch; y++){
       for(let x=0; x<cw; x++){
         if(x>=cb.x0 && x<=cb.x1 && y>=cb.y0 && y<=cb.y1) continue;
         const i=(y*cw+x)*4;
         const dr=data[i]-br, dg=data[i+1]-bg, db=data[i+2]-bb;
-        if((dr*dr+dg*dg+db*db) > TH*TH){ colP[x]++; rowP[y]++; }
+        if((dr*dr+dg*dg+db*db) > TH*TH) fg[y*cw+x] = 1;
       }
     }
-    const colTh = Math.max(4, ch*0.12), rowTh = Math.max(4, cw*0.12);
-    let left=-1,right=-1,top=-1,bottom=-1;
-    for(let x=0;x<cw;x++){ if(colP[x]>colTh){ if(left<0) left=x; right=x; } }
-    for(let y=0;y<ch;y++){ if(rowP[y]>rowTh){ if(top<0) top=y; bottom=y; } }
-    if(left<0 || top<0 || right-left < 6 || bottom-top < 6) return { error:'noObject' };
+    // 最大の連結領域(=現物)だけ採用。CAL紙のラベル/ものさし/影/別物のはみ出しを無視。
+    const lbl = new Uint8Array(cw*ch);
+    const stack = new Int32Array(cw*ch);
+    let bestCount=0, bL=0,bR=0,bT=0,bB=0;
+    for(let s=0; s<cw*ch; s++){
+      if(!fg[s] || lbl[s]) continue;
+      let sp=0; stack[sp++]=s; lbl[s]=1;
+      let count=0, minx=cw,maxx=0,miny=ch,maxy=0;
+      while(sp>0){
+        const p=stack[--sp];
+        const py=(p/cw)|0, px=p-py*cw;
+        count++;
+        if(px<minx)minx=px; if(px>maxx)maxx=px; if(py<miny)miny=py; if(py>maxy)maxy=py;
+        // 8近傍
+        for(let dy=-1; dy<=1; dy++){
+          const ny=py+dy; if(ny<0||ny>=ch) continue;
+          for(let dx=-1; dx<=1; dx++){
+            const nx=px+dx; if(nx<0||nx>=cw) continue;
+            const np=ny*cw+nx;
+            if(fg[np] && !lbl[np]){ lbl[np]=1; stack[sp++]=np; }
+          }
+        }
+      }
+      if(count>bestCount){ bestCount=count; bL=minx; bR=maxx; bT=miny; bB=maxy; }
+    }
+    // 小さすぎる塊しか無い＝現物未検出
+    if(bestCount < cw*ch*0.02 || bR-bL < 6 || bB-bT < 6) return { error:'noObject' };
 
-    const L=left/cs, R=right/cs, T=top/cs, B=bottom/cs;
+    const L=bL/cs, R=bR/cs, T=bT/cs, B=bB/cs;
     return {
       wPx: R-L, hPx: B-T, side,
       box: [{x:L,y:T},{x:R,y:T},{x:R,y:B},{x:L,y:B}]
