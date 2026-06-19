@@ -587,7 +587,7 @@
     // 半製品照合
     boxMode:false, boxRaf:null, boxLastAt:0, pxPerMm:0,
     cutW:null, cutH:null, drawingId:null, drawingName:null, drawingReady:false,
-    oScale:1, oRot:0, _boxUrl:null, _boxPositioned:false,
+    oScale:1, oRot:0, _boxUrl:null, _boxPositioned:false, overlayPxPerMm:0,
     // 基準セット＆寸法測定
     calSet:false, pxPerMmVideo:0, calPts:null, calSeenAt:0, lastMeasure:null, _measCanvas:null,
     refMm:50,      // 基準マーカーの実測サイズ(mm)。印刷誤差はここで補正
@@ -1185,9 +1185,19 @@
   function setBoxStatus(t, ok){ D.boxStatus.textContent = t; D.boxStatus.classList.toggle('active', !!ok); }
 
   function applyOverlaySize(){
-    if(!S.pxPerMm || !S.cutW || !S.cutH || !S.drawingReady) return;
-    D.boxOverlay.style.width  = (S.cutW * S.pxPerMm * S.oScale) + 'px';
-    D.boxOverlay.style.height = (S.cutH * S.pxPerMm * S.oScale) + 'px';
+    if(!S.drawingReady) return;
+    const ppm = S.overlayPxPerMm; // 表示時に固定したスケール（ライブ追従しない）
+    if(ppm > 0 && S.cutW && S.cutH){
+      D.boxOverlay.style.width  = (S.cutW * ppm * S.oScale) + 'px';
+      D.boxOverlay.style.height = (S.cutH * ppm * S.oScale) + 'px';
+    } else {
+      // スケール未確定時：図面の自然比でstackの約7割に収める
+      const nw = D.boxOverlay.naturalWidth || 4, nh = D.boxOverlay.naturalHeight || 3;
+      const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+      const fit = Math.min(sw*0.7/nw, sh*0.7/nh) * S.oScale;
+      D.boxOverlay.style.width  = (nw*fit) + 'px';
+      D.boxOverlay.style.height = (nh*fit) + 'px';
+    }
   }
   function centerOverlay(){
     applyOverlaySize();
@@ -1298,10 +1308,7 @@
       if(cal){
         drawPoly(cal.pts, '#12b886', 4, null, 0.9);
         setCalibrated(cal);
-        if(S.drawingReady){
-          applyOverlaySize();
-          if(!S._boxPositioned){ centerOverlay(); S._boxPositioned = true; }
-        }
+        // 図面オーバーレイはライブ追従させない（落ち着いた表示のため、表示時に一度だけ設定）
       }else if(S.calSet){
         // 縮尺はQRが見えている間だけ最新。外れたら入れ直しを促す
         setBoxStatus('⚠ CAL-50を画面内に入れたまま枠を合わせてください', true);
@@ -1660,7 +1667,14 @@
   if(_ovSec) _ovSec.addEventListener('toggle', () => {
     const show = _ovSec.open && S.drawingReady && S.boxMode;
     D.boxOverlay.style.display = show ? 'block' : 'none';
-    if(show && !S._boxPositioned){ centerOverlay(); S._boxPositioned = true; }
+    if(show){
+      // 表示した瞬間のスケールで固定（以後ライブ追従しない＝落ち着く）
+      S.overlayPxPerMm = S.pxPerMm;
+      S.oScale = 1; S.oRot = 0;
+      D.boxOverlay.style.transform = 'rotate(0deg)';
+      D.boxOverlay.style.opacity = (D.boxOpacity.value/100);
+      centerOverlay();
+    }
   });
 
   let _drag = null;
