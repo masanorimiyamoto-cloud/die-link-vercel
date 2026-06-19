@@ -335,6 +335,26 @@
     white-space:nowrap; background:rgba(0,0,0,.72); color:#fff; font-size:13px;
     font-weight:700; padding:3px 9px; border-radius:6px; pointer-events:none; }
   .nudgebtn{ flex:1 1 0; min-width:0; padding:8px 4px; font-size:14px; font-weight:700; }
+
+  /* カメラ映像に重ねる操作バー（大画面のまま操作できる） */
+  #boxBar{
+    position:absolute; left:0; right:0; bottom:0; z-index:30; display:none;
+    flex-direction:column; gap:5px;
+    padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    background:rgba(15,20,25,.5); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  }
+  #boxBar.show{ display:flex; }
+  #boxBar .bbrow{ display:flex; align-items:center; gap:5px; }
+  #boxBar .bblabel{ flex:0 0 24px; color:#fff; font-size:12px; font-weight:800; text-shadow:0 1px 2px #000; }
+  #boxBar button{
+    flex:1 1 0; min-width:0; padding:8px 2px; font-size:15px; font-weight:800;
+    border:none; border-radius:7px; background:rgba(255,255,255,.92); color:#222; cursor:pointer;
+  }
+  #boxBar button.bbprimary{ background:var(--primary); color:#fff; }
+  #boxBar button:disabled{ opacity:.45; }
+  #boxBar #boxStatus{ flex:1; background:transparent; color:#fff; padding:0; font-size:12px; text-shadow:0 1px 2px #000; }
+  #boxBar #boxStatus.active{ background:transparent; color:#8ff0c8; }
+  #boxBar #boxRecalib{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
 </style>
 </head>
 <body>
@@ -374,6 +394,30 @@
             <div class="mh mh-se" data-h="se"></div>
             <div id="measLabel">—</div>
           </div>
+          <div id="boxBar">
+            <div class="bbrow">
+              <span id="boxStatus">基準QR(CAL-50)を映してください</span>
+              <button id="boxRecalib" style="display:none;">取り直す</button>
+            </div>
+            <div class="bbrow">
+              <span class="bblabel">横</span>
+              <button id="boxW_m10">−10</button>
+              <button id="boxW_m1">−1</button>
+              <button id="boxW_p1">＋1</button>
+              <button id="boxW_p10">＋10</button>
+            </div>
+            <div class="bbrow">
+              <span class="bblabel">縦</span>
+              <button id="boxH_m10">−10</button>
+              <button id="boxH_m1">−1</button>
+              <button id="boxH_p1">＋1</button>
+              <button id="boxH_p10">＋10</button>
+            </div>
+            <div class="bbrow">
+              <button id="boxAutoFit" disabled>🔍 自動</button>
+              <button id="boxMeasure" class="bbprimary" disabled>📏 照合</button>
+            </div>
+          </div>
         </div>
 
         <div id="nowTarget" class="target-info">ターゲット: — / —</div>
@@ -397,30 +441,6 @@
         </div>
 
         <div id="boxPanel" style="display:none; margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
-          <div class="row">
-            <span id="boxStatus">基準QR(CAL-50)を映してください</span>
-            <button id="boxRecalib" class="btn btn-sub" style="display:none;">基準を取り直す</button>
-          </div>
-
-          <!-- 枠サイズ調整（位置はドラッグ）。10mm / 1mm 単位 -->
-          <div class="row" style="gap:6px; align-items:center;">
-            <span style="flex:0 0 28px; font-size:13px; font-weight:700; color:var(--text-sub);">横</span>
-            <button id="boxW_m10" class="btn btn-sub nudgebtn">−10</button>
-            <button id="boxW_m1"  class="btn btn-sub nudgebtn">−1</button>
-            <button id="boxW_p1"  class="btn btn-sub nudgebtn">＋1</button>
-            <button id="boxW_p10" class="btn btn-sub nudgebtn">＋10</button>
-          </div>
-          <div class="row" style="gap:6px; align-items:center;">
-            <span style="flex:0 0 28px; font-size:13px; font-weight:700; color:var(--text-sub);">縦</span>
-            <button id="boxH_m10" class="btn btn-sub nudgebtn">−10</button>
-            <button id="boxH_m1"  class="btn btn-sub nudgebtn">−1</button>
-            <button id="boxH_p1"  class="btn btn-sub nudgebtn">＋1</button>
-            <button id="boxH_p10" class="btn btn-sub nudgebtn">＋10</button>
-          </div>
-          <div class="row" style="gap:8px;">
-            <button id="boxAutoFit" class="btn btn-sub" style="flex:1; height:42px;" disabled>🔍 自動で枠当て</button>
-            <button id="boxMeasure" class="btn btn-primary" style="flex:1; height:42px; font-size:15px;" disabled>📏 照合</button>
-          </div>
           <div id="boxResult" class="row" style="display:none;"></div>
 
           <details style="margin-top:4px;">
@@ -537,7 +557,7 @@
     boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
-    measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
+    measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'), boxBar: q('#boxBar'),
     boxW_m10: q('#boxW_m10'), boxW_m1: q('#boxW_m1'), boxW_p1: q('#boxW_p1'), boxW_p10: q('#boxW_p10'),
     boxH_m10: q('#boxH_m10'), boxH_m1: q('#boxH_m1'), boxH_p1: q('#boxH_p1'), boxH_p10: q('#boxH_p10'),
   };
@@ -1379,14 +1399,18 @@
     if(S.calPts){ const xs=S.calPts.map(p=>p.x*cs), ys=S.calPts.map(p=>p.y*cs), m=Math.round(Math.min(cw,ch)*0.03);
       cb={ x0:Math.min(...xs)-m, x1:Math.max(...xs)+m, y0:Math.min(...ys)-m, y1:Math.max(...ys)+m }; }
 
-    // 背景との色距離 → 適応しきい値(平均+0.8σ、下限28)
+    // 背景との色距離 → ヒストグラム
     const diff = new Float32Array(cw*ch);
-    let sum=0;
+    const hist = new Uint32Array(256);
     for(let p=0;p<cw*ch;p++){ const i=p*4, dr=data[i]-br, dg=data[i+1]-bg, db=data[i+2]-bb;
-      const d=Math.sqrt(dr*dr+dg*dg+db*db); diff[p]=d; sum+=d; }
-    const mean=sum/(cw*ch);
-    let vs=0; for(let p=0;p<cw*ch;p++){ const d=diff[p]-mean; vs+=d*d; }
-    const TH=Math.max(28, mean + Math.sqrt(vs/(cw*ch))*0.8);
+      const d=Math.sqrt(dr*dr+dg*dg+db*db); diff[p]=d; let v=d|0; if(v>255)v=255; hist[v]++; }
+    // 適応しきい値（Otsu法：背景/前景の谷を自動判定。クラス不均衡に強い）
+    const total=cw*ch; let sumAll=0; for(let i=0;i<256;i++) sumAll+=i*hist[i];
+    let wB=0,sumB=0,maxVar=-1,otsu=24;
+    for(let i=0;i<256;i++){ wB+=hist[i]; if(!wB)continue; const wF=total-wB; if(wF<=0)break;
+      sumB+=i*hist[i]; const mB=sumB/wB, mF=(sumAll-sumB)/wF; const v=wB*wF*(mB-mF)*(mB-mF);
+      if(v>maxVar){ maxVar=v; otsu=i; } }
+    const TH=Math.max(20, otsu);
 
     const fg=new Uint8Array(cw*ch);
     for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
@@ -1395,19 +1419,20 @@
       if(diff[p] > TH) fg[p]=1;
     }
 
-    // 連結成分。縁に触れる塊は除外し、画面内に収まった最大の塊を採用
+    // 連結成分。bboxがほぼ全画面(>88%)の塊＝背景として除外（画面いっぱい化を防ぐ）。
+    // 端に届く現物は許容＝最大の塊を採用。
     const lab=new Uint8Array(cw*ch), st=new Int32Array(cw*ch);
+    const FULL = cw*ch*0.88;
     let best=0, bL=0,bR=0,bT=0,bB=0, found=false;
     for(let s=0;s<cw*ch;s++){
       if(!fg[s]||lab[s]) continue;
-      let sp=0; st[sp++]=s; lab[s]=1; let c=0,mnx=cw,mxx=0,mny=ch,mxy=0,touch=false;
+      let sp=0; st[sp++]=s; lab[s]=1; let c=0,mnx=cw,mxx=0,mny=ch,mxy=0;
       while(sp>0){ const p=st[--sp], py=(p/cw)|0, px=p-py*cw; c++;
         if(px<mnx)mnx=px; if(px>mxx)mxx=px; if(py<mny)mny=py; if(py>mxy)mxy=py;
-        if(px<=0||py<=0||px>=cw-1||py>=ch-1) touch=true;
         for(let dy=-1;dy<=1;dy++){ const ny=py+dy; if(ny<0||ny>=ch)continue;
           for(let dx=-1;dx<=1;dx++){ const nx=px+dx; if(nx<0||nx>=cw)continue; const np=ny*cw+nx;
             if(fg[np]&&!lab[np]){ lab[np]=1; st[sp++]=np; } } } }
-      if(touch) continue;                 // 縁に触れる＝背景/見切れ → 不採用
+      if((mxx-mnx+1)*(mxy-mny+1) > FULL) continue;   // ほぼ全画面＝背景 → 不採用
       if(c>best){ best=c; bL=mnx; bR=mxx; bT=mny; bB=mxy; found=true; }
     }
 
@@ -1520,7 +1545,7 @@
     if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
     D.boxPanel.style.display = 'block';
-    D.stack.style.maxHeight = '44vh'; // 操作ボタンと同時に見えるようカメラを少し縮小
+    D.boxBar.classList.add('show'); // 操作はカメラ映像に重ねる（大画面のまま）
     D.boxRecMsg.textContent = '';
     // 基準・測定状態をリセット
     S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null;
@@ -1550,7 +1575,7 @@
     S.lastMeasure = null;
     if(S.boxRaf){ cancelAnimationFrame(S.boxRaf); S.boxRaf = null; }
     D.boxPanel.style.display = 'none';
-    D.stack.style.maxHeight = ''; // CSS既定(72vh)に戻す
+    D.boxBar.classList.remove('show');
     D.boxOverlay.style.display = 'none';
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
