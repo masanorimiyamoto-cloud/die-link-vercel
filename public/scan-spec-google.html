@@ -1300,6 +1300,8 @@
         '縮尺が古いため照合できません。CAL-50を現物の横に置き、画面内に入れたまま照合してください。',
         'シーエーエル50を画面に入れてください。');
     }
+    // 診断値（桁ズレ切り分け用）
+    S._dbg = `枠 ${Math.round(S.meas.w)}×${Math.round(S.meas.h)}px / ${S.pxPerMm.toFixed(3)} px/mm / 画面 ${D.stack.clientWidth}×${D.stack.clientHeight} / 映像 ${D.video.videoWidth}×${D.video.videoHeight} / QR辺 ${avgSide(S.calPts).toFixed(1)}px`;
     S.lastMeasure = { wMm:r.wMm, hMm:r.hMm, ok:false };
     evaluateMeasure(r.wMm, r.hMm);
   }
@@ -1334,8 +1336,9 @@
     const TOL = 5; // ±5mm
     const yoko = `${Math.round(wMm)}mm`, tate = `${Math.round(hMm)}mm`;
     const note = (S.calFactor && Math.abs(S.calFactor-1) > 0.001)
-      ? `基準QR同時測定・校正係数 ${S.calFactor.toFixed(3)} 適用`
-      : '基準QR同時測定（未校正：ずれる場合は「正しい現物で校正」）';
+      ? `手動枠・校正係数 ${S.calFactor.toFixed(3)} 適用`
+      : '手動枠（未校正：ずれる場合は「正しい現物で校正」）';
+    const dbg = S._dbg ? `<div class="res-detail" style="font-size:11px;color:#999">${S._dbg}</div>` : '';
     D.boxResult.style.display='flex';
 
     if(!S.cutW || !S.cutH){
@@ -1343,7 +1346,7 @@
       D.boxResult.className='row';
       D.boxResult.innerHTML=`<div class="res-head">📏 横 ${yoko} × 縦 ${tate}</div>`
         +`<div class="res-detail">この品番に登録寸法(Cut_Size)が無いため自動照合できません。</div>`
-        +`<div class="res-detail">${note}</div>`;
+        +`<div class="res-detail">${note}</div>`+dbg;
       speakBox(`横 ${Math.round(wMm)}ミリ、縦 ${Math.round(hMm)}ミリ`);
       return;
     }
@@ -1362,7 +1365,7 @@
       `<div class="res-head">${ok ? '✅ 一致' : '❌ 不一致'}（±${TOL}mm）</div>`
       + `<div class="res-detail">推定 横 <b>${yoko}</b> × 縦 <b>${tate}</b>（短辺 ${Math.round(meas[0])} / 長辺 ${Math.round(meas[1])}）</div>`
       + `<div class="res-detail">登録 ${tgtTxt}　差 短辺 ${dShort.toFixed(0)} / 長辺 ${dLong.toFixed(0)}mm</div>`
-      + `<div class="res-detail">${note}</div>`;
+      + `<div class="res-detail">${note}</div>`+dbg;
 
     if(navigator.vibrate) try{ navigator.vibrate(ok ? 60 : [60,60,60]); }catch{}
     speakBox(ok
