@@ -416,6 +416,13 @@
             </label>
             <span style="font-size:11px; color:var(--text-sub)">印刷したQRを定規で測った1辺を入力</span>
           </div>
+          <div class="row" style="font-size:13px;">
+            <label>合否の許容差 ±
+              <input id="boxTol" type="number" inputmode="numeric" min="1" step="1" value="10"
+                     style="width:60px; padding:4px 6px; margin:0 4px;">mm
+            </label>
+            <span style="font-size:11px; color:var(--text-sub)">大きいほど枠合わせが楽（品番違いの判別用なら±10〜20推奨）</span>
+          </div>
           <div class="row">
             <button id="boxAutoFit" class="btn btn-sub" style="flex:1; height:40px;" disabled>🔍 自動で枠を当てる</button>
           </div>
@@ -514,7 +521,7 @@
     boxChkFrame: q('#boxChkFrame'), boxChkRule: q('#boxChkRule'),
     boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
-    boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'),
+    boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
   };
   function q(s){ return document.querySelector(s); }
@@ -545,6 +552,7 @@
     refMm:50,      // 基準マーカーの実測サイズ(mm)。印刷誤差はここで補正
     calFactor:1,   // 実地校正係数（正しい現物で校正して系統誤差を吸収）
     meas:null,     // 手動メジャー枠 {l,t,w,h}（stack内CSS px）
+    tolMm:10,      // 合否の許容差(±mm)
   };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
 
@@ -1355,6 +1363,12 @@
     if(best < cw*ch*0.02 || bR-bL<6 || bB-bT<6){
       return boxResultError('⚠ 自動検出できませんでした','背景と色差が出るよう明るくし、現物全体を画面に収めてから再度。難しければ手で枠を合わせてください。');
     }
+    // 画面いっぱい＝背景を拾えていない（誤検出）。手動を促す
+    if((bR-bL) > cw*0.93 && (bB-bT) > ch*0.93){
+      // とりあえず枠は出すが、当たっていない旨を警告
+      boxResultError('⚠ 自動検出がうまくいきません',
+        '背景と現物の色差が小さい可能性があります。無地で明るい背景にするか、枠の四隅を手で現物に合わせてください。');
+    }
     // capture px → 映像px(/cs) → CSS px（cover変換）
     const sw=D.stack.clientWidth, sh=D.stack.clientHeight;
     const coverScale = Math.max(sw/vw, sh/vh);
@@ -1409,7 +1423,7 @@
   }
 
   function evaluateMeasure(wMm, hMm){
-    const TOL = 5; // ±5mm
+    const TOL = S.tolMm || 10; // ±許容差(mm)
     const yoko = `${Math.round(wMm)}mm`, tate = `${Math.round(hMm)}mm`;
     const note = (S.calFactor && Math.abs(S.calFactor-1) > 0.001)
       ? `手動枠・校正係数 ${S.calFactor.toFixed(3)} 適用`
@@ -1536,6 +1550,7 @@
   D.boxRecNg.onclick     = () => recordBox('NG');
   D.boxMeasure.onclick   = () => measureObject();
   D.boxAutoFit.onclick   = () => autoFitFrame();
+  D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
   D.boxCalibrate.onclick = () => calibrateWithBox();
   D.boxRecalib.onclick   = () => clearCalibration();
   // 基準の実測サイズ（印刷誤差の補正）
