@@ -319,6 +319,19 @@
   #boxResult.ok .res-head{ color:var(--ok); }
   #boxResult.ng .res-head{ color:var(--ng); }
   #boxResult .res-detail{ font-size:13px; color:var(--text); }
+  /* 手動メジャー枠 */
+  #measRect{ position:absolute; display:none; z-index:25; border:2px solid #f59f00;
+    background:rgba(245,159,0,.10); touch-action:none; cursor:move; }
+  #measRect .mh{ position:absolute; width:30px; height:30px; border-radius:50%;
+    background:rgba(245,159,0,.95); border:2px solid #fff; touch-action:none;
+    box-shadow:0 1px 4px rgba(0,0,0,.45); }
+  #measRect .mh-nw{ left:-16px; top:-16px; cursor:nwse-resize; }
+  #measRect .mh-ne{ right:-16px; top:-16px; cursor:nesw-resize; }
+  #measRect .mh-sw{ left:-16px; bottom:-16px; cursor:nesw-resize; }
+  #measRect .mh-se{ right:-16px; bottom:-16px; cursor:nwse-resize; }
+  #measLabel{ position:absolute; left:50%; top:-30px; transform:translateX(-50%);
+    white-space:nowrap; background:rgba(0,0,0,.72); color:#fff; font-size:13px;
+    font-weight:700; padding:3px 9px; border-radius:6px; pointer-events:none; }
 </style>
 </head>
 <body>
@@ -351,6 +364,13 @@
           <canvas id="scanCanvas" style="display:none"></canvas>
           <div class="target-scope"><div class="scan-line"></div></div>
           <img id="boxOverlay" alt="図面オーバーレイ" draggable="false" />
+          <div id="measRect">
+            <div class="mh mh-nw" data-h="nw"></div>
+            <div class="mh mh-ne" data-h="ne"></div>
+            <div class="mh mh-sw" data-h="sw"></div>
+            <div class="mh mh-se" data-h="se"></div>
+            <div id="measLabel">—</div>
+          </div>
         </div>
 
         <div id="nowTarget" class="target-info">ターゲット: — / —</div>
@@ -379,10 +399,10 @@
             <button id="boxRecalib" class="btn btn-sub" style="display:none;">基準を取り直す</button>
           </div>
 
-          <!-- ① 寸法照合（自動エッジ検出） -->
+          <!-- ① 寸法照合（手動メジャー枠） -->
           <div class="row" style="font-size:12px; color:var(--text-sub)">
-            <b>測る瞬間に必ずCAL-50を画面内に入れてください。</b>CAL-50を現物のすぐ横に置き、<b>両方を1画面に収めて真上から</b>「測る」。<br>
-            ※CAL-50が写っていないと距離に比例して寸法が狂うため、測定できません。
+            ①CAL-50を映して基準セット → ②<b>オレンジ枠の四隅を現物の外形いっぱい（一番外の張り出しまで）に合わせる</b> → ③「この枠で照合」。<br>
+            ※CAL-50を現物の横に置き、現物と一緒に画面内へ。枠の上に出る数値が実寸(mm)です。
           </div>
           <div class="row" style="font-size:12px;">
             基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
@@ -395,7 +415,7 @@
             <span style="font-size:11px; color:var(--text-sub)">印刷したQRを定規で測った1辺を入力</span>
           </div>
           <div class="row">
-            <button id="boxMeasure" class="btn btn-primary" style="flex:1; height:44px; font-size:15px;" disabled>📏 現物の寸法を測る</button>
+            <button id="boxMeasure" class="btn btn-primary" style="flex:1; height:44px; font-size:15px;" disabled>📏 この枠で照合</button>
           </div>
           <div class="row" style="font-size:12px;">
             <button id="boxCalibrate" class="btn btn-sub" disabled>🎯 正しい現物で校正</button>
@@ -490,6 +510,7 @@
     boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'),
+    measRect: q('#measRect'), measLabel: q('#measLabel'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -518,6 +539,7 @@
     calSet:false, pxPerMmVideo:0, calPts:null, calSeenAt:0, lastMeasure:null, _measCanvas:null,
     refMm:50,      // 基準マーカーの実測サイズ(mm)。印刷誤差はここで補正
     calFactor:1,   // 実地校正係数（正しい現物で校正して系統誤差を吸収）
+    meas:null,     // 手動メジャー枠 {l,t,w,h}（stack内CSS px）
   };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
 
@@ -1177,8 +1199,10 @@
       S.calSet = true;
       setBoxStatus(`✅ セットしました（${refMm}mm基準 / ${S.pxPerMmVideo.toFixed(2)} px/mm）`, true);
       if(navigator.vibrate) try{ navigator.vibrate(80); }catch{}
-      speakBox('基準をセットしました。現物を画面に収めて測ってください。');
+      speakBox('基準をセットしました。オレンジ枠を現物に合わせてください。');
+      showMeasRect();
     }
+    if(D.measRect.style.display === 'block') layoutMeasRect(); // ライブ実寸を更新
   }
 
   // 基準を取り直す
@@ -1188,6 +1212,7 @@
     D.boxCalibrate.disabled = true;
     D.boxRecalib.style.display = 'none';
     D.boxResult.style.display = 'none';
+    D.measRect.style.display = 'none';
     setBoxStatus('基準QR(CAL-50)を映してください', false);
     if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
   }
@@ -1215,170 +1240,92 @@
           if(!S._boxPositioned){ centerOverlay(); S._boxPositioned = true; }
         }
       }else if(S.calSet){
-        // 基準は確定済み。QRが外れても保持（現物にカメラを向けてOK）
-        setBoxStatus('✅ 基準セット済 — 現物を画面中央に収めて測定', true);
+        // 縮尺はQRが見えている間だけ最新。外れたら入れ直しを促す
+        setBoxStatus('⚠ CAL-50を画面内に入れたまま枠を合わせてください', true);
       }else{
         setBoxStatus('基準QR(CAL-50)を映してください', false);
-      }
-      // 直近の測定枠を再描画（120ms毎のクリアで消えないように）
-      if(S.lastMeasure){
-        drawPoly(S.lastMeasure.box, S.lastMeasure.ok ? '#12b886' : '#f03e3e', 4, [12,8], 0.95);
       }
     }
     S.boxRaf = requestAnimationFrame(boxTick);
   }
 
-  /* --- 現物寸法の自動推定（純JS・背景差分＋投影でバウンディングボックス）---
-     生のpx計測を返す共通処理。CAL-50は同フレーム必須（距離非依存）。
-     戻り値 {wPx, hPx, side, box} or {error:'msg'}。
-     ※ホモグラフィは小さな基準から広域へ外挿すると不安定なため不採用。
-       一定倍率の系統誤差は「正しい現物で校正」(S.calFactor)で吸収する。 */
-  async function detectObjectRaw(){
-    const vw = D.video.videoWidth, vh = D.video.videoHeight;
-    if(!vw) return { error:'カメラ映像がありません' };
-
-    // CAL-50は必須。まず boxTick が直近(<800ms)に捕捉した位置を使う（単発検出の取りこぼし対策）。
-    let side = 0, calPts = null;
-    if(S.calPts && S.calPts.length >= 4 && S.calSeenAt && (performance.now() - S.calSeenAt) < 800){
-      calPts = S.calPts; side = avgSide(S.calPts);
-    }
-    if(!side){
-      try{
-        const dets = await detectCombined();
-        for(const d of dets){
-          const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
-          if(m && d.pts && d.pts.length >= 4){
-            side = avgSide(d.pts);
-            calPts = d.pts.slice(0,4).map(p=>({x:p.x,y:p.y}));
-            break;
-          }
-        }
-      }catch{}
-    }
-    if(!side || !calPts) return { error:'noCal' };
-
-    // 速度のため縮小キャプチャ
-    const MAXW = 480;
-    const cs = Math.min(1, MAXW / vw);
-    const cw = Math.max(1, Math.round(vw * cs)), ch = Math.max(1, Math.round(vh * cs));
-    const mc = S._measCanvas || (S._measCanvas = document.createElement('canvas'));
-    mc.width = cw; mc.height = ch;
-    const mctx = mc.getContext('2d', { willReadFrequently:true });
-    mctx.drawImage(D.video, 0, 0, cw, ch);
-    const data = mctx.getImageData(0, 0, cw, ch).data;
-
-    // 背景色＝四隅パッチの平均（現物は中央想定）
-    const patch = Math.max(4, Math.round(Math.min(cw, ch) * 0.06));
-    let br=0, bg=0, bb=0, bn=0;
-    const corners = [[0,0],[cw-patch,0],[0,ch-patch],[cw-patch,ch-patch]];
-    for(const [ox,oy] of corners){
-      for(let y=oy; y<oy+patch; y++) for(let x=ox; x<ox+patch; x++){
-        const i=(y*cw+x)*4; br+=data[i]; bg+=data[i+1]; bb+=data[i+2]; bn++;
-      }
-    }
-    br/=bn; bg/=bn; bb/=bn;
-
-    // 基準QRの領域は除外（現物のbboxに混ざらないように）
-    const xs=calPts.map(p=>p.x*cs), ys=calPts.map(p=>p.y*cs), mg=8;
-    const cb={ x0:Math.min(...xs)-mg, x1:Math.max(...xs)+mg, y0:Math.min(...ys)-mg, y1:Math.max(...ys)+mg };
-
-    // 背景差分で前景マスク（QR領域は除外）
-    const TH = 42; // 色距離しきい値
-    const fg = new Uint8Array(cw*ch);
-    for(let y=0; y<ch; y++){
-      for(let x=0; x<cw; x++){
-        if(x>=cb.x0 && x<=cb.x1 && y>=cb.y0 && y<=cb.y1) continue;
-        const i=(y*cw+x)*4;
-        const dr=data[i]-br, dg=data[i+1]-bg, db=data[i+2]-bb;
-        if((dr*dr+dg*dg+db*db) > TH*TH) fg[y*cw+x] = 1;
-      }
-    }
-    // 最大の連結領域(=現物)だけ採用。CAL紙のラベル/ものさし/影/別物のはみ出しを無視。
-    const lbl = new Uint8Array(cw*ch);
-    const stack = new Int32Array(cw*ch);
-    let bestCount=0, bL=0,bR=0,bT=0,bB=0;
-    for(let s=0; s<cw*ch; s++){
-      if(!fg[s] || lbl[s]) continue;
-      let sp=0; stack[sp++]=s; lbl[s]=1;
-      let count=0, minx=cw,maxx=0,miny=ch,maxy=0;
-      while(sp>0){
-        const p=stack[--sp];
-        const py=(p/cw)|0, px=p-py*cw;
-        count++;
-        if(px<minx)minx=px; if(px>maxx)maxx=px; if(py<miny)miny=py; if(py>maxy)maxy=py;
-        // 8近傍
-        for(let dy=-1; dy<=1; dy++){
-          const ny=py+dy; if(ny<0||ny>=ch) continue;
-          for(let dx=-1; dx<=1; dx++){
-            const nx=px+dx; if(nx<0||nx>=cw) continue;
-            const np=ny*cw+nx;
-            if(fg[np] && !lbl[np]){ lbl[np]=1; stack[sp++]=np; }
-          }
-        }
-      }
-      if(count>bestCount){ bestCount=count; bL=minx; bR=maxx; bT=miny; bB=maxy; }
-    }
-    // 小さすぎる塊しか無い＝現物未検出
-    if(bestCount < cw*ch*0.02 || bR-bL < 6 || bB-bT < 6) return { error:'noObject' };
-
-    const L=bL/cs, R=bR/cs, T=bT/cs, B=bB/cs;
-    return {
-      wPx: R-L, hPx: B-T, side,
-      box: [{x:L,y:T},{x:R,y:T},{x:R,y:B},{x:L,y:B}]
-    };
-  }
-
+  /* --- 手動メジャー枠（再現性の高い実測）---
+     オレンジ枠の四隅を現物の外形に合わせる。CSS px → mm は表示px/mm(S.pxPerMm)で換算。
+     CAL-50の縮尺は boxTick が常時更新。距離/傾きの系統誤差は calFactor で吸収。 */
   function boxResultError(head, detail, voice){
     D.boxResult.style.display='flex';
     D.boxResult.className='row ng';
     D.boxResult.innerHTML=`<div class="res-head">${head}</div><div class="res-detail">${detail}</div>`;
     if(voice) speakBox(voice);
   }
-  const NO_CAL = ['⚠ CAL-50が写っていません','現物のすぐ横にCAL-50を置き、<b>両方を1画面に入れて</b>もう一度「測る」を押してください。','シーエーエル50を一緒に写してください。'];
-  const NO_OBJ = ['⚠ 現物を検出できませんでした','現物を画面中央に大きく収め、背景と色差が出るよう明るくして再測定してください。','現物を検出できませんでした。'];
 
-  async function measureObject(){
-    if(!S.calSet){ alert('先に50mm基準をセットしてください'); return; }
-    const r = await detectObjectRaw();
-    if(r.error === 'noCal'){ return boxResultError(...NO_CAL); }
-    if(r.error === 'noObject'){ return boxResultError(...NO_OBJ); }
-    if(r.error){ return boxResultError('⚠ 測定エラー', r.error); }
+  function showMeasRect(){
+    const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+    if(!S.meas){ S.meas = { l: sw*0.22, t: sh*0.22, w: sw*0.56, h: sh*0.56 }; }
+    D.measRect.style.display = 'block';
+    layoutMeasRect();
+  }
+  function layoutMeasRect(){
+    const m = S.meas; if(!m) return;
+    D.measRect.style.left = m.l + 'px';
+    D.measRect.style.top  = m.t + 'px';
+    D.measRect.style.width  = m.w + 'px';
+    D.measRect.style.height = m.h + 'px';
+    // ライブ実寸表示
+    if(S.pxPerMm > 0){
+      const k = S.calFactor || 1;
+      const wMm = m.w / S.pxPerMm * k, hMm = m.h / S.pxPerMm * k;
+      D.measLabel.textContent = `横 ${Math.round(wMm)} × 縦 ${Math.round(hMm)} mm`;
+    }else{
+      D.measLabel.textContent = '基準QR(CAL-50)を映してください';
+    }
+  }
+  // 枠の現在寸法(mm)。校正係数込み。scaleOk=QRが最近見えていて縮尺が有効か
+  function measRectMm(applyCal){
+    const m = S.meas;
+    const scaleOk = S.pxPerMm > 0 && S.calSeenAt && (performance.now() - S.calSeenAt) < 2500;
+    const k = applyCal ? (S.calFactor || 1) : 1;
+    return {
+      wMm: m ? (m.w / S.pxPerMm * k) : 0,
+      hMm: m ? (m.h / S.pxPerMm * k) : 0,
+      scaleOk
+    };
+  }
 
-    // 単一倍率 × 実地校正係数（既定1.0）。校正済みなら系統誤差を補正
-    const refMm = S.refMm || 50;
-    const k = S.calFactor || 1;
-    const wMm = (r.wPx * refMm / r.side) * k;   // 横
-    const hMm = (r.hPx * refMm / r.side) * k;   // 縦
-    S.lastMeasure = { box:r.box, wMm, hMm, ok:false };
-    evaluateMeasure(wMm, hMm);
+  function measureObject(){
+    if(!S.calSet || !S.meas){ alert('先に50mm基準をセットし、枠を現物に合わせてください'); return; }
+    const r = measRectMm(true);
+    if(!r.scaleOk){
+      return boxResultError('⚠ CAL-50を画面内に入れてください',
+        '縮尺が古いため照合できません。CAL-50を現物の横に置き、画面内に入れたまま照合してください。',
+        'シーエーエル50を画面に入れてください。');
+    }
+    S.lastMeasure = { wMm:r.wMm, hMm:r.hMm, ok:false };
+    evaluateMeasure(r.wMm, r.hMm);
   }
 
   // 登録寸法が分かっている正しい現物で系統誤差(一定倍率)を校正
-  async function calibrateWithBox(){
-    if(!S.calSet){ alert('先に50mm基準をセットしてください'); return; }
+  function calibrateWithBox(){
+    if(!S.calSet || !S.meas){ alert('先に50mm基準をセットし、枠を現物に合わせてください'); return; }
     if(!S.cutW || !S.cutH){ alert('この品番は登録寸法(Cut_Size)が無いため校正できません'); return; }
-    const r = await detectObjectRaw();
-    if(r.error === 'noCal'){ return boxResultError(...NO_CAL); }
-    if(r.error === 'noObject'){ return boxResultError(...NO_OBJ); }
-    if(r.error){ return boxResultError('⚠ 校正エラー', r.error); }
-
-    const refMm = S.refMm || 50;
-    // 補正なしの実測(px→mm)
-    const w0 = r.wPx * refMm / r.side, h0 = r.hPx * refMm / r.side;
-    const meas = [w0,h0].sort((a,b)=>a-b);
-    const tgt  = [S.cutW,S.cutH].sort((a,b)=>a-b);
-    if(meas[0] < 1 || meas[1] < 1){ return boxResultError('⚠ 校正失敗','現物がうまく取れませんでした。'); }
-    // 短辺・長辺それぞれの補正比の平均を校正係数に
+    const r = measRectMm(false); // 補正なしの実測
+    if(!r.scaleOk){
+      return boxResultError('⚠ CAL-50を画面内に入れてください','CAL-50を画面内に入れたまま校正してください。','シーエーエル50を画面に入れてください。');
+    }
+    const meas = [r.wMm, r.hMm].sort((a,b)=>a-b);
+    const tgt  = [S.cutW, S.cutH].sort((a,b)=>a-b);
+    if(meas[0] < 1 || meas[1] < 1){ return boxResultError('⚠ 校正失敗','枠が小さすぎます。現物に合わせてください。'); }
     const k = ((tgt[0]/meas[0]) + (tgt[1]/meas[1])) / 2;
-    if(!(k>0.3 && k<3)){ return boxResultError('⚠ 校正失敗',`補正比が異常です(${k.toFixed(2)})。現物とCAL-50が正しく写っているか確認してください。`); }
+    if(!(k>0.3 && k<3)){ return boxResultError('⚠ 校正失敗',`補正比が異常です(${k.toFixed(2)})。枠とCAL-50を確認してください。`); }
     S.calFactor = k;
     try{ localStorage.setItem('boxCalFactor', String(k)); }catch{}
+    layoutMeasRect();
     D.boxResult.style.display='flex';
     D.boxResult.className='row ok';
     D.boxResult.innerHTML =
       `<div class="res-head">🎯 校正しました</div>`
-      + `<div class="res-detail">補正係数 <b>${k.toFixed(3)}</b>（この値を今後の測定に適用）</div>`
-      + `<div class="res-detail">校正前 横${Math.round(w0)}×縦${Math.round(h0)} → 登録 縦${Math.round(S.cutH)}×横${Math.round(S.cutW)}に合わせ込み</div>`;
+      + `<div class="res-detail">補正係数 <b>${k.toFixed(3)}</b>（今後の測定に適用）</div>`
+      + `<div class="res-detail">校正前 横${Math.round(meas[1])}×縦${Math.round(meas[0])} 相当 → 登録 縦${Math.round(S.cutH)}×横${Math.round(S.cutW)}に合わせ込み</div>`;
     speakBox('校正しました。');
     if(navigator.vibrate) try{ navigator.vibrate(60); }catch{}
   }
@@ -1462,6 +1409,7 @@
     D.boxPanel.style.display = 'none';
     D.boxOverlay.style.display = 'none';
     D.boxResult.style.display = 'none';
+    D.measRect.style.display = 'none';
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = '';
     if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
     // カメラが生きていれば本番スキャンを再開
@@ -1543,6 +1491,38 @@
   });
   D.boxOverlay.addEventListener('pointerup',     () => { _drag = null; });
   D.boxOverlay.addEventListener('pointercancel', () => { _drag = null; });
+
+  // 手動メジャー枠：移動＆四隅リサイズ
+  let _md = null; // {mode:'move'|'nw'|'ne'|'sw'|'se', x,y, l,t,w,h}
+  const MIN = 24;
+  function measDown(e){
+    if(!S.meas) return;
+    const handle = e.target.getAttribute && e.target.getAttribute('data-h');
+    const m = S.meas;
+    _md = { mode: handle || 'move', x:e.clientX, y:e.clientY, l:m.l, t:m.t, w:m.w, h:m.h };
+    try{ e.target.setPointerCapture(e.pointerId); }catch{}
+    e.preventDefault(); e.stopPropagation();
+  }
+  function measMove(e){
+    if(!_md || !S.meas) return;
+    const dx = e.clientX - _md.x, dy = e.clientY - _md.y;
+    const m = S.meas;
+    if(_md.mode === 'move'){
+      m.l = _md.l + dx; m.t = _md.t + dy;
+    }else{
+      // 各角：対辺を固定して縦横を変える
+      if(_md.mode === 'nw'){ m.l = _md.l + dx; m.w = Math.max(MIN, _md.w - dx); m.t = _md.t + dy; m.h = Math.max(MIN, _md.h - dy); }
+      if(_md.mode === 'ne'){ m.w = Math.max(MIN, _md.w + dx); m.t = _md.t + dy; m.h = Math.max(MIN, _md.h - dy); }
+      if(_md.mode === 'sw'){ m.l = _md.l + dx; m.w = Math.max(MIN, _md.w - dx); m.h = Math.max(MIN, _md.h + dy); }
+      if(_md.mode === 'se'){ m.w = Math.max(MIN, _md.w + dx); m.h = Math.max(MIN, _md.h + dy); }
+    }
+    layoutMeasRect();
+  }
+  function measUp(){ _md = null; }
+  D.measRect.addEventListener('pointerdown', measDown);
+  D.measRect.addEventListener('pointermove', measMove);
+  D.measRect.addEventListener('pointerup', measUp);
+  D.measRect.addEventListener('pointercancel', measUp);
 
 })();
 </script>
