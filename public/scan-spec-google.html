@@ -1546,6 +1546,7 @@
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
     D.boxPanel.style.display = 'block';
     D.boxBar.classList.add('show'); // 操作はカメラ映像に重ねる（大画面のまま）
+    D.stack.style.touchAction = 'none'; // カメラ内ドラッグでページが動かないように
     D.boxRecMsg.textContent = '';
     // 基準・測定状態をリセット
     S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null;
@@ -1576,6 +1577,7 @@
     if(S.boxRaf){ cancelAnimationFrame(S.boxRaf); S.boxRaf = null; }
     D.boxPanel.style.display = 'none';
     D.boxBar.classList.remove('show');
+    D.stack.style.touchAction = '';
     D.boxOverlay.style.display = 'none';
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
@@ -1671,37 +1673,44 @@
   D.boxOverlay.addEventListener('pointerup',     () => { _drag = null; });
   D.boxOverlay.addEventListener('pointercancel', () => { _drag = null; });
 
-  // 手動メジャー枠：移動＆四隅リサイズ
+  // 枠の操作：カメラ内をドラッグで枠移動／四隅ハンドルでリサイズ
+  // （細い枠線を狙わなくても、カメラのどこを掴んでも枠が動く。ページはスクロールしない）
   let _md = null; // {mode:'move'|'nw'|'ne'|'sw'|'se', x,y, l,t,w,h}
   const MIN = 24;
-  function measDown(e){
-    if(!S.meas) return;
-    const handle = e.target.getAttribute && e.target.getAttribute('data-h');
+  function stackDown(e){
+    if(!S.boxMode || !S.meas) return;
+    const t = e.target;
+    if(t && t.closest && t.closest('#boxBar')) return; // 操作バーのタップは除外
+    if(t === D.boxOverlay) return;                      // 図面オーバーレイは別ハンドラ
+    const handle = (t && t.getAttribute && t.getAttribute('data-h')) || null;
     const m = S.meas;
     _md = { mode: handle || 'move', x:e.clientX, y:e.clientY, l:m.l, t:m.t, w:m.w, h:m.h };
-    try{ e.target.setPointerCapture(e.pointerId); }catch{}
-    e.preventDefault(); e.stopPropagation();
+    try{ D.stack.setPointerCapture(e.pointerId); }catch{}
+    e.preventDefault();
   }
-  function measMove(e){
+  function stackMove(e){
     if(!_md || !S.meas) return;
     const dx = e.clientX - _md.x, dy = e.clientY - _md.y;
     const m = S.meas;
     if(_md.mode === 'move'){
       m.l = _md.l + dx; m.t = _md.t + dy;
-    }else{
-      // 各角：対辺を固定して縦横を変える
-      if(_md.mode === 'nw'){ m.l = _md.l + dx; m.w = Math.max(MIN, _md.w - dx); m.t = _md.t + dy; m.h = Math.max(MIN, _md.h - dy); }
-      if(_md.mode === 'ne'){ m.w = Math.max(MIN, _md.w + dx); m.t = _md.t + dy; m.h = Math.max(MIN, _md.h - dy); }
-      if(_md.mode === 'sw'){ m.l = _md.l + dx; m.w = Math.max(MIN, _md.w - dx); m.h = Math.max(MIN, _md.h + dy); }
-      if(_md.mode === 'se'){ m.w = Math.max(MIN, _md.w + dx); m.h = Math.max(MIN, _md.h + dy); }
+      // 画面外に出し過ぎない（最低40pxは見えるように）
+      const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+      m.l = Math.min(Math.max(m.l, -m.w + 40), sw - 40);
+      m.t = Math.min(Math.max(m.t, -m.h + 40), sh - 40);
     }
+    else if(_md.mode === 'nw'){ m.l = _md.l + dx; m.w = Math.max(MIN, _md.w - dx); m.t = _md.t + dy; m.h = Math.max(MIN, _md.h - dy); }
+    else if(_md.mode === 'ne'){ m.w = Math.max(MIN, _md.w + dx); m.t = _md.t + dy; m.h = Math.max(MIN, _md.h - dy); }
+    else if(_md.mode === 'sw'){ m.l = _md.l + dx; m.w = Math.max(MIN, _md.w - dx); m.h = Math.max(MIN, _md.h + dy); }
+    else if(_md.mode === 'se'){ m.w = Math.max(MIN, _md.w + dx); m.h = Math.max(MIN, _md.h + dy); }
+    e.preventDefault();
     layoutMeasRect();
   }
-  function measUp(){ _md = null; }
-  D.measRect.addEventListener('pointerdown', measDown);
-  D.measRect.addEventListener('pointermove', measMove);
-  D.measRect.addEventListener('pointerup', measUp);
-  D.measRect.addEventListener('pointercancel', measUp);
+  function stackUp(){ _md = null; }
+  D.stack.addEventListener('pointerdown', stackDown);
+  D.stack.addEventListener('pointermove', stackMove);
+  D.stack.addEventListener('pointerup', stackUp);
+  D.stack.addEventListener('pointercancel', stackUp);
 
 })();
 </script>
