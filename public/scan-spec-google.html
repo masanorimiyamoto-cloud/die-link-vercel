@@ -1092,6 +1092,44 @@
     const d = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
     return (d(p[0],p[1]) + d(p[1],p[2]) + d(p[2],p[3]) + d(p[3],p[0])) / 4;
   }
+
+  /* --- 透視補正（ホモグラフィ）: 画像px → 実寸mm 平面 ---
+     QRの4隅(既知の正方形)から平面射影を解き、傾き/距離/画面内位置による
+     縮尺変化を補正する。8元1次方程式をガウス消去で解く。 */
+  function solveLinear(A, b, n){
+    for(let col=0; col<n; col++){
+      let piv = col;
+      for(let r=col+1; r<n; r++){ if(Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r; }
+      if(Math.abs(A[piv][col]) < 1e-9) return null;
+      if(piv !== col){ const t=A[piv]; A[piv]=A[col]; A[col]=t; const tb=b[piv]; b[piv]=b[col]; b[col]=tb; }
+      for(let r=0; r<n; r++){
+        if(r===col) continue;
+        const f = A[r][col] / A[col][col];
+        for(let c=col; c<n; c++) A[r][c] -= f * A[col][c];
+        b[r] -= f * b[col];
+      }
+    }
+    const x = new Array(n);
+    for(let i=0;i<n;i++) x[i] = b[i] / A[i][i];
+    return x;
+  }
+  // src[4]=画像px {x,y} / dst[4]=実寸mm {x,y}（対応順は同じ）
+  function computeHomography(src, dst){
+    const A = [], b = [];
+    for(let i=0;i<4;i++){
+      const {x,y} = src[i], {x:u,y:v} = dst[i];
+      A.push([x, y, 1, 0, 0, 0, -u*x, -u*y]); b.push(u);
+      A.push([0, 0, 0, x, y, 1, -v*x, -v*y]); b.push(v);
+    }
+    const h = solveLinear(A, b, 8);
+    if(!h) return null;
+    return [h[0],h[1],h[2], h[3],h[4],h[5], h[6],h[7], 1];
+  }
+  function applyH(H, x, y){
+    const d = H[6]*x + H[7]*y + H[8];
+    return { x:(H[0]*x + H[1]*y + H[2])/d, y:(H[3]*x + H[4]*y + H[5])/d };
+  }
+
   function setBoxStatus(t, ok){ D.boxStatus.textContent = t; D.boxStatus.classList.toggle('active', !!ok); }
 
   function applyOverlaySize(){
@@ -1226,14 +1264,15 @@
 
     // 測定の瞬間に CAL-50 が写っていることを必須にする（距離・高さ非依存で正確に）。
     // 写っていない＝寸法が距離に比例して狂うため、測定を中止して案内する。
-    let pxmm = 0, calPts = null;
+    let pxmm = 0, calPts = null, refMm = S.refMm || 50;
     try{
       const dets = await detectCombined();
       for(const d of dets){
         const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
         if(m && d.pts && d.pts.length >= 4){
-          pxmm = avgSide(d.pts) / (S.refMm || parseFloat(m[1]));  // 実測サイズ優先
-          calPts = d.pts.map(p=>({x:p.x,y:p.y}));
+          refMm = S.refMm || parseFloat(m[1]);
+          pxmm = avgSide(d.pts) / refMm;            // 単一倍率（フォールバック用）
+          calPts = d.pts.slice(0,4).map(p=>({x:p.x,y:p.y}));  // [TL,TR,BR,BL]
           break;
         }
       }
@@ -1300,20 +1339,33 @@
       return;
     }
 
-    // 映像px→mm（横=X=幅, 縦=Y=高さ）
-    const wMm = ((right-left)/cs) / pxmm;   // 横
-    const hMm = ((bottom-top)/cs) / pxmm;   // 縦
-    S.lastMeasure = {
-      box:[{x:left/cs,y:top/cs},{x:right/cs,y:top/cs},{x:right/cs,y:bottom/cs},{x:left/cs,y:bottom/cs}],
-      wMm, hMm, ok:false
-    };
-    evaluateMeasure(wMm, hMm);
+    // bbox 4隅を映像px座標へ
+    const L=left/cs, R=right/cs, T=top/cs, B=bottom/cs;
+    const box = [{x:L,y:T},{x:R,y:T},{x:R,y:B},{x:L,y:B}];
+
+    // 透視補正：QR4隅(=refMm角の正方形)→実寸mm平面のホモグラフィで測定（傾き/位置の歪みを補正）
+    let wMm, hMm, method;
+    const H = computeHomography(calPts, [{x:0,y:0},{x:refMm,y:0},{x:refMm,y:refMm},{x:0,y:refMm}]);
+    if(H){
+      const q = box.map(p=>applyH(H, p.x, p.y));   // mm平面の4隅
+      const dist=(a,b)=>Math.hypot(a.x-b.x, a.y-b.y);
+      wMm = (dist(q[0],q[1]) + dist(q[3],q[2]))/2;  // 横（上辺・下辺の平均）
+      hMm = (dist(q[0],q[3]) + dist(q[1],q[2]))/2;  // 縦（左辺・右辺の平均）
+      method = '透視補正（QR4隅）';
+    }else{
+      // フォールバック：単一倍率
+      wMm = (R-L) / pxmm;
+      hMm = (B-T) / pxmm;
+      method = '単一倍率';
+    }
+    S.lastMeasure = { box, wMm, hMm, ok:false };
+    evaluateMeasure(wMm, hMm, method);
   }
 
-  function evaluateMeasure(wMm, hMm){
+  function evaluateMeasure(wMm, hMm, method){
     const TOL = 5; // ±5mm
     const yoko = `${Math.round(wMm)}mm`, tate = `${Math.round(hMm)}mm`;
-    const note = '基準QRを同時測定（距離非依存）';
+    const note = `基準QRを同時測定・${method||'透視補正'}`;
     D.boxResult.style.display='flex';
 
     if(!S.cutW || !S.cutH){
