@@ -336,22 +336,23 @@
     font-weight:700; padding:3px 9px; border-radius:6px; pointer-events:none; }
   .nudgebtn{ flex:1 1 0; min-width:0; padding:8px 4px; font-size:14px; font-weight:700; }
 
-  /* カメラ映像に重ねる操作バー（大画面のまま操作できる） */
-  #boxBar{
-    position:absolute; left:0; right:0; bottom:0; z-index:30; display:none;
+  /* カメラ映像に重ねる操作バー（大画面のまま操作できる）。上＝サイズ、下＝状態/実行 */
+  .box-ctrlbar{
+    position:absolute; left:0; right:0; z-index:30; display:none;
     flex-direction:column; gap:5px;
-    padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
     background:rgba(15,20,25,.5); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
   }
-  #boxBar.show{ display:flex; }
-  #boxBar .bbrow{ display:flex; align-items:center; gap:5px; }
-  #boxBar .bblabel{ flex:0 0 24px; color:#fff; font-size:12px; font-weight:800; text-shadow:0 1px 2px #000; }
-  #boxBar button{
+  .box-ctrlbar.show{ display:flex; }
+  #boxBarTop{ top:0; padding:6px 8px; }
+  #boxBar{ bottom:0; padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .box-ctrlbar .bbrow{ display:flex; align-items:center; gap:5px; }
+  .box-ctrlbar .bblabel{ flex:0 0 24px; color:#fff; font-size:12px; font-weight:800; text-shadow:0 1px 2px #000; }
+  .box-ctrlbar button{
     flex:1 1 0; min-width:0; padding:8px 2px; font-size:15px; font-weight:800;
     border:none; border-radius:7px; background:rgba(255,255,255,.92); color:#222; cursor:pointer;
   }
-  #boxBar button.bbprimary{ background:var(--primary); color:#fff; }
-  #boxBar button:disabled{ opacity:.45; }
+  .box-ctrlbar button.bbprimary{ background:var(--primary); color:#fff; }
+  .box-ctrlbar button:disabled{ opacity:.45; }
   #boxBar #boxStatus{ flex:1; background:transparent; color:#fff; padding:0; font-size:12px; text-shadow:0 1px 2px #000; }
   #boxBar #boxStatus.active{ background:transparent; color:#8ff0c8; }
   #boxBar #boxRecalib{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
@@ -394,11 +395,7 @@
             <div class="mh mh-se" data-h="se"></div>
             <div id="measLabel">—</div>
           </div>
-          <div id="boxBar">
-            <div class="bbrow">
-              <span id="boxStatus">基準QR(CAL-50)を映してください</span>
-              <button id="boxRecalib" style="display:none;">取り直す</button>
-            </div>
+          <div id="boxBarTop" class="box-ctrlbar">
             <div class="bbrow">
               <span class="bblabel">横</span>
               <button id="boxW_m10">−10</button>
@@ -412,6 +409,12 @@
               <button id="boxH_m1">−1</button>
               <button id="boxH_p1">＋1</button>
               <button id="boxH_p10">＋10</button>
+            </div>
+          </div>
+          <div id="boxBar" class="box-ctrlbar">
+            <div class="bbrow">
+              <span id="boxStatus">基準QR(CAL-50)を映してください</span>
+              <button id="boxRecalib" style="display:none;">取り直す</button>
             </div>
             <div class="bbrow">
               <button id="boxAutoFit" disabled>🔍 自動</button>
@@ -557,7 +560,8 @@
     boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
-    measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'), boxBar: q('#boxBar'),
+    measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
+    boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'),
     boxW_m10: q('#boxW_m10'), boxW_m1: q('#boxW_m1'), boxW_p1: q('#boxW_p1'), boxW_p10: q('#boxW_p10'),
     boxH_m10: q('#boxH_m10'), boxH_m1: q('#boxH_m1'), boxH_p1: q('#boxH_p1'), boxH_p10: q('#boxH_p10'),
   };
@@ -1545,7 +1549,7 @@
     if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
     D.boxPanel.style.display = 'block';
-    D.boxBar.classList.add('show'); // 操作はカメラ映像に重ねる（大画面のまま）
+    D.boxBar.classList.add('show'); D.boxBarTop.classList.add('show'); // 操作はカメラに重ねる（上=サイズ/下=実行）
     D.stack.style.touchAction = 'none'; // カメラ内ドラッグでページが動かないように
     D.boxRecMsg.textContent = '';
     // 基準・測定状態をリセット
@@ -1576,7 +1580,7 @@
     S.lastMeasure = null;
     if(S.boxRaf){ cancelAnimationFrame(S.boxRaf); S.boxRaf = null; }
     D.boxPanel.style.display = 'none';
-    D.boxBar.classList.remove('show');
+    D.boxBar.classList.remove('show'); D.boxBarTop.classList.remove('show');
     D.stack.style.touchAction = '';
     D.boxOverlay.style.display = 'none';
     D.boxResult.style.display = 'none';
@@ -1680,7 +1684,7 @@
   function stackDown(e){
     if(!S.boxMode || !S.meas) return;
     const t = e.target;
-    if(t && t.closest && t.closest('#boxBar')) return; // 操作バーのタップは除外
+    if(t && t.closest && t.closest('.box-ctrlbar')) return; // 操作バー（上下）のタップは除外
     if(t === D.boxOverlay) return;                      // 図面オーバーレイは別ハンドラ
     const handle = (t && t.getAttribute && t.getAttribute('data-h')) || null;
     const m = S.meas;
