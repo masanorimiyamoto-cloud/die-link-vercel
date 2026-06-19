@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAL-50 基準マーカー（1辺50mm）</title>
+<style>
+  :root{ --ink:#1a1a1a; --sub:#666; --line:#ddd; --accent:#2f6df6; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink); background:#f5f6f8; }
+  .wrap{ max-width:680px; margin:0 auto; padding:24px 18px 60px; }
+  h1{ font-size:20px; margin:0 0 6px; }
+  .lead{ color:var(--sub); font-size:14px; margin:0 0 18px; line-height:1.7; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:18px; }
+  .marker{ text-align:center; }
+  /* QR本体（黒モジュール領域）の1辺がちょうど50mmになるよう svg 側で実寸指定 */
+  #qr svg{ display:block; margin:0 auto; }
+  .mk-label{ margin-top:8px; font-weight:800; letter-spacing:.04em; }
+  .mk-note{ font-size:12px; color:var(--sub); margin-top:2px; }
+  /* 50mm検証用ものさし */
+  .ruler{ width:50mm; height:14px; margin:14px auto 0; border:1.5px solid var(--ink);
+          border-top:none; position:relative; }
+  .ruler::after{ content:"← 50mm →"; position:absolute; left:0; right:0; top:-16px;
+                 text-align:center; font-size:11px; color:var(--sub); }
+  ol{ margin:10px 0 0; padding-left:20px; font-size:14px; line-height:1.9; }
+  .btn{ display:inline-block; border:none; border-radius:10px; padding:12px 20px;
+        font-size:15px; font-weight:700; cursor:pointer; }
+  .btn-print{ background:var(--accent); color:#fff; }
+  .warn{ background:#fff7e6; border:1px solid #ffd591; border-radius:10px;
+         padding:10px 14px; font-size:13px; color:#874d00; margin-top:12px; }
+  @media print{
+    body{ background:#fff; }
+    .no-print{ display:none !important; }
+    .wrap{ padding:0; max-width:none; }
+    .card{ border:none; padding:0; margin:0; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="no-print">📐 CAL-50 基準マーカー</h1>
+    <p class="lead no-print">
+      半製品照合の「基準セット」用QRです。<b>印刷したQR本体の1辺がちょうど50mm</b>になるよう実寸で作成しています。<br>
+      内容は文字列 <code>CAL-50</code>（= 1辺50mmの意味）。これをカメラで映すと自動で基準がセットされます。
+    </p>
+
+    <div class="card marker">
+      <div id="qr">生成中…</div>
+      <div class="mk-label">CAL-50</div>
+      <div class="mk-note">QR本体の1辺 = 50mm</div>
+      <div class="ruler"></div>
+    </div>
+
+    <div class="card no-print">
+      <b>印刷のしかた（重要）</b>
+      <ol>
+        <li>下の「印刷」ボタン → 倍率は必ず <b>100%（実寸／用紙に合わせない）</b> に設定。</li>
+        <li>印刷後、上の「←50mm→」ものさし、または QR本体の1辺を <b>定規で測って50mmか確認</b>。</li>
+        <li>ズレていたらプリンタの「ページに合わせる」をオフにして再印刷。</li>
+        <li>厚紙に貼る／台紙に固定して、現物と同じ平面（机の上）に置いて使用。</li>
+      </ol>
+      <div class="warn">スマホで表示したQRを直接撮ってもOKですが、画面のサイズが50mmと一致しないため<b>スケールが不正確</b>になります。基準には必ず<b>印刷した50mm</b>を使ってください。</div>
+      <p style="margin-top:16px;"><button class="btn btn-print" onclick="window.print()">🖨 印刷</button></p>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+  var TEXT = 'CAL-50';
+  var SIDE_MM = 50;     // QR本体（データ領域）の実寸
+  var MARGIN  = 4;      // クワイエットゾーン（モジュール数, 規格推奨4）
+
+  try{
+    var qr = qrcode(0, 'M');     // 型番自動 / 誤り訂正レベルM
+    qr.addData(TEXT);
+    qr.make();
+    var n = qr.getModuleCount();
+    var total = n + MARGIN * 2;                 // 余白込みのモジュール総数
+    var totalMm = SIDE_MM * total / n;          // → データ領域n個分が50mmになる
+
+    var rects = '';
+    for(var r=0; r<n; r++){
+      for(var c=0; c<n; c++){
+        if(qr.isDark(r, c)){
+          rects += '<rect x="'+(c+MARGIN)+'" y="'+(r+MARGIN)+'" width="1" height="1"/>';
+        }
+      }
+    }
+    var svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="'+totalMm+'mm" height="'+totalMm+'mm" '
+      + 'viewBox="0 0 '+total+' '+total+'" shape-rendering="crispEdges">'
+      + '<rect width="'+total+'" height="'+total+'" fill="#fff"/>'
+      + '<g fill="#000">'+rects+'</g>'
+      + '</svg>';
+    document.getElementById('qr').innerHTML = svg;
+  }catch(e){
+    document.getElementById('qr').textContent = 'QR生成に失敗しました: ' + (e && e.message || e);
+  }
+})();
+</script>
+</body>
+</html>
