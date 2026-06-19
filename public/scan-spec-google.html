@@ -381,8 +381,8 @@
 
           <!-- ① 寸法照合（自動エッジ検出） -->
           <div class="row" style="font-size:12px; color:var(--text-sub)">
-            手順：①CAL-50を映して基準セット → ②<b>CAL-50を現物の横に置いたまま同じ画面に入れ</b>、現物を中央に収めて「測る」。<br>
-            ※CAL-50を一緒に写せば撮影の高さ・距離が変わっても正確（別撮りの場合はセット時と同じ高さで撮影）。
+            <b>測る瞬間に必ずCAL-50を画面内に入れてください。</b>CAL-50を現物のすぐ横に置き、<b>両方を1画面に収めて真上から</b>「測る」。<br>
+            ※CAL-50が写っていないと距離に比例して寸法が狂うため、測定できません。
           </div>
           <div class="row" style="font-size:12px;">
             基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
@@ -1224,9 +1224,9 @@
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
     if(!vw){ return; }
 
-    // 同じフレームに CAL-50 が写っていれば、その場の px/mm を再計算（距離・高さ非依存）。
-    // 写っていなければセット時のロック値を使う（その場合は撮影距離を変えないこと）。
-    let pxmm = S.pxPerMmVideo, calPts = S.calPts, liveCal = false;
+    // 測定の瞬間に CAL-50 が写っていることを必須にする（距離・高さ非依存で正確に）。
+    // 写っていない＝寸法が距離に比例して狂うため、測定を中止して案内する。
+    let pxmm = 0, calPts = null;
     try{
       const dets = await detectCombined();
       for(const d of dets){
@@ -1234,11 +1234,18 @@
         if(m && d.pts && d.pts.length >= 4){
           pxmm = avgSide(d.pts) / (S.refMm || parseFloat(m[1]));  // 実測サイズ優先
           calPts = d.pts.map(p=>({x:p.x,y:p.y}));
-          liveCal = true;
           break;
         }
       }
     }catch{}
+    if(!pxmm || !calPts){
+      D.boxResult.style.display='flex';
+      D.boxResult.className='row ng';
+      D.boxResult.innerHTML='<div class="res-head">⚠ CAL-50が写っていません</div>'
+        +'<div class="res-detail">現物のすぐ横にCAL-50を置き、<b>現物とCAL-50の両方を1画面に入れて真上から</b>撮影し、もう一度「測る」を押してください。</div>';
+      speakBox('シーエーエル50を一緒に写してください。');
+      return;
+    }
 
     // 速度のため縮小キャプチャ
     const MAXW = 480;
@@ -1300,16 +1307,13 @@
       box:[{x:left/cs,y:top/cs},{x:right/cs,y:top/cs},{x:right/cs,y:bottom/cs},{x:left/cs,y:bottom/cs}],
       wMm, hMm, ok:false
     };
-    evaluateMeasure(wMm, hMm, liveCal);
+    evaluateMeasure(wMm, hMm);
   }
 
-  function evaluateMeasure(wMm, hMm, liveCal){
+  function evaluateMeasure(wMm, hMm){
     const TOL = 5; // ±5mm
     const yoko = `${Math.round(wMm)}mm`, tate = `${Math.round(hMm)}mm`;
-    // 基準の出所メモ（同フレームQR=距離非依存 / ロック値=要同距離）
-    const note = liveCal
-      ? '基準QRを同時測定（距離非依存）'
-      : '⚠ セット時のロック値を使用（基準セット時と同じ高さ・距離で撮影してください）';
+    const note = '基準QRを同時測定（距離非依存）';
     D.boxResult.style.display='flex';
 
     if(!S.cutW || !S.cutH){
