@@ -402,53 +402,53 @@
             <button id="boxRecalib" class="btn btn-sub" style="display:none;">基準を取り直す</button>
           </div>
 
-          <!-- ① 寸法照合（自動で枠当て→手で微調整） -->
-          <div class="row" style="font-size:12px; color:var(--text-sub)">
-            ①<b>現物全体とCAL-50が画面に余裕で収まるまでカメラを離す</b>（真上から）→ ②CAL-50を映して基準セット → ③<b>「🔍 自動で枠を当てる」</b>（ずれたら角をドラッグ、または下のボタンで±1mm微調整）→ ④「この枠で照合」。<br>
-            ※現物が画面からはみ出していると正しく測れません。枠の上に出る数値が実寸(mm)です。
-          </div>
-          <div class="row" style="font-size:12px;">
-            基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
-          </div>
-          <div class="row" style="font-size:13px;">
-            <label>基準の実測サイズ
-              <input id="boxRefMm" type="number" inputmode="decimal" min="1" step="0.5" value="50"
-                     style="width:66px; padding:4px 6px; margin:0 4px;">mm
-            </label>
-            <span style="font-size:11px; color:var(--text-sub)">印刷したQRを定規で測った1辺を入力</span>
-          </div>
-          <div class="row" style="font-size:13px;">
-            <label>合否の許容差 ±
-              <input id="boxTol" type="number" inputmode="numeric" min="1" step="1" value="10"
-                     style="width:60px; padding:4px 6px; margin:0 4px;">mm
-            </label>
-            <span style="font-size:11px; color:var(--text-sub)">大きいほど枠合わせが楽（品番違いの判別用なら±10〜20推奨）</span>
-          </div>
-          <div class="row">
-            <button id="boxAutoFit" class="btn btn-sub" style="flex:1; height:40px;" disabled>🔍 自動で枠を当てる</button>
+          <!-- 枠サイズ調整（位置はドラッグ）。10mm / 1mm 単位 -->
+          <div class="row" style="gap:6px; align-items:center;">
+            <span style="flex:0 0 28px; font-size:13px; font-weight:700; color:var(--text-sub);">横</span>
+            <button id="boxW_m10" class="btn btn-sub nudgebtn">−10</button>
+            <button id="boxW_m1"  class="btn btn-sub nudgebtn">−1</button>
+            <button id="boxW_p1"  class="btn btn-sub nudgebtn">＋1</button>
+            <button id="boxW_p10" class="btn btn-sub nudgebtn">＋10</button>
           </div>
           <div class="row" style="gap:6px; align-items:center;">
-            <span style="font-size:12px; color:var(--text-sub); flex:0 0 100%;">枠サイズ微調整（1タップ＝1mm）</span>
-            <button id="boxWdec" class="btn btn-sub nudgebtn">横 −</button>
-            <button id="boxWinc" class="btn btn-sub nudgebtn">横 ＋</button>
-            <button id="boxHdec" class="btn btn-sub nudgebtn">縦 −</button>
-            <button id="boxHinc" class="btn btn-sub nudgebtn">縦 ＋</button>
+            <span style="flex:0 0 28px; font-size:13px; font-weight:700; color:var(--text-sub);">縦</span>
+            <button id="boxH_m10" class="btn btn-sub nudgebtn">−10</button>
+            <button id="boxH_m1"  class="btn btn-sub nudgebtn">−1</button>
+            <button id="boxH_p1"  class="btn btn-sub nudgebtn">＋1</button>
+            <button id="boxH_p10" class="btn btn-sub nudgebtn">＋10</button>
           </div>
-          <div class="row" style="gap:6px; align-items:center;">
-            <span style="font-size:12px; color:var(--text-sub); flex:0 0 100%;">枠を移動（1タップ＝1mm）</span>
-            <button id="boxMup"   class="btn btn-sub nudgebtn">▲</button>
-            <button id="boxMdown" class="btn btn-sub nudgebtn">▼</button>
-            <button id="boxMleft" class="btn btn-sub nudgebtn">◀</button>
-            <button id="boxMright" class="btn btn-sub nudgebtn">▶</button>
-          </div>
-          <div class="row">
-            <button id="boxMeasure" class="btn btn-primary" style="flex:1; height:44px; font-size:15px;" disabled>📏 この枠で照合</button>
-          </div>
-          <div class="row" style="font-size:12px;">
-            <button id="boxCalibrate" class="btn btn-sub" disabled>🎯 正しい現物で校正</button>
-            <span id="boxCalInfo" style="font-size:11px; color:var(--text-sub)">登録寸法どおりの現物で一度押すと、以降のズレを自動補正</span>
+          <div class="row" style="gap:8px;">
+            <button id="boxAutoFit" class="btn btn-sub" style="flex:1; height:42px;" disabled>🔍 自動で枠当て</button>
+            <button id="boxMeasure" class="btn btn-primary" style="flex:1; height:42px; font-size:15px;" disabled>📏 照合</button>
           </div>
           <div id="boxResult" class="row" style="display:none;"></div>
+
+          <details style="margin-top:4px;">
+            <summary style="font-size:13px; font-weight:700; color:var(--text-sub); cursor:pointer;">⚙️ 設定・ヘルプ</summary>
+            <div class="row" style="font-size:12px; color:var(--text-sub); margin-top:10px;">
+              ①現物全体とCAL-50が余裕で画面に収まるまでカメラを離す（真上）→ ②CAL-50を映して基準セット → ③「🔍 自動で枠当て」or 枠を<b>ドラッグ</b>＆上の<b>サイズボタン</b>で合わせる → ④「📏 照合」。<br>枠の上の数値が実寸(mm)。位置＝ドラッグ、サイズ＝ボタン。
+            </div>
+            <div class="row" style="font-size:12px;">
+              基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
+            </div>
+            <div class="row" style="font-size:13px;">
+              <label>基準の実測サイズ
+                <input id="boxRefMm" type="number" inputmode="decimal" min="1" step="0.5" value="50"
+                       style="width:66px; padding:4px 6px; margin:0 4px;">mm
+              </label>
+            </div>
+            <div class="row" style="font-size:13px;">
+              <label>合否の許容差 ±
+                <input id="boxTol" type="number" inputmode="numeric" min="1" step="1" value="10"
+                       style="width:60px; padding:4px 6px; margin:0 4px;">mm
+              </label>
+              <span style="font-size:11px; color:var(--text-sub)">品番違い判別は±10〜20推奨</span>
+            </div>
+            <div class="row" style="font-size:12px;">
+              <button id="boxCalibrate" class="btn btn-sub" disabled>🎯 正しい現物で校正</button>
+              <span id="boxCalInfo" style="font-size:11px; color:var(--text-sub)">登録寸法どおりの現物で一度押すとズレを補正</span>
+            </div>
+          </details>
 
           <!-- ② 図面オーバーレイ（目視確認・任意） -->
           <details id="boxOverlaySec" style="margin-top:6px;">
@@ -538,8 +538,8 @@
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
-    boxWdec: q('#boxWdec'), boxWinc: q('#boxWinc'), boxHdec: q('#boxHdec'), boxHinc: q('#boxHinc'),
-    boxMup: q('#boxMup'), boxMdown: q('#boxMdown'), boxMleft: q('#boxMleft'), boxMright: q('#boxMright'),
+    boxW_m10: q('#boxW_m10'), boxW_m1: q('#boxW_m1'), boxW_p1: q('#boxW_p1'), boxW_p10: q('#boxW_p10'),
+    boxH_m10: q('#boxH_m10'), boxH_m1: q('#boxH_m1'), boxH_p1: q('#boxH_p1'), boxH_p10: q('#boxH_p10'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -1347,20 +1347,15 @@
     }
     layoutMeasRect();
   }
-  // 枠を±1mm移動
-  function nudgeMove(dxMm, dyMm){
-    if(!S.meas) return;
-    S.meas.l += mmStep() * dxMm;
-    S.meas.t += mmStep() * dyMm;
-    layoutMeasRect();
-  }
-
-  // 自動で枠を現物に当てる（背景差分＋最大連結領域）。当てた後は手で微調整可能。
+  // 自動で枠を現物に当てる
+  // 方針: 背景＝外周リングの中央値、適応しきい値で前景化。
+  //       「画像の縁に触れる連結成分＝背景/見切れ」として除外し、
+  //       画面内に収まった最大の塊だけを採用 → 画面いっぱい化を防ぐ。
   function autoFitFrame(){
     if(!S.calSet){ alert('先に50mm基準をセットしてください'); return; }
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
     if(!vw){ return; }
-    const MAXW = 480;
+    const MAXW = 640;
     const cs = Math.min(1, MAXW / vw);
     const cw = Math.max(1, Math.round(vw*cs)), ch = Math.max(1, Math.round(vh*cs));
     const mc = S._measCanvas || (S._measCanvas = document.createElement('canvas'));
@@ -1369,47 +1364,58 @@
     mctx.drawImage(D.video, 0, 0, cw, ch);
     const data = mctx.getImageData(0, 0, cw, ch).data;
 
-    // 背景色＝四隅平均
-    const patch = Math.max(4, Math.round(Math.min(cw, ch)*0.06));
-    let br=0,bg=0,bb=0,bn=0;
-    for(const [ox,oy] of [[0,0],[cw-patch,0],[0,ch-patch],[cw-patch,ch-patch]]){
-      for(let y=oy;y<oy+patch;y++) for(let x=ox;x<ox+patch;x++){ const i=(y*cw+x)*4; br+=data[i]; bg+=data[i+1]; bb+=data[i+2]; bn++; }
+    // 背景色＝外周リング(端2%)の中央値（四隅平均よりムラに強い）
+    const ring = Math.max(2, Math.round(Math.min(cw, ch)*0.02));
+    const rs=[], gs2=[], bs=[];
+    for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+      if(x>=ring && x<cw-ring && y>=ring && y<ch-ring) continue;
+      const i=(y*cw+x)*4; rs.push(data[i]); gs2.push(data[i+1]); bs.push(data[i+2]);
     }
-    br/=bn; bg/=bn; bb/=bn;
+    const med = a => { a.sort((p,q)=>p-q); return a[a.length>>1] || 0; };
+    const br=med(rs), bg=med(gs2), bb=med(bs);
 
     // QR領域を除外
     let cb=null;
-    if(S.calPts){ const xs=S.calPts.map(p=>p.x*cs), ys=S.calPts.map(p=>p.y*cs), m=8;
+    if(S.calPts){ const xs=S.calPts.map(p=>p.x*cs), ys=S.calPts.map(p=>p.y*cs), m=Math.round(Math.min(cw,ch)*0.03);
       cb={ x0:Math.min(...xs)-m, x1:Math.max(...xs)+m, y0:Math.min(...ys)-m, y1:Math.max(...ys)+m }; }
 
-    const TH=42, fg=new Uint8Array(cw*ch);
+    // 背景との色距離 → 適応しきい値(平均+0.8σ、下限28)
+    const diff = new Float32Array(cw*ch);
+    let sum=0;
+    for(let p=0;p<cw*ch;p++){ const i=p*4, dr=data[i]-br, dg=data[i+1]-bg, db=data[i+2]-bb;
+      const d=Math.sqrt(dr*dr+dg*dg+db*db); diff[p]=d; sum+=d; }
+    const mean=sum/(cw*ch);
+    let vs=0; for(let p=0;p<cw*ch;p++){ const d=diff[p]-mean; vs+=d*d; }
+    const TH=Math.max(28, mean + Math.sqrt(vs/(cw*ch))*0.8);
+
+    const fg=new Uint8Array(cw*ch);
     for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+      const p=y*cw+x;
       if(cb && x>=cb.x0 && x<=cb.x1 && y>=cb.y0 && y<=cb.y1) continue;
-      const i=(y*cw+x)*4, dr=data[i]-br, dg=data[i+1]-bg, db=data[i+2]-bb;
-      if((dr*dr+dg*dg+db*db) > TH*TH) fg[y*cw+x]=1;
+      if(diff[p] > TH) fg[p]=1;
     }
-    // 最大連結領域
+
+    // 連結成分。縁に触れる塊は除外し、画面内に収まった最大の塊を採用
     const lab=new Uint8Array(cw*ch), st=new Int32Array(cw*ch);
-    let best=0, bL=0,bR=0,bT=0,bB=0;
+    let best=0, bL=0,bR=0,bT=0,bB=0, found=false;
     for(let s=0;s<cw*ch;s++){
       if(!fg[s]||lab[s]) continue;
-      let sp=0; st[sp++]=s; lab[s]=1; let c=0,mnx=cw,mxx=0,mny=ch,mxy=0;
+      let sp=0; st[sp++]=s; lab[s]=1; let c=0,mnx=cw,mxx=0,mny=ch,mxy=0,touch=false;
       while(sp>0){ const p=st[--sp], py=(p/cw)|0, px=p-py*cw; c++;
         if(px<mnx)mnx=px; if(px>mxx)mxx=px; if(py<mny)mny=py; if(py>mxy)mxy=py;
+        if(px<=0||py<=0||px>=cw-1||py>=ch-1) touch=true;
         for(let dy=-1;dy<=1;dy++){ const ny=py+dy; if(ny<0||ny>=ch)continue;
           for(let dx=-1;dx<=1;dx++){ const nx=px+dx; if(nx<0||nx>=cw)continue; const np=ny*cw+nx;
             if(fg[np]&&!lab[np]){ lab[np]=1; st[sp++]=np; } } } }
-      if(c>best){ best=c; bL=mnx; bR=mxx; bT=mny; bB=mxy; }
+      if(touch) continue;                 // 縁に触れる＝背景/見切れ → 不採用
+      if(c>best){ best=c; bL=mnx; bR=mxx; bT=mny; bB=mxy; found=true; }
     }
-    if(best < cw*ch*0.02 || bR-bL<6 || bB-bT<6){
-      return boxResultError('⚠ 自動検出できませんでした','背景と色差が出るよう明るくし、現物全体を画面に収めてから再度。難しければ手で枠を合わせてください。');
+
+    if(!found || best < cw*ch*0.02 || (bR-bL)<8 || (bB-bT)<8){
+      return boxResultError('⚠ 自動検出できませんでした',
+        '現物全体が画面に収まるよう一歩下がり、背景と色差が出るよう明るくして再度。<br>または枠を手で合わせてください（位置＝ドラッグ／サイズ＝ボタン）。');
     }
-    // 画面いっぱい＝背景を拾えていない（誤検出）。手動を促す
-    if((bR-bL) > cw*0.93 && (bB-bT) > ch*0.93){
-      // とりあえず枠は出すが、当たっていない旨を警告
-      boxResultError('⚠ 自動検出がうまくいきません',
-        '背景と現物の色差が小さい可能性があります。無地で明るい背景にするか、枠の四隅を手で現物に合わせてください。');
-    }
+
     // capture px → 映像px(/cs) → CSS px（cover変換）
     const sw=D.stack.clientWidth, sh=D.stack.clientHeight;
     const coverScale = Math.max(sw/vw, sh/vh);
@@ -1420,7 +1426,7 @@
       w: (vR-vL)*coverScale,   h: (vB-vT)*coverScale
     };
     showMeasRect();
-    speakBox('枠を当てました。ずれていたら角を合わせてください。');
+    speakBox('枠を当てました。ずれていたらドラッグとサイズボタンで合わせてください。');
   }
 
   function measureObject(){
@@ -1514,6 +1520,7 @@
     if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
     D.boxPanel.style.display = 'block';
+    D.stack.style.maxHeight = '44vh'; // 操作ボタンと同時に見えるようカメラを少し縮小
     D.boxRecMsg.textContent = '';
     // 基準・測定状態をリセット
     S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null;
@@ -1543,6 +1550,7 @@
     S.lastMeasure = null;
     if(S.boxRaf){ cancelAnimationFrame(S.boxRaf); S.boxRaf = null; }
     D.boxPanel.style.display = 'none';
+    D.stack.style.maxHeight = ''; // CSS既定(72vh)に戻す
     D.boxOverlay.style.display = 'none';
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
@@ -1593,14 +1601,14 @@
   D.boxMeasure.onclick   = () => measureObject();
   D.boxAutoFit.onclick   = () => autoFitFrame();
   D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
-  D.boxWdec.onclick  = () => nudgeSize('w', -1);
-  D.boxWinc.onclick  = () => nudgeSize('w', +1);
-  D.boxHdec.onclick  = () => nudgeSize('h', -1);
-  D.boxHinc.onclick  = () => nudgeSize('h', +1);
-  D.boxMup.onclick   = () => nudgeMove(0, -1);
-  D.boxMdown.onclick = () => nudgeMove(0, +1);
-  D.boxMleft.onclick = () => nudgeMove(-1, 0);
-  D.boxMright.onclick= () => nudgeMove(+1, 0);
+  D.boxW_m10.onclick = () => nudgeSize('w', -10);
+  D.boxW_m1.onclick  = () => nudgeSize('w', -1);
+  D.boxW_p1.onclick  = () => nudgeSize('w', +1);
+  D.boxW_p10.onclick = () => nudgeSize('w', +10);
+  D.boxH_m10.onclick = () => nudgeSize('h', -10);
+  D.boxH_m1.onclick  = () => nudgeSize('h', -1);
+  D.boxH_p1.onclick  = () => nudgeSize('h', +1);
+  D.boxH_p10.onclick = () => nudgeSize('h', +10);
   D.boxCalibrate.onclick = () => calibrateWithBox();
   D.boxRecalib.onclick   = () => clearCalibration();
   // 基準の実測サイズ（印刷誤差の補正）
