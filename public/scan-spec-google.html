@@ -356,6 +356,10 @@
   #boxBar #boxStatus{ flex:1; background:transparent; color:#fff; padding:0; font-size:12px; text-shadow:0 1px 2px #000; }
   #boxBar #boxStatus.active{ background:transparent; color:#8ff0c8; }
   #boxBar #boxRecalib{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
+  /* 横/縦サイズ行の区切り */
+  .box-ctrlbar .bbgap{ flex:0 0 18px; }
+  /* アクション4ボタンを大きく・正方形寄りに（押しやすく） */
+  #boxBar .bbactions button{ min-height:70px; font-size:16px; border-radius:11px; line-height:1.25; }
 </style>
 </head>
 <body>
@@ -399,15 +403,10 @@
             <div class="bbrow">
               <span class="bblabel">横</span>
               <button id="boxW_m10">−10</button>
-              <button id="boxW_m1">−1</button>
-              <button id="boxW_p1">＋1</button>
               <button id="boxW_p10">＋10</button>
-            </div>
-            <div class="bbrow">
+              <span class="bbgap"></span>
               <span class="bblabel">縦</span>
               <button id="boxH_m10">−10</button>
-              <button id="boxH_m1">−1</button>
-              <button id="boxH_p1">＋1</button>
               <button id="boxH_p10">＋10</button>
             </div>
           </div>
@@ -416,7 +415,7 @@
               <span id="boxStatus">基準QR(CAL-50)を映してください</span>
               <button id="boxRecalib" style="display:none;">取り直す</button>
             </div>
-            <div class="bbrow">
+            <div class="bbrow bbactions">
               <button id="boxAiFit" disabled>🤖 AI枠</button>
               <button id="boxAutoFit" disabled>🔍 自動</button>
               <button id="boxShape">🧩 形状</button>
@@ -564,8 +563,8 @@
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
     boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'), boxAiFit: q('#boxAiFit'), boxShape: q('#boxShape'),
-    boxW_m10: q('#boxW_m10'), boxW_m1: q('#boxW_m1'), boxW_p1: q('#boxW_p1'), boxW_p10: q('#boxW_p10'),
-    boxH_m10: q('#boxH_m10'), boxH_m1: q('#boxH_m1'), boxH_p1: q('#boxH_p1'), boxH_p10: q('#boxH_p10'),
+    boxW_m10: q('#boxW_m10'), boxW_p10: q('#boxW_p10'),
+    boxH_m10: q('#boxH_m10'), boxH_p10: q('#boxH_p10'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -1624,24 +1623,33 @@
     }
 
     // 向き非依存で長辺・短辺を照合
-    const meas = [wMm, hMm].sort((a,b)=>a-b);
+    const RATIO_TOL = S.ratioTol || 0.08; // 縦横比の許容（±8%）
+    const meas = [wMm, hMm].sort((a,b)=>a-b);  // [短辺, 長辺]
     const tgt  = [S.cutW, S.cutH].sort((a,b)=>a-b);
     const dShort = Math.abs(meas[0]-tgt[0]), dLong = Math.abs(meas[1]-tgt[1]);
-    const ok = dShort<=TOL && dLong<=TOL;
+    const okAbs = dShort<=TOL && dLong<=TOL;
+    // 寸法が許容外でも、縦横比（長辺/短辺）が登録に近ければ一致とみなす
+    const measRatio = meas[1] / Math.max(meas[0], 1);
+    const tgtRatio  = tgt[1]  / Math.max(tgt[0], 1);
+    const ratioDiff = Math.abs(measRatio - tgtRatio) / tgtRatio;
+    const okRatio = ratioDiff <= RATIO_TOL;
+    const ok = okAbs || okRatio;
+    const matchBy = okAbs ? '寸法' : (okRatio ? '比率' : '');
     S.lastMeasure.ok = ok;
 
     // 登録は「縦×横」で表示
     const tgtTxt = `縦${Math.round(S.cutH)}×横${Math.round(S.cutW)}`;
     D.boxResult.className = 'row ' + (ok ? 'ok' : 'ng');
     D.boxResult.innerHTML =
-      `<div class="res-head">${ok ? '✅ 一致' : '❌ 不一致'}（±${TOL}mm）</div>`
+      `<div class="res-head">${ok ? `✅ 一致（${matchBy}）` : '❌ 不一致'}</div>`
       + `<div class="res-detail">推定 横 <b>${yoko}</b> × 縦 <b>${tate}</b>（短辺 ${Math.round(meas[0])} / 長辺 ${Math.round(meas[1])}）</div>`
       + `<div class="res-detail">登録 ${tgtTxt}　差 短辺 ${dShort.toFixed(0)} / 長辺 ${dLong.toFixed(0)}mm</div>`
+      + `<div class="res-detail">比率 推定 ${measRatio.toFixed(2)} / 登録 ${tgtRatio.toFixed(2)}（許容 ±${TOL}mm または 比率±${Math.round(RATIO_TOL*100)}%）</div>`
       + `<div class="res-detail">${note}</div>`+dbg;
 
     if(navigator.vibrate) try{ navigator.vibrate(ok ? 60 : [60,60,60]); }catch{}
     speakBox(ok
-      ? `一致しました。横 ${Math.round(wMm)}、縦 ${Math.round(hMm)}ミリ。`
+      ? `一致しました。${matchBy}一致。横 ${Math.round(wMm)}、縦 ${Math.round(hMm)}ミリ。`
       : `不一致です。横 ${Math.round(wMm)}、縦 ${Math.round(hMm)}ミリ。登録は縦 ${Math.round(S.cutH)}、横 ${Math.round(S.cutW)}。`);
   }
 
@@ -1742,12 +1750,8 @@
   D.boxShape.onclick     = () => aiShapeMatch();
   D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
   D.boxW_m10.onclick = () => nudgeSize('w', -10);
-  D.boxW_m1.onclick  = () => nudgeSize('w', -1);
-  D.boxW_p1.onclick  = () => nudgeSize('w', +1);
   D.boxW_p10.onclick = () => nudgeSize('w', +10);
   D.boxH_m10.onclick = () => nudgeSize('h', -10);
-  D.boxH_m1.onclick  = () => nudgeSize('h', -1);
-  D.boxH_p1.onclick  = () => nudgeSize('h', +1);
   D.boxH_p10.onclick = () => nudgeSize('h', +10);
   D.boxCalibrate.onclick = () => calibrateWithBox();
   D.boxRecalib.onclick   = () => clearCalibration();
