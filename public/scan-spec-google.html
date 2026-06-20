@@ -419,6 +419,7 @@
             <div class="bbrow">
               <button id="boxAiFit" disabled>🤖 AI枠</button>
               <button id="boxAutoFit" disabled>🔍 自動</button>
+              <button id="boxShape">🧩 形状</button>
               <button id="boxMeasure" class="bbprimary" disabled>📏 照合</button>
             </div>
           </div>
@@ -562,7 +563,7 @@
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
-    boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'), boxAiFit: q('#boxAiFit'),
+    boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'), boxAiFit: q('#boxAiFit'), boxShape: q('#boxShape'),
     boxW_m10: q('#boxW_m10'), boxW_m1: q('#boxW_m1'), boxW_p1: q('#boxW_p1'), boxW_p10: q('#boxW_p10'),
     boxH_m10: q('#boxH_m10'), boxH_m1: q('#boxH_m1'), boxH_p1: q('#boxH_p1'), boxH_p10: q('#boxH_p10'),
   };
@@ -1517,6 +1518,52 @@
     }
   }
 
+  // AIで形状照合（登録図面 vs 現物写真をClaudeで見比べ）
+  async function aiShapeMatch(){
+    const vw = D.video.videoWidth, vh = D.video.videoHeight;
+    if(!vw){ return; }
+    if(!S.current.book || !S.current.wc){ alert('先に品番をスキャン／照会してください'); return; }
+    const btn = D.boxShape, prev = btn.textContent;
+    btn.disabled = true; btn.textContent = '🧩 照合中…';
+    setBoxStatus('AIが図面と形状を照合中…', true);
+    try{
+      const MAXW = 1024;
+      const cs = Math.min(1, MAXW / Math.max(vw, vh));
+      const cw = Math.round(vw*cs), ch = Math.round(vh*cs);
+      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+      cv.getContext('2d').drawImage(D.video, 0, 0, cw, ch);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+
+      await ensureCsrf();
+      const r = await fetch('/api/box-shape-match', {
+        method:'POST', credentials:'same-origin', cache:'no-store',
+        headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
+        body: JSON.stringify({ image: dataUrl, book: S.current.book, wc: S.current.wc }),
+      });
+      const j = await r.json();
+      if(!j.ok){ throw new Error(j.error || 'API error'); }
+      if(j.found === false){
+        boxResultError('🧩 形状照合できません', (j.error||'登録図面が見つかりません')+'<br>この品番に図面(-zu/-si)が登録されているか確認してください。');
+      }else{
+        const v = j.verdict;
+        const head = v==='match' ? '✅ 形状一致' : v==='mismatch' ? '❌ 形状が違います' : '❔ 判定保留';
+        D.boxResult.style.display='flex';
+        D.boxResult.className = 'row ' + (v==='match' ? 'ok' : v==='mismatch' ? 'ng' : '');
+        D.boxResult.innerHTML =
+          `<div class="res-head">${head}${j.confidence!=null?`（確度${j.confidence}）`:''}</div>`
+          + `<div class="res-detail">${esc(j.reason||'')}</div>`
+          + `<div class="res-detail" style="font-size:11px;color:#999">AI形状照合・図面 ${esc(j.refFileName||'')}</div>`;
+        speakBox(v==='match' ? '形状は一致しています。' : v==='mismatch' ? '形状が違います。' : '形状の判定は保留です。');
+        if(navigator.vibrate) try{ navigator.vibrate(v==='mismatch'?[60,60,60]:60); }catch{}
+      }
+      setBoxStatus(S.calSet ? '✅ 基準セット済' : '基準QR(CAL-50)を映してください', S.calSet);
+    }catch(e){
+      boxResultError('🧩 形状照合エラー', String(e.message||e));
+    }finally{
+      btn.disabled = false; btn.textContent = prev;
+    }
+  }
+
   function measureObject(){
     if(!S.calSet || !S.meas){ alert('先に50mm基準をセットし、枠を現物に合わせてください'); return; }
     const r = measRectMm(true);
@@ -1692,6 +1739,7 @@
   D.boxMeasure.onclick   = () => measureObject();
   D.boxAutoFit.onclick   = () => autoFitFrame();
   D.boxAiFit.onclick     = () => aiFitFrame();
+  D.boxShape.onclick     = () => aiShapeMatch();
   D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
   D.boxW_m10.onclick = () => nudgeSize('w', -10);
   D.boxW_m1.onclick  = () => nudgeSize('w', -1);
