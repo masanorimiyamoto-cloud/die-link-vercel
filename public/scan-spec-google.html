@@ -575,8 +575,12 @@
   const CFG = {
     SCAN_EVERY_MS: 80,
     JSQR_MULTI_MAX: 6,
-    ROI_SCALE: 1.75,
     ROI_FRACTION: 0.62
+  };
+  // カメラ取得条件（startCam / ensureLiveCam 共通）
+  const CAMERA_CONSTRAINTS = {
+    video: { facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 }, aspectRatio:{ ideal:16/9 } },
+    audio: false
   };
 
   const S = {
@@ -588,7 +592,7 @@
     // 半製品照合
     boxMode:false, boxRaf:null, boxLastAt:0, pxPerMm:0,
     cutW:null, cutH:null, drawingId:null, drawingName:null, drawingReady:false,
-    oScale:1, oRot:0, _boxUrl:null, _boxPositioned:false, overlayPxPerMm:0,
+    oScale:1, oRot:0, _boxUrl:null, overlayPxPerMm:0,
     // 基準セット＆寸法測定
     calSet:false, pxPerMmVideo:0, calPts:null, calSeenAt:0, lastMeasure:null, _measCanvas:null,
     refMm:50,      // 基準マーカーの実測サイズ(mm)。印刷誤差はここで補正
@@ -721,14 +725,7 @@
     S.detector = null;
     if(!S.useBarcodeDetector) return;
     try{
-      const fmts = (typeof BarcodeDetector.getSupportedFormats==='function')
-        ? await BarcodeDetector.getSupportedFormats()
-        : [];
-      if(fmts && fmts.includes('qr_code')){
-        S.detector = new BarcodeDetector({formats:['qr_code']});
-      }else{
-        S.detector = new BarcodeDetector({formats:['qr_code']});
-      }
+      S.detector = new BarcodeDetector({ formats:['qr_code'] });
     }catch{
       S.useBarcodeDetector = false;
       S.detector = null;
@@ -745,18 +742,8 @@
     D.video.style.visibility='visible';
     D.lockEmoji.style.display='none';
 
-    const constraints = {
-      video: {
-        facingMode: { ideal: 'environment' },
-        width:  { ideal: 1280 },
-        height: { ideal: 720 },
-        aspectRatio: { ideal: 16/9 }
-      },
-      audio: false
-    };
-
     try{
-      S.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      S.stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
       D.video.srcObject = S.stream;
 
       await D.video.play();
@@ -1049,7 +1036,7 @@
   // ★変更箇所: サムネイル機能をiframeプレビューに書き換え
   async function findDriveFiles(book, wc) {
     try {
-      S.drawingId = null; S.drawingName = null; S.drawingReady = false; S._boxPositioned = false;
+      S.drawingId = null; S.drawingName = null; S.drawingReady = false;
       const r = await fetch(
         `/api/drive-find?book=${encodeURIComponent(book)}&wc=${encodeURIComponent(wc)}&t=${Date.now()}`,
         {
@@ -1228,7 +1215,7 @@
     if(S.stream && D.video.srcObject && !D.video.paused){ fitAll(); return; }
     try{
       if(!S.stream){
-        S.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 }, aspectRatio:{ ideal:16/9 } }, audio:false });
+        S.stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
       }
       D.video.srcObject = S.stream;
       D.video.style.visibility = 'visible';
@@ -1679,7 +1666,7 @@
     await ensureLiveCam();
     await loadBoxDrawing();
     if(S.drawingReady){
-      S.oScale = 1; S.oRot = 0; S._boxPositioned = false;
+      S.oScale = 1; S.oRot = 0;
       D.boxOverlay.style.transform = 'rotate(0deg)';
       D.boxOverlay.style.opacity = (D.boxOpacity.value/100);
       // 図面オーバーレイは既定で非表示。details を開いた時のみ表示
