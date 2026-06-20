@@ -417,6 +417,7 @@
               <button id="boxRecalib" style="display:none;">取り直す</button>
             </div>
             <div class="bbrow">
+              <button id="boxAiFit" disabled>🤖 AI枠</button>
               <button id="boxAutoFit" disabled>🔍 自動</button>
               <button id="boxMeasure" class="bbprimary" disabled>📏 照合</button>
             </div>
@@ -561,7 +562,7 @@
     boxRecalib: q('#boxRecalib'), boxMeasure: q('#boxMeasure'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxAutoFit: q('#boxAutoFit'),
-    boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'),
+    boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'), boxAiFit: q('#boxAiFit'),
     boxW_m10: q('#boxW_m10'), boxW_m1: q('#boxW_m1'), boxW_p1: q('#boxW_p1'), boxW_p10: q('#boxW_p10'),
     boxH_m10: q('#boxH_m10'), boxH_m1: q('#boxH_m1'), boxH_p1: q('#boxH_p1'), boxH_p10: q('#boxH_p10'),
   };
@@ -1465,6 +1466,57 @@
     speakBox('枠を当てました。ずれていたらドラッグとサイズボタンで合わせてください。');
   }
 
+  // AIで枠を当てる（Claudeビジョンで現物の外接矩形を推定 → メジャー枠に反映）
+  async function aiFitFrame(){
+    const vw = D.video.videoWidth, vh = D.video.videoHeight;
+    if(!vw){ return; }
+    const btn = D.boxAiFit, prev = btn.textContent;
+    btn.disabled = true; btn.textContent = '🤖 解析中…';
+    setBoxStatus('AIが現物を解析中…', true);
+    try{
+      // 送信画像（長辺1024に縮小したJPEG）
+      const MAXW = 1024;
+      const cs = Math.min(1, MAXW / Math.max(vw, vh));
+      const cw = Math.round(vw*cs), ch = Math.round(vh*cs);
+      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+      cv.getContext('2d').drawImage(D.video, 0, 0, cw, ch);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+
+      await ensureCsrf();
+      const r = await fetch('/api/box-detect', {
+        method:'POST', credentials:'same-origin', cache:'no-store',
+        headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
+        body: JSON.stringify({ image: dataUrl, book: S.current.book, wc: S.current.wc }),
+      });
+      const j = await r.json();
+      if(!j.ok){ throw new Error(j.error || 'API error'); }
+      if(!j.found){
+        boxResultError('🤖 AIが現物を見つけられませんでした',
+          '現物全体が画面に入るように写し、もう一度お試しください。または「🔍 自動」か手動で枠を合わせてください。');
+        setBoxStatus(S.calSet ? '✅ 基準セット済' : '基準QR(CAL-50)を映してください', S.calSet);
+        return;
+      }
+      // 正規化(0..1) → 映像px → CSS px（cover変換）
+      const b = j.box;
+      const vL = b.x*vw, vT = b.y*vh, vWv = b.w*vw, vHv = b.h*vh;
+      const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+      const coverScale = Math.max(sw/vw, sh/vh);
+      const offX = (sw - vw*coverScale)/2, offY = (sh - vh*coverScale)/2;
+      S.meas = {
+        l: vL*coverScale + offX, t: vT*coverScale + offY,
+        w: vWv*coverScale, h: vHv*coverScale
+      };
+      showMeasRect();
+      setBoxStatus(S.calSet ? '✅ 基準セット済 — AIが枠を当てました' : '⚠ 枠は当たりました。CAL-50で基準セットを', S.calSet);
+      speakBox('AIが枠を当てました。ずれていたら微調整してください。');
+      if(navigator.vibrate) try{ navigator.vibrate(50); }catch{}
+    }catch(e){
+      boxResultError('🤖 AI解析エラー', String(e.message||e) + '<br>通信状況を確認するか、「🔍 自動」か手動で合わせてください。');
+    }finally{
+      btn.disabled = false; btn.textContent = prev;
+    }
+  }
+
   function measureObject(){
     if(!S.calSet || !S.meas){ alert('先に50mm基準をセットし、枠を現物に合わせてください'); return; }
     const r = measRectMm(true);
@@ -1579,6 +1631,7 @@
       D.boxOverlay.style.display = 'none';
     }
     showMeasRect(); // 黄色枠は常に表示（基準セット前でもドラッグ可。mm表示はセット後）
+    D.boxAiFit.disabled = false; // AI枠当ては基準不要（カメラが動いていれば可）
     if(!S.boxRaf) boxTick();
   }
 
@@ -1638,6 +1691,7 @@
   D.boxRecNg.onclick     = () => recordBox('NG');
   D.boxMeasure.onclick   = () => measureObject();
   D.boxAutoFit.onclick   = () => autoFitFrame();
+  D.boxAiFit.onclick     = () => aiFitFrame();
   D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
   D.boxW_m10.onclick = () => nudgeSize('w', -10);
   D.boxW_m1.onclick  = () => nudgeSize('w', -1);
