@@ -356,6 +356,10 @@
   #boxBar #boxRecalib{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
   /* アクションボタン（AI照合）を大きく押しやすく */
   #boxBar .bbactions button{ min-height:72px; font-size:19px; border-radius:12px; line-height:1.25; }
+  /* 対象切替（抜型／生地） */
+  #boxBar .bbtargets{ gap:6px; }
+  #boxBar .bbseg{ min-height:0; padding:7px 4px; font-size:14px; background:rgba(255,255,255,.22); color:#fff; border:1px solid rgba(255,255,255,.4); }
+  #boxBar .bbseg.active{ background:#fff; color:#222; }
   /* 判定オーバーレイ（カメラ上部に大きく表示して気づきやすく） */
   #boxVerdict{
     position:absolute; left:8px; right:8px; top:8px; z-index:35; display:none;
@@ -414,6 +418,10 @@
               <span id="boxStatus">基準QR(CAL-50)を映してください</span>
               <button id="boxRecalib" style="display:none;">取り直す</button>
             </div>
+            <div class="bbrow bbtargets">
+              <button id="boxTgtDie" class="bbseg active" type="button">🧩 抜型</button>
+              <button id="boxTgtFab" class="bbseg" type="button">🧵 生地</button>
+            </div>
             <div class="bbrow bbactions">
               <button id="boxAiAll" class="bbprimary" disabled>🤖 AI照合</button>
             </div>
@@ -446,7 +454,7 @@
           <details style="margin-top:4px;">
             <summary style="font-size:13px; font-weight:700; color:var(--text-sub); cursor:pointer;">⚙️ 設定・ヘルプ</summary>
             <div class="row" style="font-size:12px; color:var(--text-sub); margin-top:10px;">
-              ①現物全体とCAL-50が余裕で画面に収まるまでカメラを離す（真上）→ ②CAL-50を映して基準セット → ③<b>「🤖 AI照合」を押すだけ</b>（AIが 枠当て→寸法→形状→総合判定）。<br>枠がずれた時は<b>ドラッグで移動／四隅の丸ハンドルでサイズ調整</b>できます。枠の上の数値が実寸(mm)。
+              <b>🧩抜型</b>：①現物全体とCAL-50が画面に収まるまでカメラを離す（真上）→ ②CAL-50を映して基準セット → ③<b>「🤖 AI照合」</b>（AIが 枠当て→寸法→形状→総合判定）。<br><b>🧵生地</b>：CAL-50不要。枠を生地の外形に合わせて<b>「🤖 AI照合」</b>を押すと〈色柄＋縦横比〉を同時判定。<br>枠がずれた時は<b>ドラッグで移動／四隅の丸ハンドルでサイズ調整</b>。枠の上の数値が実寸(mm)。
             </div>
             <div class="row" style="font-size:12px;">
               基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
@@ -559,6 +567,7 @@
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxVerdict: q('#boxVerdict'),
     boxBar: q('#boxBar'), boxAiAll: q('#boxAiAll'),
+    boxTgtDie: q('#boxTgtDie'), boxTgtFab: q('#boxTgtFab'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -593,8 +602,10 @@
     calFactor:1,   // 実地校正係数（正しい現物で校正して系統誤差を吸収）
     meas:null,     // 手動メジャー枠 {l,t,w,h}（stack内CSS px）
     tolMm:10,      // 合否の許容差(±mm)
+    boxTarget:'die', // 照合対象 'die'=抜型半製品（形状＋寸法）/ 'fabric'=生地（色柄＋縦横比・CAL不要）
   };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
+  try{ const _bt = localStorage.getItem('boxTarget'); if(_bt==='die'||_bt==='fabric') S.boxTarget = _bt; }catch{}
 
   // --- CSRF & Cookie ---
   function readCookie(name){
@@ -1297,6 +1308,8 @@
         drawPoly(cal.pts, '#12b886', 4, null, 0.9);
         setCalibrated(cal);
         // 図面オーバーレイはライブ追従させない（落ち着いた表示のため、表示時に一度だけ設定）
+      }else if(S.boxTarget === 'fabric'){
+        setBoxStatus('🧵 生地モード：枠を現物に合わせて AI照合', false);
       }else if(S.calSet){
         // 縮尺はQRが見えている間だけ最新。外れたら入れ直しを促す
         setBoxStatus('⚠ CAL-50を画面内に入れたまま枠を合わせてください', true);
@@ -1335,6 +1348,8 @@
       const k = S.calFactor || 1;
       const wMm = m.w / S.pxPerMm * k, hMm = m.h / S.pxPerMm * k;
       D.measLabel.textContent = `横 ${Math.round(wMm)} × 縦 ${Math.round(hMm)} mm`;
+    }else if(S.boxTarget === 'fabric'){
+      D.measLabel.textContent = '枠を生地の外形に合わせてください';
     }else{
       D.measLabel.textContent = '基準QR(CAL-50)を映してください';
     }
@@ -1382,8 +1397,9 @@
     showMeasRect();
   }
 
-  // 形状照合（登録図面 vs 現物写真）を1回呼び結果を返す（純粋・描画しない）
-  async function aiShapeDetect(){
+  // 見た目の照合（現物写真1枚を送ってAI判定）。endpoint で 形状／生地（色柄）を切替
+  // どちらも {ok, found, verdict, confidence, reason, refFileName} を返す
+  async function aiImageMatch(endpoint){
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
     const MAXW = 1024, cs = Math.min(1, MAXW / Math.max(vw, vh));
     const cw = Math.round(vw*cs), ch = Math.round(vh*cs);
@@ -1391,15 +1407,17 @@
     cv.getContext('2d').drawImage(D.video, 0, 0, cw, ch);
     const dataUrl = cv.toDataURL('image/jpeg', 0.85);
     await ensureCsrf();
-    const r = await fetch('/api/box-shape-match', {
+    const r = await fetch(endpoint, {
       method:'POST', credentials:'same-origin', cache:'no-store',
       headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
       body: JSON.stringify({ image: dataUrl, book: S.current.book, wc: S.current.wc }),
     });
     const j = await r.json();
     if(!j.ok){ throw new Error(j.error || 'API error'); }
-    return j; // {ok, found, verdict, confidence, reason, refFileName}
+    return j;
   }
+  const aiShapeDetect   = () => aiImageMatch('/api/box-shape-match'); // 抜型：図面と形状
+  const aiMaterialMatch = () => aiImageMatch('/api/material-match');  // 生地：色柄・織り
 
   // 枠(S.meas)の寸法を登録(Cut_Size)と照合した判定（純粋・描画しない）
   function judgeDimension(wMm, hMm){
@@ -1415,22 +1433,42 @@
     return { hasCut:true, ok, matchBy: okAbs?'寸法':(okRatio?'比率':''), wMm, hMm, dShort, dLong };
   }
 
-  // 🤖 AI照合：1ボタンで「AIで枠当て → 寸法照合 → 形状照合 → 総合判定」まで完結
+  // 枠の縦横比のみで照合（CAL-50不要・スケール非依存）。生地モード用
+  function judgeRatioOnly(){
+    if(!S.cutW || !S.cutH || !S.meas) return { hasCut:false, ratioOnly:true };
+    const RATIO_TOL = S.ratioTol || 0.08;
+    const meas = [S.meas.w, S.meas.h].sort((a,b)=>a-b);   // [短辺, 長辺]（px）
+    const tgt  = [S.cutW, S.cutH].sort((a,b)=>a-b);
+    const measRatio = meas[1]/Math.max(meas[0],1), tgtRatio = tgt[1]/Math.max(tgt[0],1);
+    const dev = Math.abs(measRatio-tgtRatio)/Math.max(tgtRatio, 0.0001);
+    return { hasCut:true, ratioOnly:true, ok: dev <= RATIO_TOL, matchBy:'比率', measRatio, tgtRatio, dev };
+  }
+
+  // 🤖 AI照合：1ボタンで「枠当て → 寸法/比率 → 見た目(形状or生地色柄) → 総合判定」まで完結
+  // 抜型：形状AI＋寸法(CAL-50でmm) ／ 生地：色柄AI＋縦横比(CAL不要) を同時判定
   async function aiAllInOne(){
     if(!D.video.videoWidth){ return; }
     if(!S.current.book || !S.current.wc){ alert('先に品番をスキャン／照会してください'); return; }
+    const fabric = (S.boxTarget === 'fabric');
+    const apprLabel = fabric ? '生地' : '形状';
     const btn = D.boxAiAll, prev = btn.textContent;
     btn.disabled = true;
+    S._dbg = '';
     D.boxResult.style.display = 'none';
     hideVerdict();
     try{
+      // 見た目AI（生地=色柄 / 抜型=形状）は枠検出と並列で投げて時短
+      btn.textContent = fabric ? '🧵 生地を照合中…' : '🤖 照合中…';
+      setBoxStatus(fabric ? 'AIが生地と枠を照合中…' : 'AIが現物を検出中…', true);
+      const pAppr = (fabric ? aiMaterialMatch() : aiShapeDetect())
+        .then(v => ({ v })).catch(e => ({ err: String(e.message||e) }));
+
       // 1) AIで枠（比率ゲート付き：1回目の比が登録から外れた時だけ2回目で精査）
-      btn.textContent = '🤖 枠を検出中…';
-      setBoxStatus('AIが現物を検出中…', true);
       const b1 = await aiDetectBox();
       if(!b1){
-        boxResultError('🤖 AIが現物を見つけられませんでした',
-          '現物全体が画面に入るように写し、もう一度お試しください。');
+        const a = await pAppr; // 枠が取れなくても見た目だけは判定して返す
+        renderCombined(null, a.v||null, a.err||null, apprLabel);
+        setBoxStatus('⚠ 枠を検出できませんでした（見た目のみ判定）', false);
         return;
       }
       applyAiBox(b1);
@@ -1446,9 +1484,11 @@
         }
       }
 
-      // 2) 寸法（CAL-50基準があれば）
+      // 2) 寸法（抜型=CAL-50でmm / 生地=縦横比のみ・CAL不要）
       let dim = null;
-      if(S.calSet && S.meas){
+      if(fabric){
+        dim = judgeRatioOnly();
+      }else if(S.calSet && S.meas){
         const r = measRectMm(true);
         if(r.scaleOk){
           S._dbg = `枠 ${Math.round(S.meas.w)}×${Math.round(S.meas.h)}px / ${S.pxPerMm.toFixed(3)} px/mm / 映像 ${vw}×${vh} / QR辺 ${avgSide(S.calPts).toFixed(1)}px`;
@@ -1456,15 +1496,12 @@
         }
       }
 
-      // 3) 形状（AI）
-      btn.textContent = '🧩 形状照合中…';
-      setBoxStatus('AIが図面と形状を照合中…', true);
-      let shape = null, shapeErr = null;
-      try{ shape = await aiShapeDetect(); }catch(e){ shapeErr = String(e.message||e); }
+      // 3) 見た目（並列で投げた結果を回収）
+      const a = await pAppr;
 
       // 4) 総合判定
-      renderCombined(dim, shape, shapeErr);
-      setBoxStatus(S.calSet ? '✅ 基準セット済' : '⚠ CAL-50未設定（寸法はスキップ）', S.calSet);
+      renderCombined(dim, a.v||null, a.err||null, apprLabel);
+      setBoxStatus(fabric ? '✅ 生地照合 完了' : (S.calSet ? '✅ 基準セット済' : '⚠ CAL-50未設定（寸法はスキップ）'), true);
     }catch(e){
       boxResultError('🤖 AI照合エラー', String(e.message||e) + '<br>通信状況を確認してもう一度お試しください。');
     }finally{
@@ -1472,39 +1509,44 @@
     }
   }
 
-  // 寸法判定＋形状判定 → 総合判定を1ブロックに表示
-  function renderCombined(dim, shape, shapeErr){
-    const shapeV = (shape && shape.found !== false && shape.ok !== false) ? shape.verdict : null;
-    const dimOk  = (dim && dim.hasCut) ? dim.ok : null;
+  // 寸法/比率判定 ＋ 見た目判定（形状or生地）→ 総合判定を1ブロックに表示
+  function renderCombined(dim, appr, apprErr, apprLabel){
+    apprLabel = apprLabel || '形状';
+    const apprV = (appr && appr.found !== false && appr.ok !== false) ? appr.verdict : null;
+    const dimOk = (dim && dim.hasCut) ? dim.ok : null;
 
-    const hasNG    = (dimOk === false) || (shapeV === 'mismatch');
-    const hasMatch = (dimOk === true)  || (shapeV === 'match');
+    const hasNG    = (dimOk === false) || (apprV === 'mismatch');
+    const hasMatch = (dimOk === true)  || (apprV === 'match');
     let overall, cls;
     if(hasNG){ overall = '❌ 不一致'; cls = 'ng'; }
     else if(hasMatch){ overall = '✅ 一致'; cls = 'ok'; }
     else { overall = '⚠ 要確認'; cls = ''; }
 
-    // 寸法行
+    // 寸法／比率 行
     let dimLine;
-    if(dim && dim.hasCut){
+    if(!dim){
+      dimLine = '寸法：枠が取れず照合できませんでした';
+    }else if(dim.ratioOnly){
+      dimLine = dim.hasCut
+        ? `寸法比率 ${dim.ok?'✅一致':'❌不一致'}：現物 1:${dim.measRatio.toFixed(2)} ／ 登録 1:${dim.tgtRatio.toFixed(2)}（差 ${(dim.dev*100).toFixed(1)}%）`
+        : '寸法比率：登録寸法(Cut_Size)が無いため照合不可';
+    }else if(dim.hasCut){
       dimLine = `寸法 ${dim.ok ? `✅一致（${dim.matchBy}）` : '❌不一致'}：推定 横${Math.round(dim.wMm)}×縦${Math.round(dim.hMm)}mm／登録 縦${Math.round(S.cutH)}×横${Math.round(S.cutW)}（差 短辺${dim.dShort.toFixed(0)}/長辺${dim.dLong.toFixed(0)}mm）`;
-    }else if(dim){
+    }else{
       dimLine = `寸法：推定 横${Math.round(dim.wMm)}×縦${Math.round(dim.hMm)}mm（登録寸法なしで照合不可）`;
-    }else{
-      dimLine = '寸法：CAL-50未設定のためスキップ';
     }
-    // 形状行
-    let shapeLine;
-    if(shapeV){
-      const sL = shapeV==='match'?'✅一致':shapeV==='mismatch'?'❌不一致':'❔保留';
-      shapeLine = `形状 ${sL}${shape.confidence!=null?`（確度${shape.confidence}）`:''}：${esc(shape.reason||'')}`;
-    }else if(shapeErr){
-      shapeLine = `形状：照合エラー（${esc(shapeErr)}）`;
+    // 見た目（形状／生地）行
+    let apprLine;
+    if(apprV){
+      const sL = apprV==='match'?'✅一致':apprV==='mismatch'?'❌不一致':'❔保留';
+      apprLine = `${apprLabel} ${sL}${appr.confidence!=null?`（確度${appr.confidence}）`:''}：${esc(appr.reason||'')}`;
+    }else if(apprErr){
+      apprLine = `${apprLabel}：照合エラー（${esc(apprErr)}）`;
     }else{
-      shapeLine = '形状：登録図面が見つかりません';
+      apprLine = `${apprLabel}：登録${apprLabel==='生地'?'画像':'図面'}が見つかりません`;
     }
 
-    S.lastMeasure = dim ? { wMm:dim.wMm, hMm:dim.hMm, ok:(cls==='ok') } : null;
+    S.lastMeasure = dim ? { wMm:dim.wMm||0, hMm:dim.hMm||0, ok:(cls==='ok') } : null;
 
     const dbg = S._dbg ? `<div class="res-detail" style="font-size:11px;color:#999">${S._dbg}</div>` : '';
     D.boxResult.style.display = 'flex';
@@ -1512,13 +1554,14 @@
     D.boxResult.innerHTML =
       `<div class="res-head">${overall}</div>`
       + `<div class="res-detail">${dimLine}</div>`
-      + `<div class="res-detail">${shapeLine}</div>`
+      + `<div class="res-detail">${apprLine}</div>`
       + dbg;
 
-    // カメラ上部に大きく判定を表示（寸法／形状の要約付き）
-    const dimS = dim ? (dim.hasCut ? (dim.ok?'寸法✅':'寸法❌') : '寸法—') : '寸法—';
-    const shapeS = shapeV ? (shapeV==='match'?'形状✅':shapeV==='mismatch'?'形状❌':'形状❔') : (shapeErr?'形状⚠':'形状—');
-    showVerdict(cls==='ok'?'ok':cls==='ng'?'ng':'warn', overall, `${dimS} ／ ${shapeS}`);
+    // カメラ上部に大きく判定を表示（寸法/比率 ／ 見た目 の要約付き）
+    const dimLbl = (dim && dim.ratioOnly) ? '比率' : '寸法';
+    const dimS = (dim && dim.hasCut) ? (dim.ok?`${dimLbl}✅`:`${dimLbl}❌`) : `${dimLbl}—`;
+    const apprS = apprV ? (apprV==='match'?`${apprLabel}✅`:apprV==='mismatch'?`${apprLabel}❌`:`${apprLabel}❔`) : (apprErr?`${apprLabel}⚠`:`${apprLabel}—`);
+    showVerdict(cls==='ok'?'ok':cls==='ng'?'ng':'warn', overall, `${dimS} ／ ${apprS}`);
 
     speakBox(cls==='ok' ? '一致です。' : cls==='ng' ? '不一致です。' : '要確認です。');
     if(navigator.vibrate) try{ navigator.vibrate(cls==='ng' ? [80,60,80] : 70); }catch{}
@@ -1548,6 +1591,18 @@
       + `<div class="res-detail">校正前 横${Math.round(meas[1])}×縦${Math.round(meas[0])} 相当 → 登録 縦${Math.round(S.cutH)}×横${Math.round(S.cutW)}に合わせ込み</div>`;
     speakBox('校正しました。');
     if(navigator.vibrate) try{ navigator.vibrate(60); }catch{}
+  }
+
+  // 照合対象（抜型/生地）の切替。生地はCAL-50不要・縦横比のみ
+  function setBoxTarget(t){
+    S.boxTarget = (t === 'fabric') ? 'fabric' : 'die';
+    try{ localStorage.setItem('boxTarget', S.boxTarget); }catch{}
+    const fab = S.boxTarget === 'fabric';
+    D.boxTgtFab.classList.toggle('active', fab);
+    D.boxTgtDie.classList.toggle('active', !fab);
+    if(fab) setBoxStatus('🧵 生地モード：枠を現物に合わせて AI照合', false);
+    else if(!S.calSet) setBoxStatus('基準QR(CAL-50)を映してください', false);
+    if(D.measRect.style.display === 'block') layoutMeasRect();
   }
 
   async function enterBoxMode(){
@@ -1583,6 +1638,7 @@
     }
     showMeasRect(); // 黄色枠は常に表示（基準セット前でもドラッグ可。mm表示はセット後）
     D.boxAiAll.disabled = false; // AI照合はカメラが動いていれば可（寸法はCAL-50があれば加味）
+    setBoxTarget(S.boxTarget);   // 対象トグル（抜型/生地）のUIを現在値に同期
     if(!S.boxRaf) boxTick();
   }
 
@@ -1634,6 +1690,8 @@
   // --- 配線 ---
   D.modeSpec.onclick = () => setMode('spec');
   D.modeBox.onclick  = () => setMode('box');
+  D.boxTgtDie.onclick = () => setBoxTarget('die');
+  D.boxTgtFab.onclick = () => setBoxTarget('fabric');
   D.boxOpacity.oninput   = () => { D.boxOverlay.style.opacity = (D.boxOpacity.value/100); };
   D.boxScaleDown.onclick = () => { S.oScale *= 0.98; applyOverlaySize(); };
   D.boxScaleUp.onclick   = () => { S.oScale *= 1.02; applyOverlaySize(); };
