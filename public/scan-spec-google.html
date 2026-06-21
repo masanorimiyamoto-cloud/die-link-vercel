@@ -1453,47 +1453,63 @@
     speakBox('枠を当てました。ずれていたらドラッグとサイズボタンで合わせてください。');
   }
 
-  // AIで枠を当てる（Claudeビジョンで現物の外接矩形を推定 → メジャー枠に反映）
-  async function aiFitFrame(){
+  // box-detect を1回呼び、現物の正規化bbox(0..1)を返す（見つからなければ null、エラーは throw）
+  async function aiDetectBox(){
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
-    if(!vw){ return; }
+    if(!vw) return null;
+    const MAXW = 1024; // 送信画像は長辺1024に縮小したJPEG
+    const cs = Math.min(1, MAXW / Math.max(vw, vh));
+    const cw = Math.round(vw*cs), ch = Math.round(vh*cs);
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    cv.getContext('2d').drawImage(D.video, 0, 0, cw, ch);
+    const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+    await ensureCsrf();
+    const r = await fetch('/api/box-detect', {
+      method:'POST', credentials:'same-origin', cache:'no-store',
+      headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
+      body: JSON.stringify({ image: dataUrl, book: S.current.book, wc: S.current.wc }),
+    });
+    const j = await r.json();
+    if(!j.ok){ throw new Error(j.error || 'API error'); }
+    return j.found ? j.box : null;
+  }
+  // 正規化bbox(0..1) → メジャー枠(stack内CSS px・cover変換) に反映
+  function applyAiBox(b){
+    const vw = D.video.videoWidth, vh = D.video.videoHeight;
+    const vL = b.x*vw, vT = b.y*vh, vWv = b.w*vw, vHv = b.h*vh;
+    const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+    const coverScale = Math.max(sw/vw, sh/vh);
+    const offX = (sw - vw*coverScale)/2, offY = (sh - vh*coverScale)/2;
+    S.meas = { l: vL*coverScale + offX, t: vT*coverScale + offY, w: vWv*coverScale, h: vHv*coverScale };
+    showMeasRect();
+  }
+
+  // AIで枠を当てる：1回押すと内部で2回検出（1回目=粗く／少し待って2回目=精度UP）
+  // 人が2回押すのを自動化。カメラのピント・露出が落ち着く時間を挟むことで縦軸の精度が上がる。
+  async function aiFitFrame(){
+    if(!D.video.videoWidth){ return; }
     const btn = D.boxAiFit, prev = btn.textContent;
-    btn.disabled = true; btn.textContent = '🤖 解析中…';
+    btn.disabled = true;
     setBoxStatus('AIが現物を解析中…', true);
     try{
-      // 送信画像（長辺1024に縮小したJPEG）
-      const MAXW = 1024;
-      const cs = Math.min(1, MAXW / Math.max(vw, vh));
-      const cw = Math.round(vw*cs), ch = Math.round(vh*cs);
-      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
-      cv.getContext('2d').drawImage(D.video, 0, 0, cw, ch);
-      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
-
-      await ensureCsrf();
-      const r = await fetch('/api/box-detect', {
-        method:'POST', credentials:'same-origin', cache:'no-store',
-        headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
-        body: JSON.stringify({ image: dataUrl, book: S.current.book, wc: S.current.wc }),
-      });
-      const j = await r.json();
-      if(!j.ok){ throw new Error(j.error || 'API error'); }
-      if(!j.found){
+      // 1回目（粗当て）
+      btn.textContent = '🤖 解析中… 1/2';
+      const b1 = await aiDetectBox();
+      if(!b1){
         boxResultError('🤖 AIが現物を見つけられませんでした',
           '現物全体が画面に入るように写し、もう一度お試しください。または「🔍 自動」か手動で枠を合わせてください。');
         setBoxStatus(S.calSet ? '✅ 基準セット済' : '基準QR(CAL-50)を映してください', S.calSet);
         return;
       }
-      // 正規化(0..1) → 映像px → CSS px（cover変換）
-      const b = j.box;
-      const vL = b.x*vw, vT = b.y*vh, vWv = b.w*vw, vHv = b.h*vh;
-      const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
-      const coverScale = Math.max(sw/vw, sh/vh);
-      const offX = (sw - vw*coverScale)/2, offY = (sh - vh*coverScale)/2;
-      S.meas = {
-        l: vL*coverScale + offX, t: vT*coverScale + offY,
-        w: vWv*coverScale, h: vHv*coverScale
-      };
-      showMeasRect();
+      applyAiBox(b1); // 途中経過を表示（収束していく様子が見える）
+
+      // カメラ/AF・露出が落ち着くのを待って2回目（精度UP）
+      await new Promise(res => setTimeout(res, 450));
+      btn.textContent = '🤖 解析中… 2/2';
+      let b2 = null;
+      try{ b2 = await aiDetectBox(); }catch{}
+      if(b2) applyAiBox(b2); // 2回目が取れたら上書き（取れなければ1回目を採用）
+
       setBoxStatus(S.calSet ? '✅ 基準セット済 — AIが枠を当てました' : '⚠ 枠は当たりました。CAL-50で基準セットを', S.calSet);
       speakBox('AIが枠を当てました。ずれていたら微調整してください。');
       if(navigator.vibrate) try{ navigator.vibrate(50); }catch{}
