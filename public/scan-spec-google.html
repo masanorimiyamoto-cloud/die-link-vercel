@@ -343,10 +343,8 @@
     background:rgba(15,20,25,.5); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
   }
   .box-ctrlbar.show{ display:flex; }
-  #boxBarTop{ top:0; padding:6px 8px; }
   #boxBar{ bottom:0; padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
   .box-ctrlbar .bbrow{ display:flex; align-items:center; gap:5px; }
-  .box-ctrlbar .bblabel{ flex:0 0 24px; color:#fff; font-size:12px; font-weight:800; text-shadow:0 1px 2px #000; }
   .box-ctrlbar button{
     flex:1 1 0; min-width:0; padding:8px 2px; font-size:15px; font-weight:800;
     border:none; border-radius:7px; background:rgba(255,255,255,.92); color:#222; cursor:pointer;
@@ -356,10 +354,21 @@
   #boxBar #boxStatus{ flex:1; background:transparent; color:#fff; padding:0; font-size:12px; text-shadow:0 1px 2px #000; }
   #boxBar #boxStatus.active{ background:transparent; color:#8ff0c8; }
   #boxBar #boxRecalib{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
-  /* 横/縦サイズ行の区切り */
-  .box-ctrlbar .bbgap{ flex:0 0 18px; }
-  /* アクション4ボタンを大きく・正方形寄りに（押しやすく） */
-  #boxBar .bbactions button{ min-height:70px; font-size:16px; border-radius:11px; line-height:1.25; }
+  /* アクションボタン（AI照合）を大きく押しやすく */
+  #boxBar .bbactions button{ min-height:72px; font-size:19px; border-radius:12px; line-height:1.25; }
+  /* 判定オーバーレイ（カメラ上部に大きく表示して気づきやすく） */
+  #boxVerdict{
+    position:absolute; left:8px; right:8px; top:8px; z-index:35; display:none;
+    text-align:center; font-weight:900; font-size:30px; line-height:1.15;
+    padding:14px 12px; border-radius:14px; color:#fff; pointer-events:none;
+    box-shadow:0 6px 20px rgba(0,0,0,.45);
+  }
+  #boxVerdict.show{ display:block; animation:vpop .35s ease; }
+  #boxVerdict.ok{ background:rgba(18,184,134,.94); }
+  #boxVerdict.ng{ background:rgba(240,62,62,.95); }
+  #boxVerdict.warn{ background:rgba(245,159,0,.96); color:#3a2400; }
+  #boxVerdict .vsub{ display:block; font-size:14px; font-weight:800; margin-top:5px; opacity:.96; }
+  @keyframes vpop{ from{ transform:scale(.85); opacity:0 } to{ transform:scale(1); opacity:1 } }
 </style>
 </head>
 <body>
@@ -399,17 +408,7 @@
             <div class="mh mh-se" data-h="se"></div>
             <div id="measLabel">—</div>
           </div>
-          <div id="boxBarTop" class="box-ctrlbar">
-            <div class="bbrow">
-              <span class="bblabel">横</span>
-              <button id="boxW_m10">−10</button>
-              <button id="boxW_p10">＋10</button>
-              <span class="bbgap"></span>
-              <span class="bblabel">縦</span>
-              <button id="boxH_m10">−10</button>
-              <button id="boxH_p10">＋10</button>
-            </div>
-          </div>
+          <div id="boxVerdict"></div>
           <div id="boxBar" class="box-ctrlbar">
             <div class="bbrow">
               <span id="boxStatus">基準QR(CAL-50)を映してください</span>
@@ -447,7 +446,7 @@
           <details style="margin-top:4px;">
             <summary style="font-size:13px; font-weight:700; color:var(--text-sub); cursor:pointer;">⚙️ 設定・ヘルプ</summary>
             <div class="row" style="font-size:12px; color:var(--text-sub); margin-top:10px;">
-              ①現物全体とCAL-50が余裕で画面に収まるまでカメラを離す（真上）→ ②CAL-50を映して基準セット → ③<b>「🤖 AI照合」を押すだけ</b>（AIが 枠当て→寸法→形状→総合判定）。<br>枠がずれた時は<b>ドラッグ</b>＆上の<b>サイズボタン</b>で微調整できます。枠の上の数値が実寸(mm)。
+              ①現物全体とCAL-50が余裕で画面に収まるまでカメラを離す（真上）→ ②CAL-50を映して基準セット → ③<b>「🤖 AI照合」を押すだけ</b>（AIが 枠当て→寸法→形状→総合判定）。<br>枠がずれた時は<b>ドラッグで移動／四隅の丸ハンドルでサイズ調整</b>できます。枠の上の数値が実寸(mm)。
             </div>
             <div class="row" style="font-size:12px;">
               基準QRが無い場合 → <a href="/cal-marker.html" target="_blank" rel="noopener" style="font-weight:700;">📐 CAL-50を印刷する（1辺50mm）</a>
@@ -558,10 +557,8 @@
     boxRecOk: q('#boxRecOk'), boxRecNg: q('#boxRecNg'), boxRecMsg: q('#boxRecMsg'),
     boxRecalib: q('#boxRecalib'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
-    measRect: q('#measRect'), measLabel: q('#measLabel'),
-    boxBar: q('#boxBar'), boxBarTop: q('#boxBarTop'), boxAiAll: q('#boxAiAll'),
-    boxW_m10: q('#boxW_m10'), boxW_p10: q('#boxW_p10'),
-    boxH_m10: q('#boxH_m10'), boxH_p10: q('#boxH_p10'),
+    measRect: q('#measRect'), measLabel: q('#measLabel'), boxVerdict: q('#boxVerdict'),
+    boxBar: q('#boxBar'), boxAiAll: q('#boxAiAll'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -1169,6 +1166,13 @@
 
   function setBoxStatus(t, ok){ D.boxStatus.textContent = t; D.boxStatus.classList.toggle('active', !!ok); }
 
+  // カメラ上部の大きな判定バナー（即座に気づけるように）
+  function showVerdict(cls, main, sub){
+    D.boxVerdict.className = cls + ' show';
+    D.boxVerdict.innerHTML = esc(main) + (sub ? `<span class="vsub">${esc(sub)}</span>` : '');
+  }
+  function hideVerdict(){ D.boxVerdict.className = ''; }
+
   function applyOverlaySize(){
     if(!S.drawingReady) return;
     const ppm = S.overlayPxPerMm; // 表示時に固定したスケール（ライブ追従しない）
@@ -1267,6 +1271,7 @@
     D.boxRecalib.style.display = 'none';
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
+    hideVerdict();
     setBoxStatus('基準QR(CAL-50)を映してください', false);
     if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
   }
@@ -1307,6 +1312,7 @@
     D.boxResult.style.display='flex';
     D.boxResult.className='row ng';
     D.boxResult.innerHTML=`<div class="res-head">${head}</div><div class="res-detail">${detail}</div>`;
+    showVerdict('warn', head, '');
     if(voice) speakBox(voice);
   }
 
@@ -1343,22 +1349,6 @@
     };
   }
 
-  // 1mm分のCSS px（未校正時は概算3px）
-  function mmStep(){ return (S.pxPerMm > 0 ? S.pxPerMm : 3); }
-  const MIN_RECT = 24;
-  // 枠サイズを±1mm（中心固定）
-  function nudgeSize(dim, deltaMm){
-    if(!S.meas) return;
-    const d = mmStep() * deltaMm;
-    if(dim === 'w'){
-      const nw = Math.max(MIN_RECT, S.meas.w + d);
-      S.meas.l -= (nw - S.meas.w)/2; S.meas.w = nw;
-    }else{
-      const nh = Math.max(MIN_RECT, S.meas.h + d);
-      S.meas.t -= (nh - S.meas.h)/2; S.meas.h = nh;
-    }
-    layoutMeasRect();
-  }
   // box-detect を1回呼び、現物の正規化bbox(0..1)を返す（見つからなければ null、エラーは throw）
   async function aiDetectBox(){
     const vw = D.video.videoWidth, vh = D.video.videoHeight;
@@ -1430,6 +1420,7 @@
     const btn = D.boxAiAll, prev = btn.textContent;
     btn.disabled = true;
     D.boxResult.style.display = 'none';
+    hideVerdict();
     try{
       // 1) AIで枠（比率ゲート付き：1回目の比が登録から外れた時だけ2回目で精査）
       btn.textContent = '🤖 枠を検出中…';
@@ -1522,6 +1513,11 @@
       + `<div class="res-detail">${shapeLine}</div>`
       + dbg;
 
+    // カメラ上部に大きく判定を表示（寸法／形状の要約付き）
+    const dimS = dim ? (dim.hasCut ? (dim.ok?'寸法✅':'寸法❌') : '寸法—') : '寸法—';
+    const shapeS = shapeV ? (shapeV==='match'?'形状✅':shapeV==='mismatch'?'形状❌':'形状❔') : (shapeErr?'形状⚠':'形状—');
+    showVerdict(cls==='ok'?'ok':cls==='ng'?'ng':'warn', overall, `${dimS} ／ ${shapeS}`);
+
     speakBox(cls==='ok' ? '一致です。' : cls==='ng' ? '不一致です。' : '要確認です。');
     if(navigator.vibrate) try{ navigator.vibrate(cls==='ng' ? [80,60,80] : 70); }catch{}
   }
@@ -1562,7 +1558,8 @@
     if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
     D.boxPanel.style.display = 'block';
-    D.boxBar.classList.add('show'); D.boxBarTop.classList.add('show'); // 操作はカメラに重ねる（上=サイズ/下=実行）
+    D.boxBar.classList.add('show'); // 操作バーをカメラに重ねる
+    hideVerdict();
     D.stack.style.touchAction = 'none'; // カメラ内ドラッグでページが動かないように
     D.boxRecMsg.textContent = '';
     // 基準・測定状態をリセット
@@ -1592,7 +1589,8 @@
     S.lastMeasure = null;
     if(S.boxRaf){ cancelAnimationFrame(S.boxRaf); S.boxRaf = null; }
     D.boxPanel.style.display = 'none';
-    D.boxBar.classList.remove('show'); D.boxBarTop.classList.remove('show');
+    D.boxBar.classList.remove('show');
+    hideVerdict();
     D.stack.style.touchAction = '';
     D.boxOverlay.style.display = 'none';
     D.boxResult.style.display = 'none';
@@ -1643,10 +1641,6 @@
   D.boxRecNg.onclick     = () => recordBox('NG');
   D.boxAiAll.onclick     = () => aiAllInOne();
   D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
-  D.boxW_m10.onclick = () => nudgeSize('w', -10);
-  D.boxW_p10.onclick = () => nudgeSize('w', +10);
-  D.boxH_m10.onclick = () => nudgeSize('h', -10);
-  D.boxH_p10.onclick = () => nudgeSize('h', +10);
   D.boxCalibrate.onclick = () => calibrateWithBox();
   D.boxRecalib.onclick   = () => clearCalibration();
   // 基準の実測サイズ（印刷誤差の補正）
