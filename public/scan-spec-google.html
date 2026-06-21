@@ -1484,16 +1484,14 @@
     showMeasRect();
   }
 
-  // AIで枠を当てる：1回押すと内部で2回検出（1回目=粗く／少し待って2回目=精度UP）
-  // 人が2回押すのを自動化。カメラのピント・露出が落ち着く時間を挟むことで縦軸の精度が上がる。
+  // AIで枠を当てる：基本は1回検出。1回目の縦横比が登録(Cut_Size)から外れている時だけ
+  //   もう1回検出し、登録比に近い方を採用（無条件上書きで枠が広がる現象を防ぐ）。
   async function aiFitFrame(){
     if(!D.video.videoWidth){ return; }
     const btn = D.boxAiFit, prev = btn.textContent;
-    btn.disabled = true;
+    btn.disabled = true; btn.textContent = '🤖 解析中…';
     setBoxStatus('AIが現物を解析中…', true);
     try{
-      // 1回目（粗当て）
-      btn.textContent = '🤖 解析中… 1/2';
       const b1 = await aiDetectBox();
       if(!b1){
         boxResultError('🤖 AIが現物を見つけられませんでした',
@@ -1501,14 +1499,24 @@
         setBoxStatus(S.calSet ? '✅ 基準セット済' : '基準QR(CAL-50)を映してください', S.calSet);
         return;
       }
-      applyAiBox(b1); // 途中経過を表示（収束していく様子が見える）
+      applyAiBox(b1);
 
-      // カメラ/AF・露出が落ち着くのを待って2回目（精度UP）
-      await new Promise(res => setTimeout(res, 450));
-      btn.textContent = '🤖 解析中… 2/2';
-      let b2 = null;
-      try{ b2 = await aiDetectBox(); }catch{}
-      if(b2) applyAiBox(b2); // 2回目が取れたら上書き（取れなければ1回目を採用）
+      // 登録寸法の縦横比（向き非依存）を正解の目安に。1回目がこれから外れている時だけ精査。
+      const vw = D.video.videoWidth, vh = D.video.videoHeight;
+      const arOf = b => { const w=b.w*vw, h=b.h*vh; return Math.max(w,h)/Math.max(1, Math.min(w,h)); };
+      const tgtAR = (S.cutW && S.cutH) ? Math.max(S.cutW,S.cutH)/Math.min(S.cutW,S.cutH) : null;
+      if(tgtAR){
+        const e1 = Math.abs(arOf(b1)-tgtAR)/tgtAR;
+        if(e1 > 0.06){ // 1回目の比が登録から6%超ズレている時だけ2回目
+          btn.textContent = '🤖 微調整中…';
+          await new Promise(res => setTimeout(res, 400));
+          let b2 = null; try{ b2 = await aiDetectBox(); }catch{}
+          if(b2){
+            const e2 = Math.abs(arOf(b2)-tgtAR)/tgtAR;
+            applyAiBox(e2 < e1 ? b2 : b1); // 登録比に近い方（同等なら1回目を維持）
+          }
+        }
+      }
 
       setBoxStatus(S.calSet ? '✅ 基準セット済 — AIが枠を当てました' : '⚠ 枠は当たりました。CAL-50で基準セットを', S.calSet);
       speakBox('AIが枠を当てました。ずれていたら微調整してください。');
