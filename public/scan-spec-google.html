@@ -967,16 +967,18 @@
     try{
       await ensureCsrf();
 
-      // 並列実行
-      const pSheet = fetchSpecs(book, wc);   
-      const pDrive = findDriveFiles(book, wc); 
+      // 並列実行（図面オーバーレイ用に drive 検索の完了も待つ）
+      const pSheet = fetchSpecs(book, wc);
+      const pDrive = findDriveFiles(book, wc);
 
-      await pSheet; 
+      await Promise.allSettled([pSheet, pDrive]);
     }catch(e){
       D.errApi.textContent = e.message || e;
     }finally{
       D.loading.style.display='none';
     }
+    // 品番が取れたら自動で「半製品を照合」モードへ（作業者の手動切替を不要に）
+    setMode('box');
   }
 
   async function fetchSpecs(book, wc){
