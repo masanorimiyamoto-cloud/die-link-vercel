@@ -1,6 +1,7 @@
 // api/box-detect.js
 // 撮影画像から「抜き製品（段ボール/紙の半製品）」の外接矩形を Claude ビジョンで推定し、
 // 正規化座標(0..1)で返す。クライアントはこれをメジャー枠の初期位置に使う。
+import { callVisionJSON } from './_vision.js';
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -36,41 +37,6 @@ const DETECT_PROMPT = `この画像には、机などの上に置かれた「抜
 {"found":true,"box":{"x":0.0,"y":0.0,"w":0.0,"h":0.0},"confidence":0〜100の整数}
 見つからない場合: {"found":false}`;
 
-async function detectWithClaude(capMime, capData) {
-  const apiKey = process.env.ANTHROPIC_API_KEY || '';
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is missing');
-  const body = {
-    model: 'claude-opus-4-8',
-    max_tokens: 512,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: capMime, data: capData } },
-        { type: 'text', text: DETECT_PROMPT },
-      ],
-    }],
-  };
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`anthropic ${r.status} ${(await r.text()).slice(0, 300)}`);
-  const j = await r.json();
-  if (j.stop_reason === 'refusal') throw new Error('検出がポリシーにより拒否されました');
-  const textBlock = (j.content || []).find(b => b.type === 'text');
-  if (!textBlock) throw new Error('Claude応答に本文がありません');
-  const raw = textBlock.text || '';
-  let obj;
-  try { obj = JSON.parse(raw); }
-  catch { const m = raw.match(/\{[\s\S]*\}/); if (!m) throw new Error('Claude応答をJSONとして解釈できません'); obj = JSON.parse(m[0]); }
-  return obj;
-}
-
 function clamp01(v) { v = Number(v); if (!Number.isFinite(v)) return 0; return Math.max(0, Math.min(1, v)); }
 
 export default async function handler(req) {
@@ -95,7 +61,14 @@ export default async function handler(req) {
     const m = /^data:(image\/[a-z+]+);base64,(.*)$/i.exec(image);
     if (m) { capMime = m[1]; capData = m[2]; }
 
-    const result = await detectWithClaude(capMime, capData);
+    const result = await callVisionJSON({
+      modelKey: payload.model,
+      parts: [
+        { image: { mime: capMime, data: capData } },
+        { text: DETECT_PROMPT },
+      ],
+      maxTokens: 512,
+    });
     if (!result || result.found !== true || !result.box) {
       return json({ ok: true, found: false });
     }

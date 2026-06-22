@@ -1,5 +1,6 @@
 // api/material-match.js
-// 目の前の生地（カメラ撮影）と、Google Drive登録済みの参照画像をClaudeビジョンで照合する。
+// 目の前の生地（カメラ撮影）と、Google Drive登録済みの参照画像をAIビジョンで照合する。
+import { callVisionJSON } from './_vision.js';
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -128,47 +129,6 @@ verdict の意味:
 - "mismatch": 明らかに別の生地（色・柄・織りが違う）
 - "uncertain": 判断材料が不足、または参照画像が生地写真でない`;
 
-async function compareWithClaude(refImg, capImg) {
-  const apiKey = process.env.ANTHROPIC_API_KEY || '';
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is missing');
-  const body = {
-    model: 'claude-opus-4-8',
-    max_tokens: 1024,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: '【1枚目】登録済みの参照画像:' },
-        { type: 'image', source: { type: 'base64', media_type: refImg.mime, data: refImg.data } },
-        { type: 'text', text: '【2枚目】目の前の生地の撮影画像:' },
-        { type: 'image', source: { type: 'base64', media_type: capImg.mime, data: capImg.data } },
-        { type: 'text', text: MATCH_PROMPT },
-      ],
-    }],
-  };
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`anthropic ${r.status} ${(await r.text()).slice(0, 300)}`);
-  const j = await r.json();
-  if (j.stop_reason === 'refusal') throw new Error('照合がポリシーにより拒否されました');
-  const textBlock = (j.content || []).find(b => b.type === 'text');
-  if (!textBlock) throw new Error('Claude応答に本文がありません');
-  const raw = textBlock.text || '';
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const m = raw.match(/\{[\s\S]*\}/); // 念のためJSON部分を抽出
-    if (m) return JSON.parse(m[0]);
-    throw new Error('Claude応答をJSONとして解釈できません');
-  }
-}
-
 /* ---------- ハンドラ ---------- */
 export default async function handler(req) {
   try {
@@ -201,7 +161,17 @@ export default async function handler(req) {
     if (!ref) return json({ ok: true, found: false, error: '参照画像が見つかりません' });
 
     const refImg = await fetchImageAsBase64(token, ref.id);
-    const result = await compareWithClaude(refImg, { mime: capMime, data: capData });
+    const result = await callVisionJSON({
+      modelKey: payload.model,
+      parts: [
+        { text: '【1枚目】登録済みの参照画像:' },
+        { image: { mime: refImg.mime, data: refImg.data } },
+        { text: '【2枚目】目の前の生地の撮影画像:' },
+        { image: { mime: capMime, data: capData } },
+        { text: MATCH_PROMPT },
+      ],
+      maxTokens: 1024,
+    });
 
     return json({
       ok: true,

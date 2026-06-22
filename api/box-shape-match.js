@@ -1,6 +1,7 @@
 // api/box-shape-match.js
 // 目の前の抜き製品（カメラ撮影）と、Google Drive登録済みの図面（-zu 線画 / 展開図）を
 // Claudeビジョンで「形状」照合する。生地照合(material-match.js)の姉妹機能。
+import { callVisionJSON } from './_vision.js';
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -135,42 +136,6 @@ verdict の意味:
 - "mismatch": 明らかに別形状（フラップ配置・切り欠き・プロポーションが違う）
 - "uncertain": 判断材料が不足、または図面から形状を判別できない`;
 
-async function compareShapeWithClaude(refImg, capImg) {
-  const apiKey = process.env.ANTHROPIC_API_KEY || '';
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is missing');
-  const body = {
-    model: 'claude-opus-4-8',
-    max_tokens: 1024,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: '【1枚目】登録済みの図面（抜き型の展開図・線画）:' },
-        { type: 'image', source: { type: 'base64', media_type: refImg.mime, data: refImg.data } },
-        { type: 'text', text: '【2枚目】目の前の抜き製品の撮影画像:' },
-        { type: 'image', source: { type: 'base64', media_type: capImg.mime, data: capImg.data } },
-        { type: 'text', text: SHAPE_PROMPT },
-      ],
-    }],
-  };
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`anthropic ${r.status} ${(await r.text()).slice(0, 300)}`);
-  const j = await r.json();
-  if (j.stop_reason === 'refusal') throw new Error('照合がポリシーにより拒否されました');
-  const textBlock = (j.content || []).find(b => b.type === 'text');
-  if (!textBlock) throw new Error('Claude応答に本文がありません');
-  const raw = textBlock.text || '';
-  try { return JSON.parse(raw); }
-  catch { const m = raw.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error('Claude応答をJSONとして解釈できません'); }
-}
-
 /* ---------- ハンドラ ---------- */
 export default async function handler(req) {
   try {
@@ -202,7 +167,17 @@ export default async function handler(req) {
     if (!ref) return json({ ok: true, found: false, error: '登録図面が見つかりません' });
 
     const refImg = await fetchImageAsBase64(token, ref.id);
-    const result = await compareShapeWithClaude(refImg, { mime: capMime, data: capData });
+    const result = await callVisionJSON({
+      modelKey: payload.model,
+      parts: [
+        { text: '【1枚目】登録済みの図面（抜き型の展開図・線画）:' },
+        { image: { mime: refImg.mime, data: refImg.data } },
+        { text: '【2枚目】目の前の抜き製品の撮影画像:' },
+        { image: { mime: capMime, data: capData } },
+        { text: SHAPE_PROMPT },
+      ],
+      maxTokens: 1024,
+    });
 
     return json({
       ok: true,
