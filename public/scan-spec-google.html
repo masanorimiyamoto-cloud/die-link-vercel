@@ -1304,12 +1304,13 @@
           if(m && d.pts && d.pts.length >= 4){ cal = { mm: parseFloat(m[1]), pts: d.pts }; break; }
         }
       }catch{}
-      if(cal){
+      if(S.boxTarget === 'fabric'){
+        // 生地は色柄のみ照合。CAL-50も枠も使わない
+        setBoxStatus('🧵 生地モード：AI照合で生地柄を確認', false);
+      }else if(cal){
         drawPoly(cal.pts, '#12b886', 4, null, 0.9);
         setCalibrated(cal);
         // 図面オーバーレイはライブ追従させない（落ち着いた表示のため、表示時に一度だけ設定）
-      }else if(S.boxTarget === 'fabric'){
-        setBoxStatus('🧵 生地モード：枠を現物に合わせて AI照合', false);
       }else if(S.calSet){
         // 縮尺はQRが見えている間だけ最新。外れたら入れ直しを促す
         setBoxStatus('⚠ CAL-50を画面内に入れたまま枠を合わせてください', true);
@@ -1457,10 +1458,20 @@
     D.boxResult.style.display = 'none';
     hideVerdict();
     try{
-      // 見た目AI（生地=色柄 / 抜型=形状）は枠検出と並列で投げて時短
-      btn.textContent = fabric ? '🧵 生地を照合中…' : '🤖 照合中…';
-      setBoxStatus(fabric ? 'AIが生地と枠を照合中…' : 'AIが現物を検出中…', true);
-      const pAppr = (fabric ? aiMaterialMatch() : aiShapeDetect())
+      // 生地は「色柄のみ」照合（寸法・縦横比・枠は使わない）
+      if(fabric){
+        btn.textContent = '🧵 生地を照合中…';
+        setBoxStatus('AIが生地柄を照合中…', true);
+        const a = await aiMaterialMatch().then(v => ({ v })).catch(e => ({ err: String(e.message||e) }));
+        renderApprOnly(a.v||null, a.err||null, '生地');
+        setBoxStatus('✅ 生地照合 完了', true);
+        return;
+      }
+
+      // 見た目AI（抜型=形状）は枠検出と並列で投げて時短
+      btn.textContent = '🤖 照合中…';
+      setBoxStatus('AIが現物を検出中…', true);
+      const pAppr = aiShapeDetect()
         .then(v => ({ v })).catch(e => ({ err: String(e.message||e) }));
 
       // 1) AIで枠（比率ゲート付き：1回目の比が登録から外れた時だけ2回目で精査）
@@ -1567,6 +1578,38 @@
     if(navigator.vibrate) try{ navigator.vibrate(cls==='ng' ? [80,60,80] : 70); }catch{}
   }
 
+  // 見た目（生地色柄）のみの判定表示（寸法・比率なし）。生地モード用
+  function renderApprOnly(appr, apprErr, apprLabel){
+    apprLabel = apprLabel || '生地';
+    const apprV = (appr && appr.found !== false && appr.ok !== false) ? appr.verdict : null;
+    let overall, cls;
+    if(apprV === 'mismatch'){ overall = '❌ 不一致'; cls = 'ng'; }
+    else if(apprV === 'match'){ overall = '✅ 一致'; cls = 'ok'; }
+    else { overall = '⚠ 要確認'; cls = ''; }
+
+    let apprLine;
+    if(apprV){
+      const sL = apprV==='match'?'✅一致':apprV==='mismatch'?'❌不一致':'❔保留';
+      apprLine = `${apprLabel} ${sL}${appr.confidence!=null?`（確度${appr.confidence}）`:''}：${esc(appr.reason||'')}`;
+    }else if(apprErr){
+      apprLine = `${apprLabel}：照合エラー（${esc(apprErr)}）`;
+    }else{
+      apprLine = `${apprLabel}：登録画像が見つかりません`;
+    }
+
+    S.lastMeasure = null;
+    D.boxResult.style.display = 'flex';
+    D.boxResult.className = 'row ' + cls;
+    D.boxResult.innerHTML =
+      `<div class="res-head">${overall}</div>`
+      + `<div class="res-detail">${apprLine}</div>`;
+
+    const apprS = apprV ? (apprV==='match'?`${apprLabel}✅`:apprV==='mismatch'?`${apprLabel}❌`:`${apprLabel}❔`) : (apprErr?`${apprLabel}⚠`:`${apprLabel}—`);
+    showVerdict(cls==='ok'?'ok':cls==='ng'?'ng':'warn', overall, apprS);
+    speakBox(cls==='ok' ? '生地は一致です。' : cls==='ng' ? '生地が違います。' : '要確認です。');
+    if(navigator.vibrate) try{ navigator.vibrate(cls==='ng' ? [80,60,80] : 70); }catch{}
+  }
+
   // 登録寸法が分かっている正しい現物で系統誤差(一定倍率)を校正
   function calibrateWithBox(){
     if(!S.calSet || !S.meas){ alert('先に50mm基準をセットし、枠を現物に合わせてください'); return; }
@@ -1600,8 +1643,14 @@
     const fab = S.boxTarget === 'fabric';
     D.boxTgtFab.classList.toggle('active', fab);
     D.boxTgtDie.classList.toggle('active', !fab);
-    if(fab) setBoxStatus('🧵 生地モード：枠を現物に合わせて AI照合', false);
-    else if(!S.calSet) setBoxStatus('基準QR(CAL-50)を映してください', false);
+    if(fab){
+      // 生地は色柄のみ照合（寸法・縦横比なし）→ 枠は不要なので隠す
+      D.measRect.style.display = 'none';
+      setBoxStatus('🧵 生地モード：AI照合で生地柄を確認', false);
+    }else{
+      if(S.boxMode) showMeasRect();   // 抜型は寸法用の枠を表示
+      if(!S.calSet) setBoxStatus('基準QR(CAL-50)を映してください', false);
+    }
     if(D.measRect.style.display === 'block') layoutMeasRect();
   }
 
