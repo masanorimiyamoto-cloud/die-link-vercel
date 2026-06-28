@@ -201,6 +201,9 @@ return;
 
 ## テスト
 
+OpenCV.js の取得元は `docs.opencv.org/4.x/opencv.js`（主）＋ jsDelivr（予備）で、片方が落ちても
+フォールバックする。`docs.opencv.org/<バージョン>/opencv.js`（例 4.10.0）は存在しない（404）ので使わない。
+
 ローカルCVは**ブラウザ実機**でのみ動作（OpenCV.js/WASM）。
 `npm run dev`（vercel dev）で起動し、品番スキャン → CAL-50セット → 撮影 → 結果を確認。
 照明・距離・角度・裏表のサンプルで閾値を調整すること。

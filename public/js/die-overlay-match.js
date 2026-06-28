@@ -17,28 +17,54 @@
 // 依存: OpenCV.js（遅延ロード）。WASM が大きい(~8MB)ため、照合モードに入ったときだけ読み込む。
 // ============================================================================
 
-const OPENCV_URL = 'https://docs.opencv.org/4.10.0/opencv.js';
+// 取得元（上から順に試す）。docs.opencv.org のバージョン別パス(4.10.0等)は存在しないため
+// ローリング最新の 4.x を主、jsDelivr のバージョン固定版を予備にする。
+const OPENCV_URLS = [
+  'https://docs.opencv.org/4.x/opencv.js',
+  'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
+];
 
 let _cvReady = null;
 
-/** OpenCV.js を一度だけ遅延ロードする。複数回呼んでも同じ Promise を返す。 */
-export function ensureOpenCv() {
-  if (_cvReady) return _cvReady;
-  _cvReady = new Promise((resolve, reject) => {
-    if (window.cv && window.cv.Mat) { resolve(window.cv); return; }
+/** 1つのURLから opencv.js を読み込み、WASM初期化完了まで待つ。 */
+function loadScriptCv(url) {
+  return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = OPENCV_URL;
+    s.src = url;
     s.async = true;
     s.onload = () => {
-      // opencv.js は読み込み後に WASM 初期化が走る。onRuntimeInitialized を待つ。
       const cv = window.cv;
-      if (!cv) { reject(new Error('opencv.js の読み込みに失敗しました')); return; }
+      if (!cv) { reject(new Error('cv undefined')); return; }
       if (cv.Mat) { resolve(cv); return; }
-      cv.onRuntimeInitialized = () => resolve(cv);
+      // emscripten の初期化完了を待つ（onRuntimeInitialized ＋ ポーリング保険）
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(window.cv); } };
+      cv.onRuntimeInitialized = finish;
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        if (window.cv && window.cv.Mat) { clearInterval(iv); finish(); }
+        else if (Date.now() - t0 > 40000) { clearInterval(iv); if (!done) { done = true; reject(new Error('init timeout')); } }
+      }, 150);
     };
-    s.onerror = () => reject(new Error('opencv.js を取得できません（通信環境を確認）'));
+    s.onerror = () => { s.remove(); reject(new Error('load error')); };
     document.head.appendChild(s);
   });
+}
+
+/** OpenCV.js を一度だけ遅延ロードする。複数回呼んでも同じ Promise を返す。
+ *  1つ目のCDNが失敗（404等）したら次のCDNにフォールバックする。 */
+export function ensureOpenCv() {
+  if (_cvReady) return _cvReady;
+  _cvReady = (async () => {
+    if (window.cv && window.cv.Mat) return window.cv;
+    for (const url of OPENCV_URLS) {
+      try { return await loadScriptCv(url); }
+      catch { /* 次のCDNを試す */ }
+    }
+    throw new Error('opencv.js を取得できません（通信環境を確認）');
+  })();
+  // 失敗時は次回に再試行できるようキャッシュを破棄
+  _cvReady.catch(() => { _cvReady = null; });
   return _cvReady;
 }
 
