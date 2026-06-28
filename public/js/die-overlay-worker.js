@@ -18,10 +18,12 @@
 //   { ok:true, result:{...} } / { ok:false, error }
 // ============================================================================
 
+// どちらも wasm 内蔵の単一ファイル（別wasmのCORS問題なし）。
+// @techstark は UMD に importScripts 分岐があり worker でグローバル cv を公開、jsDelivr配信で
+// 高速・確実なので主。docs.opencv.org(標準emscriptenビルド) を予備にする。
 const OPENCV_URLS = [
-  // 公式ビルドは importScripts と相性が良い（worker チュートリアルもこの方式）
-  'https://docs.opencv.org/4.x/opencv.js',
   'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
+  'https://docs.opencv.org/4.x/opencv.js',
 ];
 
 let _cvReady = null;
