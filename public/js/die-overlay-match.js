@@ -1,414 +1,193 @@
 // public/js/die-overlay-match.js
 // ============================================================================
-// 抜型照合 新方式（ハイブリッド：クライアントCV主＋AI補助）の計算エンジン。
+// 抜型照合 新方式（ハイブリッド：クライアントCV主＋AI補助）の「メイン側コントローラ」。
 //
-// 役割:
-//   1) 登録図面(-zu 線画) と 現物の静止画 から、それぞれ「外形輪郭」を抽出する前処理
-//   2) 図面輪郭を現物輪郭へ自動位置合わせ（相似変換＋回転/反転の総当たりで IoU 最大を選ぶ）
-//   3) 一致率(%)＝重なり面積の IoU、ズレ量(mm)＝距離変換による輪郭間距離を算出
-//   4) 現物写真の上に位置合わせ済みの図面輪郭を重ねた「結果画像」を canvas に描画
+// 重いCV計算は Web Worker(die-overlay-worker.js) に丸投げし、メインスレッド（UI）は
+// 絶対に固めない。さらにハードタイムアウトで worker.terminate() するので、OpenCV.js の
+// 取得が詰まっても・計算が重すぎても、UIが固まらず確実に中断できる。
 //
-// 重要な前提:
-//   - 画像LLMは画像生成も mm 精度の位置合わせもできない。重ね合わせ画像の描画と mm 計測は
-//     すべてこのコード（幾何計算）側で行う。AIは別途「同一品番か」の意味照合に使う(_vision)。
-//   - mm 換算は CAL-50(QR/1辺50mm) 校正で得た px/mm を呼び出し側から渡してもらう。
-//     CV は「静止画を撮影したときの映像解像度」で動かし、その px/mm(pxPerMmVideo) を渡すこと。
+// このモジュールの責務:
+//   1) 画像を「読み込む前に必ず小さく縮小」してから ImageData 化（高解像度図面でのメモリ枯渇を根絶）
+//   2) Worker へ転送（ArrayBuffer transferable）して計算依頼＋タイムアウト管理
+//   3) Worker が返した輪郭点列から、現物写真の上に重ね合わせ画像を canvas 描画
 //
-// 依存: OpenCV.js（遅延ロード）。WASM が大きい(~8MB)ため、照合モードに入ったときだけ読み込む。
+// 公開API:
+//   ensureOpenCv()    … Worker を起こして OpenCV.js を先読み（初回の数十秒を「準備中」表示に使える）
+//   matchDieOverlay() … 照合本体。{ ok, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct,
+//                        verdict, overlayCanvas, reason }
 // ============================================================================
 
-// 取得元（上から順に試す）。docs.opencv.org のバージョン別パス(4.10.0等)は存在しないため
-// jsDelivr(高速・グローバルキャッシュ)を主、docs.opencv.org(やや遅い)を予備にする。
-// どちらも wasm 内蔵の単一ファイル(約10MB)なので blob 注入で動く。
-const OPENCV_URLS = [
-  'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
-  'https://docs.opencv.org/4.x/opencv.js',
-];
-const DL_TIMEOUT_MS = 90000;   // ダウンロードのタイムアウト（詰まり対策）
-const INIT_TIMEOUT_MS = 30000; // WASM初期化のタイムアウト
+const WORKER_URL = '/js/die-overlay-worker.js';
+const DEFAULT_MAX_SIDE = 800;     // 処理解像度の上限（小さいほど速い・軽い）
+const WARM_TIMEOUT_MS = 95000;    // 初回 OpenCV 取得の上限（worker内ダウンロード）
+const MATCH_TIMEOUT_MS = 20000;   // 1回の照合計算の上限
 
-let _cvReady = null;
-
-/** window.cv の WASM 初期化完了を待つ。 */
-function waitCvInit(resolve, reject) {
-  const cv = window.cv;
-  if (!cv) { reject(new Error('cv undefined')); return; }
-  if (cv.Mat) { resolve(cv); return; }
-  let done = false;
-  const finish = () => { if (!done) { done = true; resolve(window.cv); } };
-  cv.onRuntimeInitialized = finish;
-  const t0 = Date.now();
-  const iv = setInterval(() => {
-    if (window.cv && window.cv.Mat) { clearInterval(iv); finish(); }
-    else if (Date.now() - t0 > INIT_TIMEOUT_MS) { clearInterval(iv); if (!done) { done = true; reject(new Error('init timeout')); } }
-  }, 150);
+let _worker = null;
+function getWorker() {
+  if (!_worker) _worker = new Worker(WORKER_URL);
+  return _worker;
 }
+function killWorker() { if (_worker) { try { _worker.terminate(); } catch (e) {} _worker = null; } }
 
-/** fetch（AbortControllerでタイムアウト）でダウンロード → blob を script として注入。
- *  script タグ直読みと違い「ダウンロードが詰まったら確実に中断」できる。 */
-async function loadCvFromUrl(url) {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), DL_TIMEOUT_MS);
-  let blobUrl;
-  try {
-    const r = await fetch(url, { signal: ctrl.signal, cache: 'force-cache', mode: 'cors' });
-    if (!r.ok) throw new Error('http ' + r.status);
-    blobUrl = URL.createObjectURL(await r.blob());
-  } finally { clearTimeout(to); }
-  return await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = blobUrl;
-    s.onload = () => waitCvInit(resolve, reject);
-    s.onerror = () => reject(new Error('script error'));
-    document.head.appendChild(s);
+/** Worker に1往復のメッセージを投げ、タイムアウト付きで結果を待つ。
+ *  タイムアウト/例外時は worker を破棄（次回作り直し）して reject する。 */
+function runInWorker(msg, transfer, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const w = getWorker();
+    let settled = false;
+    const finish = (fn, arg) => {
+      if (settled) return; settled = true;
+      clearTimeout(to);
+      w.removeEventListener('message', onMsg);
+      w.removeEventListener('error', onErr);
+      fn(arg);
+    };
+    const to = setTimeout(() => { killWorker(); finish(reject, new Error('CV処理がタイムアウトしました（重すぎ／通信不良）')); }, timeoutMs);
+    const onMsg = (e) => {
+      const d = e.data || {};
+      if (d.ok) finish(resolve, d.result);
+      else finish(reject, new Error(d.error || 'CV worker error'));
+    };
+    const onErr = (e) => { killWorker(); finish(reject, new Error('CV worker 例外: ' + ((e && e.message) || ''))); };
+    w.addEventListener('message', onMsg);
+    w.addEventListener('error', onErr);
+    w.postMessage(msg, transfer || []);
   });
 }
 
-/** OpenCV.js を一度だけ遅延ロードする。複数回呼んでも同じ Promise を返す。
- *  1つ目のCDNが失敗/タイムアウトしたら次のCDNにフォールバックする。 */
+/** Worker を起こして OpenCV.js を先読みする（初回のみ重い）。 */
 export function ensureOpenCv() {
-  if (_cvReady) return _cvReady;
-  _cvReady = (async () => {
-    if (window.cv && window.cv.Mat) return window.cv;
-    let lastErr;
-    for (const url of OPENCV_URLS) {
-      try { return await loadCvFromUrl(url); }
-      catch (e) { lastErr = e; /* 次のCDNを試す */ }
-    }
-    throw new Error('CVライブラリを取得できませんでした（通信が不安定か初回読込に失敗）: ' + (lastErr?.message || ''));
-  })();
-  // 失敗時は次回に再試行できるようキャッシュを破棄
-  _cvReady.catch(() => { _cvReady = null; });
-  return _cvReady;
+  return runInWorker({ type: 'warm' }, [], WARM_TIMEOUT_MS);
 }
 
-// ---------------------------------------------------------------------------
-// 内部ユーティリティ
-// ---------------------------------------------------------------------------
+/* ---------- 画像前処理（必ず縮小してから ImageData 化：メモリ枯渇を根絶）---------- */
 
-/** ソース(画像/canvas/ImageData)を指定の最大辺に収まるよう縮小して RGBA Mat 化。
- *  返り値の scale は「処理画像px ÷ 元画像px」（mm換算で使う）。 */
-function readScaledMat(cv, src, maxSide) {
-  // いったん等倍で読み、必要なら縮小
-  let mat = cv.imread(src); // RGBA
-  const w = mat.cols, h = mat.rows;
-  const longSide = Math.max(w, h);
-  let scale = 1;
-  if (maxSide && longSide > maxSide) {
-    scale = maxSide / longSide;
-    const dst = new cv.Mat();
-    cv.resize(mat, dst, new cv.Size(Math.round(w * scale), Math.round(h * scale)), 0, 0, cv.INTER_AREA);
-    mat.delete();
-    mat = dst;
-  }
-  return { mat, scale };
-}
-
-/** 図面(-zu 線画)から外形輪郭(最大の外側輪郭)を抽出。線画は背景白・線黒の想定。 */
-function extractDrawingContour(cv, rgba) {
-  const gray = new cv.Mat();
-  cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
-  // 線画は二値化が安定。Otsu で反転(線=前景)させる。
-  const bin = new cv.Mat();
-  cv.threshold(gray, bin, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
-  // 線の途切れを埋めて閉領域にする
-  const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
-  cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, k);
-  const contour = largestExternalContour(cv, bin);
-  gray.delete(); bin.delete(); k.delete();
-  return contour; // cv.Mat (Nx1, CV_32SC2) もしくは null
-}
-
-/** 現物の静止画から製品シルエットの外形輪郭を抽出。 */
-function extractPhotoContour(cv, rgba) {
-  const gray = new cv.Mat();
-  cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-  // エッジ→膨張→閉じる で製品外形を太い連結成分にする
-  const edges = new cv.Mat();
-  cv.Canny(gray, edges, 60, 160);
-  const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
-  cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, k);
-  cv.dilate(edges, edges, k);
-  const contour = largestExternalContour(cv, edges);
-  gray.delete(); edges.delete(); k.delete();
-  return contour;
-}
-
-/** 二値画像から最大面積の外側輪郭を1本返す（呼び出し側で delete）。 */
-function largestExternalContour(cv, bin) {
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-  cv.findContours(bin, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  let best = null, bestArea = 0;
-  for (let i = 0; i < contours.size(); i++) {
-    const c = contours.get(i);
-    const a = cv.contourArea(c);
-    if (a > bestArea) { bestArea = a; if (best) best.delete(); best = c.clone(); }
-    c.delete();
-  }
-  contours.delete(); hierarchy.delete();
-  return best; // null の可能性あり
-}
-
-/** 輪郭点列を {x,y} 配列へ。 */
-function contourToPoints(cv, contour) {
-  const pts = [];
-  const d = contour.data32S;
-  for (let i = 0; i < d.length; i += 2) pts.push({ x: d[i], y: d[i + 1] });
-  return pts;
-}
-
-/** 点列を 1xN CV_32SC2 の輪郭 Mat へ戻す。 */
-function pointsToContour(cv, pts) {
-  const m = cv.matFromArray(pts.length, 1, cv.CV_32SC2, pts.flatMap(p => [Math.round(p.x), Math.round(p.y)]));
-  return m;
-}
-
-/** 輪郭を塗りつぶしたマスク(8UC1)を size で作る。 */
-function fillMask(cv, pts, size) {
-  const mask = cv.Mat.zeros(size.height, size.width, cv.CV_8UC1);
-  const mv = new cv.MatVector();
-  const c = pointsToContour(cv, pts);
-  mv.push_back(c);
-  cv.fillPoly(mask, mv, new cv.Scalar(255));
-  c.delete(); mv.delete();
-  return mask;
-}
-
-/** 2マスクの IoU(0..1)。 */
-function iou(cv, a, b) {
-  const inter = new cv.Mat(), uni = new cv.Mat();
-  cv.bitwise_and(a, b, inter);
-  cv.bitwise_or(a, b, uni);
-  const i = cv.countNonZero(inter), u = cv.countNonZero(uni);
-  inter.delete(); uni.delete();
-  return u > 0 ? i / u : 0;
-}
-
-/** 点列の重心と minAreaRect 相当の寸法・角度を求める。 */
-function shapeStats(cv, pts) {
-  const c = pointsToContour(cv, pts);
-  const rect = cv.minAreaRect(c);
-  c.delete();
+function srcDims(src) {
   return {
-    cx: rect.center.x, cy: rect.center.y,
-    w: rect.size.width, h: rect.size.height,
-    angle: rect.angle,
+    w: src.naturalWidth || src.videoWidth || src.width || 0,
+    h: src.naturalHeight || src.videoHeight || src.height || 0,
   };
 }
 
-/** 点列に相似変換(中心 about (cx,cy)・回転deg・スケール s・反転flipX)→平行移動(tx,ty) を適用。 */
-function transformPoints(pts, src, dst, rotDeg, flipX) {
-  const rad = rotDeg * Math.PI / 180;
-  const cos = Math.cos(rad), sin = Math.sin(rad);
-  const sx = (dst.w && src.w) ? dst.w / src.w : 1;
-  const sy = (dst.h && src.h) ? dst.h / src.h : 1;
-  const s = (sx + sy) / 2; // 相似（等方）スケール
-  return pts.map(p => {
-    let dx = (p.x - src.cx) * (flipX ? -1 : 1);
-    let dy = (p.y - src.cy);
-    // スケール
-    dx *= s; dy *= s;
-    // 回転
-    const rx = dx * cos - dy * sin;
-    const ry = dx * sin + dy * cos;
-    return { x: rx + dst.cx, y: ry + dst.cy };
-  });
+/** 現物写真を（任意で bbox 切り出し→）maxSide に縮小した canvas にし、ImageData を返す。
+ *  戻り値の k(縮小率), sx,sy(全体写真px内の切り出しオフセット) は重ね描画の座標復元に使う。 */
+function preparePhoto(photo, productBox, maxSide) {
+  const { w, h } = srcDims(photo);
+  let sx = 0, sy = 0, sw = w, sh = h;
+  if (productBox) {
+    sx = Math.max(0, Math.round(productBox.x * w));
+    sy = Math.max(0, Math.round(productBox.y * h));
+    sw = Math.min(w - sx, Math.round(productBox.w * w));
+    sh = Math.min(h - sy, Math.round(productBox.h * h));
+  }
+  if (sw < 2 || sh < 2) { sx = 0; sy = 0; sw = w; sh = h; }
+  const k = Math.min(1, maxSide / Math.max(sw, sh || 1));
+  const pw = Math.max(1, Math.round(sw * k)), ph = Math.max(1, Math.round(sh * k));
+  const c = document.createElement('canvas'); c.width = pw; c.height = ph;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(photo, sx, sy, sw, sh, 0, 0, pw, ph);
+  const img = g.getImageData(0, 0, pw, ph);
+  return { transfer: { width: pw, height: ph, buffer: img.data.buffer }, k, sx, sy };
 }
 
-// ---------------------------------------------------------------------------
-// メイン: 位置合わせ＋一致率＋mmズレ＋重ね合わせ画像
-// ---------------------------------------------------------------------------
+/** 図面を maxSide に縮小した canvas にし、ImageData を返す（位置合わせでスケールは正規化されるので絶対寸法は不問）。 */
+function prepareDrawing(drawing, maxSide) {
+  const { w, h } = srcDims(drawing);
+  const k = Math.min(1, maxSide / Math.max(w, h || 1));
+  const dw = Math.max(1, Math.round(w * k)), dh = Math.max(1, Math.round(h * k));
+  const c = document.createElement('canvas'); c.width = dw; c.height = dh;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(drawing, 0, 0, dw, dh);
+  const img = g.getImageData(0, 0, dw, dh);
+  return { width: dw, height: dh, buffer: img.data.buffer };
+}
+
+/* ---------- メイン: 照合 ---------- */
 /**
  * @param {Object} o
- * @param {CanvasImageSource|ImageData} o.photo        現物の静止画（video解像度のまま推奨）
- * @param {CanvasImageSource} o.drawing                登録図面(-zu)の HTMLImageElement
- * @param {number} o.pxPerMm                           CAL-50校正の映像px/mm（pxPerMmVideo）
- * @param {{x,y,w,h}} [o.productBox]                   現物bboxの正規化座標(0..1)。あれば切り出して精度UP
- * @param {number} [o.tolMm=10]                        合否許容差(±mm)
- * @param {number} [o.maxSide=1024]                    処理解像度の上限（速度と精度の妥協点）
- * @returns {Promise<{ok,matchPct,maxDevMm,avgDevMm,verdict,overlayCanvas,reason}>}
+ * @param {CanvasImageSource} o.photo      現物の静止画（Image/Canvas）
+ * @param {CanvasImageSource} o.drawing    登録図面(-zu)（Image/Canvas）
+ * @param {number} o.pxPerMm               CAL-50校正の px/mm（撮影画像の元解像度基準。0ならmmなし）
+ * @param {{x,y,w,h}} [o.productBox]       現物bboxの正規化座標(0..1)。背景除去に使う
+ * @param {number} [o.tolMm=10]            合否許容差(±mm)
+ * @param {number} [o.maxSide=800]         処理解像度の上限
+ * @param {number} [o.timeoutMs=20000]     計算のハードタイムアウト
  */
 export async function matchDieOverlay(o) {
-  const cv = await ensureOpenCv();
+  const maxSide = o.maxSide || DEFAULT_MAX_SIDE;
   const tolMm = o.tolMm ?? 10;
-  const maxSide = o.maxSide ?? 1024;
 
-  const trash = [];
-  const keep = (m) => { trash.push(m); return m; };
-  const cleanup = () => { for (const m of trash) { try { m.delete(); } catch {} } };
-
+  let pPrep, dPrep;
   try {
-    // --- 現物画像の読み込み（必要なら bbox で切り出し）---
-    let photoSrc = o.photo;
-    if (o.productBox) photoSrc = cropToBox(o.photo, o.productBox);
-    const { mat: photoMat, scale: photoScale } = readScaledMat(cv, photoSrc, maxSide);
-    keep(photoMat);
-    const size = { width: photoMat.cols, height: photoMat.rows };
-
-    // --- 輪郭抽出（前処理）---
-    const photoContour = extractPhotoContour(cv, photoMat);
-    if (!photoContour) { cleanup(); return failResult('現物の外形を検出できませんでした'); }
-    keep(photoContour);
-
-    const { mat: drawMat } = readScaledMat(cv, o.drawing, maxSide);
-    keep(drawMat);
-    const drawContour = extractDrawingContour(cv, drawMat);
-    if (!drawContour) { cleanup(); return failResult('図面の外形を抽出できませんでした'); }
-    keep(drawContour);
-
-    const photoPts = contourToPoints(cv, photoContour);
-    const drawPts0 = contourToPoints(cv, drawContour);
-    const photoStats = shapeStats(cv, photoPts);
-    const drawStats = shapeStats(cv, drawPts0);
-
-    const photoMask = keep(fillMask(cv, photoPts, size));
-
-    // --- 自動位置合わせ：回転(0/90/180/270)×反転 を総当たりし IoU 最大を選ぶ ---
-    // （撮影の裏表・90度回転・遠近の許容。minAreaRect ベースの相似変換で初期化）
-    let best = null;
-    for (const flipX of [false, true]) {
-      for (const rot of [0, 90, 180, 270]) {
-        // minAreaRect 角度差も加味
-        const baseRot = (photoStats.angle - drawStats.angle);
-        const moved = transformPoints(drawPts0, drawStats, photoStats, baseRot + rot, flipX);
-        const mask = fillMask(cv, moved, size);
-        const score = iou(cv, photoMask, mask);
-        if (!best || score > best.score) {
-          if (best) best.mask.delete();
-          best = { score, moved, mask, rot, flipX };
-        } else {
-          mask.delete();
-        }
-      }
-    }
-    if (!best) { cleanup(); return failResult('位置合わせに失敗しました'); }
-    keep(best.mask);
-
-    const matchPct = Math.round(best.score * 1000) / 10; // 0.1%刻み
-
-    // --- mm ズレ量：現物輪郭の距離変換を作り、位置合わせ済み図面輪郭点で距離をサンプル ---
-    // 現物輪郭線を 0、それ以外を 255 にした画像に distanceTransform → 各画素=最近傍輪郭までの距離(px)
-    const edgeImg = keep(new cv.Mat(size.height, size.width, cv.CV_8UC1, new cv.Scalar(255)));
-    drawPolyline(cv, edgeImg, photoPts, 0); // 現物輪郭を黒線(0)で描く
-    const dist = keep(new cv.Mat());
-    cv.distanceTransform(edgeImg, dist, cv.DIST_L2, 3);
-
-    // 処理px → mm 係数（縮小していれば元px換算してから mm へ）
-    // photoScale = 処理px/元px。元px = 処理px / photoScale。mm = 元px / pxPerMm。
-    const pxToMm = (photoScale > 0 && o.pxPerMm > 0) ? (1 / photoScale) / o.pxPerMm : 0;
-    // スケール非依存の基準長（現物の minAreaRect 平均辺）。CAL-50が無くてもズレを%で出せる。
-    const refLen = ((photoStats.w + photoStats.h) / 2) || 1;
-    const relTol = 0.05; // CALなし時に重ね画像へ赤点を出す相対しきい値（基準長の5%）
-
-    let sum = 0, n = 0, maxDevPx = 0;
-    const overTol = [];
-    for (const p of best.moved) {
-      const x = Math.round(p.x), y = Math.round(p.y);
-      if (x < 0 || y < 0 || x >= size.width || y >= size.height) continue;
-      const dpx = dist.floatAt(y, x);
-      sum += dpx; n++;
-      if (dpx > maxDevPx) maxDevPx = dpx;
-      const over = (pxToMm > 0) ? (dpx * pxToMm > tolMm) : (dpx / refLen > relTol);
-      if (over) overTol.push(p);
-    }
-    const avgDevMm = (pxToMm > 0 && n > 0) ? Math.round((sum / n) * pxToMm * 10) / 10 : null;
-    const maxDevMm = (pxToMm > 0) ? Math.round(maxDevPx * pxToMm * 10) / 10 : null;
-    // 現物サイズ比のズレ(%)。CAL-50なしでも出せる相対指標。
-    const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
-    const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
-
-    // --- 重ね合わせ結果画像（現物 + 位置合わせ済み図面輪郭 + 許容超え点）---
-    const overlayCanvas = renderOverlay(o.photo, o.productBox, photoScale, best.moved, overTol);
-
-    // --- 総合判定（一致率は常に有効。mmが無くてもIoUで判定できる）---
-    const verdict = decideVerdict(matchPct, maxDevMm, tolMm);
-    cleanup();
-    return {
-      ok: true,
-      matchPct,
-      maxDevMm,
-      avgDevMm,
-      maxDevPct,
-      avgDevPct,
-      verdict,
-      overlayCanvas,
-      reason: (maxDevMm != null)
-        ? `IoU一致率 ${matchPct}%・最大ズレ ${maxDevMm}mm（許容±${tolMm}mm）`
-        : `IoU一致率 ${matchPct}%・最大ズレ 約${maxDevPct}%（現物サイズ比・CALなし）`,
-    };
+    pPrep = preparePhoto(o.photo, o.productBox, maxSide);
+    dPrep = prepareDrawing(o.drawing, maxSide);
   } catch (e) {
-    cleanup();
-    return failResult('CV処理エラー: ' + (e?.message || e));
+    return failResult('画像の前処理に失敗しました: ' + ((e && e.message) || e));
   }
-}
 
-function decideVerdict(matchPct, maxDevMm, tolMm) {
-  // 一致率と最大ズレの両面で判定。閾値は現場で調整可能。
-  if (matchPct >= 85 && (maxDevMm == null || maxDevMm <= tolMm)) return 'match';
-  if (matchPct < 60) return 'mismatch';
-  return 'uncertain';
+  // CAL-50 の px/mm を「処理解像度」に換算（縮小率 k を掛ける）
+  const pxPerMmProc = (o.pxPerMm > 0) ? o.pxPerMm * pPrep.k : 0;
+
+  let res;
+  try {
+    res = await runInWorker(
+      { type: 'match', photo: pPrep.transfer, drawing: dPrep, pxPerMmProc, tolMm },
+      [pPrep.transfer.buffer, dPrep.buffer],
+      o.timeoutMs || MATCH_TIMEOUT_MS,
+    );
+  } catch (e) {
+    return failResult((e && e.message) || String(e));
+  }
+  if (!res || res.ok === false) return failResult((res && res.reason) || '照合に失敗しました');
+
+  // 重ね合わせ画像（処理座標 → 全体写真座標へ復元して描画）
+  let overlayCanvas = null;
+  try {
+    overlayCanvas = renderOverlay(o.photo, pPrep.sx, pPrep.sy, pPrep.k, res.movedPts, res.overTolPts);
+  } catch (e) { /* 画像描画失敗は数値だけ返す */ }
+
+  return {
+    ok: true,
+    matchPct: res.matchPct,
+    maxDevMm: res.maxDevMm,
+    avgDevMm: res.avgDevMm,
+    maxDevPct: res.maxDevPct,
+    avgDevPct: res.avgDevPct,
+    verdict: res.verdict,
+    reason: res.reason,
+    overlayCanvas,
+  };
 }
 
 function failResult(reason) {
   return { ok: false, matchPct: null, maxDevMm: null, avgDevMm: null, maxDevPct: null, avgDevPct: null, verdict: 'uncertain', overlayCanvas: null, reason };
 }
 
-// ---------------------------------------------------------------------------
-// 描画ヘルパ
-// ---------------------------------------------------------------------------
-
-/** 正規化bboxで元画像を切り出した canvas を返す。 */
-function cropToBox(src, box) {
-  const w = src.naturalWidth || src.videoWidth || src.width;
-  const h = src.naturalHeight || src.videoHeight || src.height;
-  const sx = Math.max(0, Math.round(box.x * w));
-  const sy = Math.max(0, Math.round(box.y * h));
-  const sw = Math.min(w - sx, Math.round(box.w * w));
-  const sh = Math.min(h - sy, Math.round(box.h * h));
-  const c = document.createElement('canvas');
-  c.width = sw; c.height = sh;
-  c.getContext('2d').drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
-  return c;
-}
-
-/** Mat に点列の折れ線を描く（color はグレースケール値）。 */
-function drawPolyline(cv, mat, pts, color) {
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i], b = pts[(i + 1) % pts.length];
-    cv.line(mat, new cv.Point(Math.round(a.x), Math.round(a.y)),
-      new cv.Point(Math.round(b.x), Math.round(b.y)), new cv.Scalar(color), 2);
-  }
-}
-
-/** 現物写真の上に、位置合わせ済み図面輪郭(処理px座標)を重ねた結果 canvas を返す。 */
-function renderOverlay(photo, productBox, photoScale, movedPts, overTolPts) {
-  const baseW = photo.naturalWidth || photo.videoWidth || photo.width;
-  const baseH = photo.naturalHeight || photo.videoHeight || photo.height;
+/* ---------- 重ね合わせ描画（メインスレッド） ---------- */
+/** 処理座標 p を 全体写真座標へ: full = offset + p / k */
+function renderOverlay(photo, sx, sy, k, movedPts, overTolPts) {
+  const { w: baseW, h: baseH } = srcDims(photo);
   const canvas = document.createElement('canvas');
   canvas.width = baseW; canvas.height = baseH;
   const g = canvas.getContext('2d');
   g.drawImage(photo, 0, 0, baseW, baseH);
 
-  // 処理px → 元px へ戻す変換（切り出し時はオフセットも戻す）
-  const offX = productBox ? productBox.x * baseW : 0;
-  const offY = productBox ? productBox.y * baseH : 0;
-  const inv = photoScale > 0 ? 1 / photoScale : 1;
-  const map = (p) => ({ x: offX + p.x * inv, y: offY + p.y * inv });
+  const inv = k > 0 ? 1 / k : 1;
+  const map = (p) => ({ x: sx + p.x * inv, y: sy + p.y * inv });
 
   // 図面輪郭（半透明グリーン）
   g.lineWidth = Math.max(2, baseW / 400);
   g.strokeStyle = 'rgba(0, 200, 80, 0.9)';
-  g.beginPath();
-  movedPts.forEach((p, i) => { const q = map(p); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); });
-  g.closePath();
-  g.stroke();
-
+  if (movedPts && movedPts.length) {
+    g.beginPath();
+    movedPts.forEach((p, i) => { const q = map(p); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); });
+    g.closePath();
+    g.stroke();
+  }
   // 許容超えの点（赤マーカー）
   g.fillStyle = 'rgba(230, 30, 30, 0.9)';
   const r = Math.max(3, baseW / 250);
-  for (const p of overTolPts) {
+  for (const p of (overTolPts || [])) {
     const q = map(p);
     g.beginPath(); g.arc(q.x, q.y, r, 0, Math.PI * 2); g.fill();
   }

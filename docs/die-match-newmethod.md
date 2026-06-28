@@ -26,11 +26,22 @@ die-link-vercel/
 │   └── box-detect.js              （継続利用：現物bbox。CVの切り出し精度UPに使う）
 ├── public/
 │   ├── js/
-│   │   ├── die-overlay-match.js   ★新規：CV計算エンジン（前処理＋位置合わせ＋IoU＋mm＋描画）
+│   │   ├── die-overlay-match.js   ★メイン側コントローラ：画像縮小→Workerへ依頼→重ね合わせ描画
+│   │   ├── die-overlay-worker.js  ★Web Worker：OpenCV.jsで輪郭抽出＋位置合わせ＋IoU＋mm（別スレッド）
 │   │   └── scan-spec-google.js    ◇要編集：旧オーバーレイUIを撤去し新方式を結線
 │   └── scan-spec-google.html      ◇要編集：半透明オーバーレイ用DOM/操作の撤去
 └── docs/die-match-newmethod.md    ★このファイル
 ```
+
+## なぜ Web Worker か（UIを固めないため）
+
+OpenCV.js は同期WASMで重く、メインスレッドで動かすと**UIが固まる**（実機で発生）。さらに
+高解像度図面を縮小前に丸ごと読み込むとメモリ枯渇でフリーズする。対策として:
+
+- **CVは Web Worker（別スレッド）で実行** → 画面は常に応答可能。OpenCV.jsの巨大DLもworker内
+- **ハードタイムアウト**（既定: 計算20秒／初回DL95秒）で `worker.terminate()` → 詰まっても確実に中断
+- **画像は読み込む前に必ず縮小**（`maxSide` 既定800px）してから Worker へ ImageData を転送
+- Worker は計算だけ行い、輪郭点列を返す。**重ね合わせ画像はメイン側で canvas 描画**（DOM不要化）
 
 ## 環境変数（既存のまま・追加不要）
 
