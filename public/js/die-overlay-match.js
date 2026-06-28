@@ -19,7 +19,7 @@
 
 const WORKER_URL = '/js/die-overlay-worker.js';
 const DEFAULT_MAX_SIDE = 800;     // 処理解像度の上限（小さいほど速い・軽い）
-const WARM_TIMEOUT_MS = 95000;    // 初回 OpenCV 取得の上限（worker内ダウンロード）
+const WARM_TIMEOUT_MS = 150000;   // 初回 OpenCV 取得の上限（worker内DL＋WASM初期化。低速端末向けに余裕）
 const MATCH_TIMEOUT_MS = 20000;   // 1回の照合計算の上限
 
 let _worker = null;

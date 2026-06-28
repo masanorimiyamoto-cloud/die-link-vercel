@@ -18,10 +18,11 @@
 //   { ok:true, result:{...} } / { ok:false, error }
 // ============================================================================
 
-// どちらも wasm 内蔵の単一ファイル（別wasmのCORS問題なし）。
-// @techstark は UMD に importScripts 分岐があり worker でグローバル cv を公開、jsDelivr配信で
-// 高速・確実なので主。docs.opencv.org(標準emscriptenビルド) を予備にする。
+// まず自サイト同梱(同一オリジン)を読む。アプリが開けている＝必ず到達でき、外部CDNの
+// 遅延/ブロック(現場回線)を回避できる。失敗時のみ外部CDNにフォールバック。
+// いずれも wasm 内蔵の単一ファイル（別wasmのCORS問題なし）で worker でグローバル cv を公開。
 const OPENCV_URLS = [
+  '/js/opencv.js',
   'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
   'https://docs.opencv.org/4.x/opencv.js',
 ];
@@ -44,7 +45,7 @@ function ensureCv() {
     const t0 = Date.now();
     const iv = setInterval(() => {
       if (typeof cv !== 'undefined' && cv.Mat) { clearInterval(iv); finish(); }
-      else if (Date.now() - t0 > 60000) { clearInterval(iv); if (!done) { done = true; reject(new Error('OpenCV 初期化タイムアウト')); } }
+      else if (Date.now() - t0 > 120000) { clearInterval(iv); if (!done) { done = true; reject(new Error('OpenCV 初期化タイムアウト')); } }
     }, 200);
   });
   return _cvReady;

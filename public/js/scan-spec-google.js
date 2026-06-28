@@ -880,8 +880,8 @@
       throw new Error('登録図面が読み込めていません（図面 -zu が未登録の可能性）');
     }
     const mod = await loadDieMatchMod();
-    // OpenCV.js(約10MB)は初回だけCDNから取得。詰まり防止のタイムアウト付き。
-    setBoxStatus('CVライブラリを準備中…（初回のみ10〜30秒）', true);
+    // OpenCV.js(約10MB)は自サイトから取得。初回だけ時間がかかり、次回からは即時。
+    setBoxStatus('CVライブラリを準備中…（初回のみ・少々お待ちください）', true);
     await mod.ensureOpenCv();
     setBoxStatus('撮影済み。スマホを動かしてOKです（自動位置合わせ中…）', true);
     const { matchDieOverlay } = mod;
