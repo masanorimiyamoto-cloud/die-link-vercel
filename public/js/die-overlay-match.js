@@ -284,6 +284,9 @@ export async function matchDieOverlay(o) {
     // 処理px → mm 係数（縮小していれば元px換算してから mm へ）
     // photoScale = 処理px/元px。元px = 処理px / photoScale。mm = 元px / pxPerMm。
     const pxToMm = (photoScale > 0 && o.pxPerMm > 0) ? (1 / photoScale) / o.pxPerMm : 0;
+    // スケール非依存の基準長（現物の minAreaRect 平均辺）。CAL-50が無くてもズレを%で出せる。
+    const refLen = ((photoStats.w + photoStats.h) / 2) || 1;
+    const relTol = 0.05; // CALなし時に重ね画像へ赤点を出す相対しきい値（基準長の5%）
 
     let sum = 0, n = 0, maxDevPx = 0;
     const overTol = [];
@@ -293,15 +296,19 @@ export async function matchDieOverlay(o) {
       const dpx = dist.floatAt(y, x);
       sum += dpx; n++;
       if (dpx > maxDevPx) maxDevPx = dpx;
-      if (pxToMm > 0 && dpx * pxToMm > tolMm) overTol.push(p);
+      const over = (pxToMm > 0) ? (dpx * pxToMm > tolMm) : (dpx / refLen > relTol);
+      if (over) overTol.push(p);
     }
     const avgDevMm = (pxToMm > 0 && n > 0) ? Math.round((sum / n) * pxToMm * 10) / 10 : null;
     const maxDevMm = (pxToMm > 0) ? Math.round(maxDevPx * pxToMm * 10) / 10 : null;
+    // 現物サイズ比のズレ(%)。CAL-50なしでも出せる相対指標。
+    const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
+    const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
 
     // --- 重ね合わせ結果画像（現物 + 位置合わせ済み図面輪郭 + 許容超え点）---
     const overlayCanvas = renderOverlay(o.photo, o.productBox, photoScale, best.moved, overTol);
 
-    // --- 総合判定 ---
+    // --- 総合判定（一致率は常に有効。mmが無くてもIoUで判定できる）---
     const verdict = decideVerdict(matchPct, maxDevMm, tolMm);
     cleanup();
     return {
@@ -309,9 +316,13 @@ export async function matchDieOverlay(o) {
       matchPct,
       maxDevMm,
       avgDevMm,
+      maxDevPct,
+      avgDevPct,
       verdict,
       overlayCanvas,
-      reason: `IoU一致率 ${matchPct}%・最大ズレ ${maxDevMm ?? '—'}mm（許容±${tolMm}mm）`,
+      reason: (maxDevMm != null)
+        ? `IoU一致率 ${matchPct}%・最大ズレ ${maxDevMm}mm（許容±${tolMm}mm）`
+        : `IoU一致率 ${matchPct}%・最大ズレ 約${maxDevPct}%（現物サイズ比・CALなし）`,
     };
   } catch (e) {
     cleanup();
@@ -327,7 +338,7 @@ function decideVerdict(matchPct, maxDevMm, tolMm) {
 }
 
 function failResult(reason) {
-  return { ok: false, matchPct: null, maxDevMm: null, avgDevMm: null, verdict: 'uncertain', overlayCanvas: null, reason };
+  return { ok: false, matchPct: null, maxDevMm: null, avgDevMm: null, maxDevPct: null, avgDevPct: null, verdict: 'uncertain', overlayCanvas: null, reason };
 }
 
 // ---------------------------------------------------------------------------

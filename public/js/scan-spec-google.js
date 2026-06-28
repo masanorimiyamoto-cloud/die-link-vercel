@@ -721,7 +721,7 @@
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
     hideVerdict();
-    setBoxStatus('基準QR(CAL-50)を映してください', false);
+    setBoxStatus('そのまま🤖AI照合でOK（mmを出す時だけCAL-50）', false);
     if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
   }
 
@@ -755,7 +755,7 @@
         // 縮尺はQRが見えている間だけ最新。外れたら入れ直しを促す
         setBoxStatus('⚠ CAL-50を画面内に入れたまま枠を合わせてください', true);
       }else{
-        setBoxStatus('基準QR(CAL-50)を映してください', false);
+        setBoxStatus('そのまま🤖AI照合でOK（mmを出す時だけCAL-50）', false);
       }
     }
     S.boxRaf = requestAnimationFrame(boxTick);
@@ -915,7 +915,9 @@
     const overall = cv.verdict==='match' ? '✅ 一致' : cv.verdict==='mismatch' ? '❌ 不一致' : '⚠ 要確認';
     const mmLine = (cv.maxDevMm != null)
       ? `最大ズレ ${cv.maxDevMm}mm／平均 ${cv.avgDevMm ?? '—'}mm（許容±${S.tolMm||10}mm）`
-      : (pxPerMm > 0 ? 'mm算出不可（輪郭が取れませんでした）' : 'CAL-50未設定のためmmは表示できません（一致率のみ）');
+      : (cv.maxDevPct != null
+          ? `最大ズレ 約${cv.maxDevPct}％／平均 約${cv.avgDevPct ?? '—'}％（現物サイズ比・CAL-50なし）`
+          : (pxPerMm > 0 ? 'ズレ算出不可（輪郭が取れませんでした）' : 'CAL-50なし：一致率のみ'));
 
     const apprV = (ai && ai.found !== false && ai.ok !== false && !ai._err) ? ai.verdict : null;
     let aiLine;
@@ -1064,7 +1066,7 @@
       setBoxStatus('🧵 生地モード：AI照合で生地柄を確認', false);
     }else{
       if(S.boxMode) showMeasRect();   // 抜型は寸法用の枠を表示
-      if(!S.calSet) setBoxStatus('基準QR(CAL-50)を映してください', false);
+      if(!S.calSet) setBoxStatus('そのまま🤖AI照合でOK（mmを出す時だけCAL-50）', false);
     }
     if(D.measRect.style.display === 'block') layoutMeasRect();
   }
