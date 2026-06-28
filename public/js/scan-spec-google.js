@@ -823,12 +823,15 @@
     return { dataUrl: cv.toDataURL('image/jpeg', 0.85), vw, vh, cw, ch };
   }
 
+  // fetch のタイムアウト用 AbortSignal（非対応ブラウザは undefined を返す）
+  function abortAfter(ms){ try{ return AbortSignal.timeout(ms); }catch{ return undefined; } }
+
   // box-detect を1回呼び、現物の正規化bbox(0..1)を返す（見つからなければ null、エラーは throw）
   async function aiDetectBox(frame){
     if(!frame) return null;
     await ensureCsrf();
     const r = await fetch('/api/box-detect', {
-      method:'POST', credentials:'same-origin', cache:'no-store',
+      method:'POST', credentials:'same-origin', cache:'no-store', signal: abortAfter(45000),
       headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
       body: JSON.stringify({ image: frame.dataUrl, book: S.current.book, wc: S.current.wc, model: S.aiModel }),
     });
@@ -842,7 +845,7 @@
     if(!frame) throw new Error('撮影画像を取得できませんでした');
     await ensureCsrf();
     const r = await fetch(endpoint, {
-      method:'POST', credentials:'same-origin', cache:'no-store',
+      method:'POST', credentials:'same-origin', cache:'no-store', signal: abortAfter(45000),
       headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
       body: JSON.stringify(Object.assign(
         { image: frame.dataUrl, book: S.current.book, wc: S.current.wc, model: S.aiModel },
@@ -876,8 +879,12 @@
     if(!S.drawingReady || !D.boxOverlay.naturalWidth){
       throw new Error('登録図面が読み込めていません（図面 -zu が未登録の可能性）');
     }
+    const mod = await loadDieMatchMod();
+    // OpenCV.js(約10MB)は初回だけCDNから取得。詰まり防止のタイムアウト付き。
+    setBoxStatus('CVライブラリを準備中…（初回のみ10〜30秒）', true);
+    await mod.ensureOpenCv();
     setBoxStatus('撮影済み。スマホを動かしてOKです（自動位置合わせ中…）', true);
-    const { matchDieOverlay } = await loadDieMatchMod();
+    const { matchDieOverlay } = mod;
     const photo = await frameToImage(frame);
 
     // 撮影画像はvideo解像度から縮小されているので px/mm も同率で補正（calFactorも反映）

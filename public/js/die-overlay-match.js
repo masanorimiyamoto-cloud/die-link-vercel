@@ -18,50 +18,64 @@
 // ============================================================================
 
 // 取得元（上から順に試す）。docs.opencv.org のバージョン別パス(4.10.0等)は存在しないため
-// ローリング最新の 4.x を主、jsDelivr のバージョン固定版を予備にする。
+// jsDelivr(高速・グローバルキャッシュ)を主、docs.opencv.org(やや遅い)を予備にする。
+// どちらも wasm 内蔵の単一ファイル(約10MB)なので blob 注入で動く。
 const OPENCV_URLS = [
-  'https://docs.opencv.org/4.x/opencv.js',
   'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
+  'https://docs.opencv.org/4.x/opencv.js',
 ];
+const DL_TIMEOUT_MS = 90000;   // ダウンロードのタイムアウト（詰まり対策）
+const INIT_TIMEOUT_MS = 30000; // WASM初期化のタイムアウト
 
 let _cvReady = null;
 
-/** 1つのURLから opencv.js を読み込み、WASM初期化完了まで待つ。 */
-function loadScriptCv(url) {
-  return new Promise((resolve, reject) => {
+/** window.cv の WASM 初期化完了を待つ。 */
+function waitCvInit(resolve, reject) {
+  const cv = window.cv;
+  if (!cv) { reject(new Error('cv undefined')); return; }
+  if (cv.Mat) { resolve(cv); return; }
+  let done = false;
+  const finish = () => { if (!done) { done = true; resolve(window.cv); } };
+  cv.onRuntimeInitialized = finish;
+  const t0 = Date.now();
+  const iv = setInterval(() => {
+    if (window.cv && window.cv.Mat) { clearInterval(iv); finish(); }
+    else if (Date.now() - t0 > INIT_TIMEOUT_MS) { clearInterval(iv); if (!done) { done = true; reject(new Error('init timeout')); } }
+  }, 150);
+}
+
+/** fetch（AbortControllerでタイムアウト）でダウンロード → blob を script として注入。
+ *  script タグ直読みと違い「ダウンロードが詰まったら確実に中断」できる。 */
+async function loadCvFromUrl(url) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), DL_TIMEOUT_MS);
+  let blobUrl;
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, cache: 'force-cache', mode: 'cors' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    blobUrl = URL.createObjectURL(await r.blob());
+  } finally { clearTimeout(to); }
+  return await new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = url;
-    s.async = true;
-    s.onload = () => {
-      const cv = window.cv;
-      if (!cv) { reject(new Error('cv undefined')); return; }
-      if (cv.Mat) { resolve(cv); return; }
-      // emscripten の初期化完了を待つ（onRuntimeInitialized ＋ ポーリング保険）
-      let done = false;
-      const finish = () => { if (!done) { done = true; resolve(window.cv); } };
-      cv.onRuntimeInitialized = finish;
-      const t0 = Date.now();
-      const iv = setInterval(() => {
-        if (window.cv && window.cv.Mat) { clearInterval(iv); finish(); }
-        else if (Date.now() - t0 > 40000) { clearInterval(iv); if (!done) { done = true; reject(new Error('init timeout')); } }
-      }, 150);
-    };
-    s.onerror = () => { s.remove(); reject(new Error('load error')); };
+    s.src = blobUrl;
+    s.onload = () => waitCvInit(resolve, reject);
+    s.onerror = () => reject(new Error('script error'));
     document.head.appendChild(s);
   });
 }
 
 /** OpenCV.js を一度だけ遅延ロードする。複数回呼んでも同じ Promise を返す。
- *  1つ目のCDNが失敗（404等）したら次のCDNにフォールバックする。 */
+ *  1つ目のCDNが失敗/タイムアウトしたら次のCDNにフォールバックする。 */
 export function ensureOpenCv() {
   if (_cvReady) return _cvReady;
   _cvReady = (async () => {
     if (window.cv && window.cv.Mat) return window.cv;
+    let lastErr;
     for (const url of OPENCV_URLS) {
-      try { return await loadScriptCv(url); }
-      catch { /* 次のCDNを試す */ }
+      try { return await loadCvFromUrl(url); }
+      catch (e) { lastErr = e; /* 次のCDNを試す */ }
     }
-    throw new Error('opencv.js を取得できません（通信環境を確認）');
+    throw new Error('CVライブラリを取得できませんでした（通信が不安定か初回読込に失敗）: ' + (lastErr?.message || ''));
   })();
   // 失敗時は次回に再試行できるようキャッシュを破棄
   _cvReady.catch(() => { _cvReady = null; });
