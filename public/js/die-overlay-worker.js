@@ -28,15 +28,17 @@ const OPENCV_URLS = [
 ];
 
 let _cvReady = null;
-function ensureCv() {
+// cvUrl が渡されればそれ（メインがDL済みの blob URL）を最優先。無ければ従来のCDN。
+function ensureCv(cvUrl) {
   if (_cvReady) return _cvReady;
   _cvReady = new Promise((resolve, reject) => {
+    const urls = cvUrl ? [cvUrl, ...OPENCV_URLS] : OPENCV_URLS.slice();
     let loaded = false;
-    for (const url of OPENCV_URLS) {
+    for (const url of urls) {
       try { importScripts(url); if (typeof cv !== 'undefined') { loaded = true; break; } }
-      catch (e) { /* 次のCDNを試す */ }
+      catch (e) { /* 次の経路を試す */ }
     }
-    if (!loaded || typeof cv === 'undefined') { reject(new Error('OpenCV.js を読み込めません')); return; }
+    if (!loaded || typeof cv === 'undefined') { reject(new Error('OpenCV.js を読み込めません(importScripts失敗)')); return; }
     if (cv.Mat) { resolve(cv); return; }
     // WASM 初期化待ち（onRuntimeInitialized ＋ ポーリング保険）
     let done = false;
@@ -54,7 +56,7 @@ function ensureCv() {
 self.onmessage = async (e) => {
   const msg = e.data || {};
   try {
-    await ensureCv();
+    await ensureCv(msg.cvUrl);
     if (msg.type === 'warm') { self.postMessage({ ok: true, result: 'warm' }); return; }
     if (msg.type === 'match') { self.postMessage({ ok: true, result: runMatch(msg) }); return; }
     self.postMessage({ ok: false, error: 'unknown message type' });

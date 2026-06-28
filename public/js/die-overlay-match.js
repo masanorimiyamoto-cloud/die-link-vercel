@@ -18,7 +18,7 @@
 // ============================================================================
 
 const WORKER_URL = '/js/die-overlay-worker.js';
-const DEFAULT_MAX_SIDE = 800;     // 処理解像度の上限（小さいほど速い・軽い）
+const DEFAULT_MAX_SIDE = 480;     // 処理解像度の上限（小さいほど速い・軽い。iOSメモリ対策）
 const WARM_TIMEOUT_MS = 150000;   // 初回 OpenCV 取得の上限（worker内DL＋WASM初期化。低速端末向けに余裕）
 const MATCH_TIMEOUT_MS = 20000;   // 1回の照合計算の上限
 
@@ -55,9 +55,55 @@ function runInWorker(msg, transfer, timeoutMs) {
   });
 }
 
-/** Worker を起こして OpenCV.js を先読みする（初回のみ重い）。 */
-export function ensureOpenCv() {
-  return runInWorker({ type: 'warm' }, [], WARM_TIMEOUT_MS);
+/* ---------- OpenCV.js の取得（進捗を画面に出すためメイン側でDL）---------- */
+const CV_SOURCES = [
+  '/js/opencv.js',
+  'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
+];
+let _cvBlobUrl = null;   // ダウンロード済み opencv.js の blob URL（Workerへ渡す）
+let _warmed = false;
+
+/** opencv.js を進捗付きでダウンロードし blob URL を返す。onStatus(文字列) に進捗を通知。 */
+async function downloadCv(onStatus) {
+  if (_cvBlobUrl) return _cvBlobUrl;
+  let lastErr;
+  for (const url of CV_SOURCES) {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 120000);
+      const r = await fetch(url, { signal: ctrl.signal, cache: 'force-cache' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const total = Number(r.headers.get('content-length') || 0);
+      const reader = r.body.getReader();
+      const chunks = []; let received = 0; let lastPct = -1;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); received += value.length;
+        if (onStatus) {
+          if (total) {
+            const pct = Math.round(received / total * 100);
+            if (pct !== lastPct) { lastPct = pct; onStatus(`CVライブラリを取得中… ${pct}%`); }
+          } else {
+            onStatus(`CVライブラリを取得中… ${(received / 1048576).toFixed(1)}MB`);
+          }
+        }
+      }
+      clearTimeout(to);
+      _cvBlobUrl = URL.createObjectURL(new Blob(chunks, { type: 'text/javascript' }));
+      return _cvBlobUrl;
+    } catch (e) { lastErr = e; if (onStatus) onStatus('別経路でCV取得を再試行中…'); }
+  }
+  throw new Error('CVライブラリの取得に失敗: ' + ((lastErr && lastErr.message) || ''));
+}
+
+/** OpenCV.js を先読み（DLはメインで進捗表示、初期化はWorkerで）。onStatus に進捗通知。 */
+export async function ensureOpenCv(onStatus) {
+  if (_warmed) return;
+  const cvUrl = await downloadCv(onStatus);
+  if (onStatus) onStatus('CVライブラリを初期化中…');
+  await runInWorker({ type: 'warm', cvUrl }, [], WARM_TIMEOUT_MS);
+  _warmed = true;
 }
 
 /* ---------- 画像前処理（必ず縮小してから ImageData 化：メモリ枯渇を根絶）---------- */
@@ -131,7 +177,7 @@ export async function matchDieOverlay(o) {
   let res;
   try {
     res = await runInWorker(
-      { type: 'match', photo: pPrep.transfer, drawing: dPrep, pxPerMmProc, tolMm },
+      { type: 'match', cvUrl: _cvBlobUrl || undefined, photo: pPrep.transfer, drawing: dPrep, pxPerMmProc, tolMm },
       [pPrep.transfer.buffer, dPrep.buffer],
       o.timeoutMs || MATCH_TIMEOUT_MS,
     );
