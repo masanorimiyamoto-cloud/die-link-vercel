@@ -1,17 +1,6 @@
-// api/die-align-verify.js
-// ============================================================================
-// 抜型照合 新方式の「AI補助」エンドポイント。
-//
-// 位置合わせ・一致率・mmズレの算出はクライアント側CV(die-overlay-match.js)が担当する。
-// このエンドポイントは LLM が得意な「意味照合」だけを担う:
-//   (A) 図面(-zu) と 現物の静止画 が同一品番の形状か（match/mismatch/uncertain）
-//   (B) クライアントCVの計測値(matchPct/maxDevMm)を渡された場合、その妥当性を一言で講評
-//
-// ※ 画像LLMは画像生成も mm精度の位置合わせもできないため、ここでは数値計測は行わない。
-//   重ね合わせ画像と mm計測はクライアントCVの責務。本関数はあくまで二重チェック/フォールバック。
-//
-// セキュリティ・Drive取得は box-shape-match.js / material-match.js と同方式。
-// ============================================================================
+// api/box-shape-match.js
+// 目の前の抜き製品（カメラ撮影）と、Google Drive登録済みの図面（-zu 線画 / 展開図）を
+// Claudeビジョンで「形状」照合する。生地照合(material-match.js)の姉妹機能。
 import { callVisionJSON } from './_vision.js';
 export const config = { runtime: 'edge' };
 
@@ -22,7 +11,7 @@ function json(body, status = 200) {
   });
 }
 
-/* ---------- 共通ユーティリティ（box-shape-match.js と同方式） ---------- */
+/* ---------- 共通ユーティリティ（material-match.js と同方式） ---------- */
 function bytesToBase64(bytes) {
   let s = '';
   const CHUNK = 0x8000;
@@ -106,6 +95,7 @@ async function findReferenceDrawing(token, book, wc) {
   const all = (await r.json()).files || [];
   const cands = all.filter(f => isZu(f.name) || isSi(f.name) || isOld(f.name));
   if (!cands.length) return null;
+  // 形状照合は線画(-zu)が最良 → zu > si > old
   const pri = (n) => isZu(n) ? 1 : isSi(n) ? 2 : isOld(n) ? 3 : 9;
   cands.sort((a, b) => pri(a.name) - pri(b.name));
   return cands[0];
@@ -120,14 +110,10 @@ async function fetchImageAsBase64(token, fileId) {
   return { mime, data: bytesToBase64(bytes) };
 }
 
-/* ---------- AIプロンプト（意味照合＋CV計測値の講評） ---------- */
-function buildPrompt(cv) {
-  const cvLine = cv && (cv.matchPct != null || cv.maxDevMm != null)
-    ? `\n参考: 別途のCV(コンピュータビジョン)計測では「一致率 ${cv.matchPct ?? '—'}%・最大ズレ ${cv.maxDevMm ?? '—'}mm」でした。この数値が形状の見た目と整合するかも踏まえて講評してください。`
-    : '';
-  return `あなたは製造現場の抜き製品（段ボール／紙箱の半製品）の形状照合アシスタントです。
-1枚目は「登録済みの図面（抜き型の展開図・線画）」、2枚目は「作業者が目の前の抜き製品を撮影した静止画」です。
-2枚が同じ品番の製品形状かを、形の観点だけで判定してください。
+/* ---------- Claudeビジョン形状照合 ---------- */
+const SHAPE_PROMPT = `あなたは製造現場の抜き製品（段ボール／紙箱の半製品）の形状照合アシスタントです。
+1枚目は「登録済みの図面（抜き型の展開図・線画のことが多い）」、2枚目は「作業者が目の前の抜き製品をスマホで撮影した画像」です。
+2枚が同じ品番の製品か、形状の観点で見比べて判定してください。
 
 見るべき点（形が一致するか）:
 - 全体のプロポーション（縦横比）と外形のシルエット
@@ -138,8 +124,9 @@ function buildPrompt(cv) {
 許容する差（違いとみなさない）:
 - 撮影の歪み・遠近・回転・裏表・照明・影
 - 図面は線画／現物は実物なので、色・材質・印刷の有無は無視する
-- 図面の寸法線・文字・タイトル枠は製品形状ではないので無視する
-${cvLine}
+- 図面に寸法線・文字・タイトル枠が入っていても、それは製品形状ではないので無視する
+
+確信が持てない、または図面が形状を判別できる内容でない場合は uncertain とすること。
 
 回答は次のJSONオブジェクト「のみ」を出力（前後に文章やマークダウンを付けない）:
 {"verdict":"match|mismatch|uncertain","confidence":0〜100の整数,"reason":"日本語30〜80字"}
@@ -148,7 +135,6 @@ verdict の意味:
 - "match": 同じ品番の製品形状とみてよい
 - "mismatch": 明らかに別形状（フラップ配置・切り欠き・プロポーションが違う）
 - "uncertain": 判断材料が不足、または図面から形状を判別できない`;
-}
 
 /* ---------- ハンドラ ---------- */
 export default async function handler(req) {
@@ -168,8 +154,7 @@ export default async function handler(req) {
     const payload = await req.json().catch(() => ({}));
     const book = (payload.book || '').trim();
     const wc = normalizeWc(payload.wc || '');
-    const image = payload.image || '';      // 現物の静止画（data URL もしくは生base64）
-    const cvResult = payload.cv || null;    // クライアントCVの計測値 {matchPct,maxDevMm,avgDevMm}（任意）
+    const image = payload.image || '';
     if (!book || !wc) return json({ ok: false, error: 'missing book/wc' }, 400);
     if (!image) return json({ ok: false, error: 'missing image' }, 400);
 
@@ -187,9 +172,9 @@ export default async function handler(req) {
       parts: [
         { text: '【1枚目】登録済みの図面（抜き型の展開図・線画）:' },
         { image: { mime: refImg.mime, data: refImg.data } },
-        { text: '【2枚目】目の前の抜き製品の静止画:' },
+        { text: '【2枚目】目の前の抜き製品の撮影画像:' },
         { image: { mime: capMime, data: capData } },
-        { text: buildPrompt(cvResult) },
+        { text: SHAPE_PROMPT },
       ],
       maxTokens: 1024,
     });

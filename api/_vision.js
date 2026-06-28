@@ -1,6 +1,6 @@
 // api/_vision.js
 // Claude(Anthropic) / GPT(OpenAI) を切り替えてビジョンJSON照合を行う共通層。
-// box-detect / die-align-verify / material-match が共有する。
+// box-detect / box-shape-match / material-match が共有する。
 // parts: 順序付き配列。各要素は { text } または { image:{ mime, data(base64) } }。
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
