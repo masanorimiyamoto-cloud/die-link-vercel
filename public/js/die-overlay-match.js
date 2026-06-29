@@ -57,27 +57,69 @@ async function downloadCv(onStatus) {
   throw new Error('CVライブラリの取得に失敗: ' + ((lastErr && lastErr.message) || ''));
 }
 
-/** メインスレッドに opencv.js を読み込み、WASM初期化完了まで待つ（非同期＝画面は固まらない）。 */
-function loadCvScript(blobUrl) {
+/**
+ * メインスレッドに opencv.js を読み込み、WASM初期化完了まで待つ（非同期＝画面は固まらない）。
+ * iOSで「初期化中のまま停止」する真因（メモリ不足のabort/例外/未処理reject）を取りこぼさず
+ * 早期に reject する。失敗理由を文字列で返すので、画面に出せば実機で原因が分かる。
+ */
+function loadCvScript(blobUrl, onStatus) {
   return new Promise((resolve, reject) => {
     if (window.cv && window.cv.Mat) { resolve(window.cv); return; }
+
+    let done = false;
+    let captured = '';   // 初期化中に飛んできた実エラー（abort/例外/reject）
+
+    const fail = (msg) => {
+      if (done) return; done = true;
+      cleanup();
+      reject(new Error(msg + (captured ? `（詳細: ${captured}）` : '')));
+    };
+    const finish = () => {
+      if (done) return; done = true;
+      cleanup();
+      resolve(window.cv);
+    };
+
+    // 初期化フェーズ中だけ、グローバルの例外/未処理rejectを横取りして真因を握る
+    const onErr = (ev) => {
+      const m = (ev && (ev.message || (ev.error && ev.error.message))) || '';
+      if (/opencv|wasm|memory|abort|RuntimeError|table|Cannot enlarge/i.test(m)) captured = m;
+    };
+    const onRej = (ev) => {
+      const r = ev && ev.reason;
+      const m = (r && (r.message || String(r))) || '';
+      if (m) captured = m;
+    };
+    const cleanup = () => {
+      clearInterval(iv);
+      window.removeEventListener('error', onErr, true);
+      window.removeEventListener('unhandledrejection', onRej);
+    };
+    window.addEventListener('error', onErr, true);
+    window.addEventListener('unhandledrejection', onRej);
+
     const s = document.createElement('script');
     s.src = blobUrl; s.async = true;
     s.onload = () => {
       const cv = window.cv;
-      if (!cv) { reject(new Error('cv undefined')); return; }
-      if (cv.Mat) { resolve(cv); return; }
-      let done = false;
-      const finish = () => { if (!done) { done = true; resolve(window.cv); } };
+      if (!cv) { fail('cv undefined（opencv.js の評価に失敗）'); return; }
+      if (cv.Mat) { finish(); return; }
+      // 初期化完了フック。abort（メモリ不足等）も拾えるよう onAbort を上書き
       try { cv.onRuntimeInitialized = finish; } catch (e) {}
-      const t0 = Date.now();
-      const iv = setInterval(() => {
-        if (window.cv && window.cv.Mat) { clearInterval(iv); finish(); }
-        else if (Date.now() - t0 > INIT_TIMEOUT_MS) { clearInterval(iv); if (!done) { done = true; reject(new Error('OpenCV初期化タイムアウト')); } }
-      }, 100);
+      try { cv.onAbort = (what) => { captured = String(what || 'abort'); fail('OpenCV初期化が中断（abort）'); }; } catch (e) {}
     };
-    s.onerror = () => reject(new Error('opencv.js のスクリプト読み込み失敗'));
+    s.onerror = () => fail('opencv.js のスクリプト読み込み失敗');
     document.head.appendChild(s);
+
+    // ポーリング: Mat出現で成功 / 捕捉済みエラーがあれば即失敗 / 上限で打ち切り
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (window.cv && window.cv.Mat) { finish(); return; }
+      if (captured) { fail('OpenCV初期化エラー'); return; }
+      const sec = Math.round((Date.now() - t0) / 1000);
+      if (onStatus && sec > 0) onStatus(`CVライブラリを初期化中…（${sec}秒）`);
+      if (Date.now() - t0 > INIT_TIMEOUT_MS) fail('OpenCV初期化タイムアウト（WASMが応答しません。端末メモリ不足の可能性）');
+    }, 250);
   });
 }
 
@@ -86,7 +128,7 @@ export async function ensureOpenCv(onStatus) {
   if (_cv) return _cv;
   const blobUrl = await downloadCv(onStatus);
   if (onStatus) onStatus('CVライブラリを初期化中…');
-  _cv = await loadCvScript(blobUrl);
+  _cv = await loadCvScript(blobUrl, onStatus);
   return _cv;
 }
 
