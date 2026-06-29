@@ -323,9 +323,10 @@
   #boxResult.ok .res-head{ color:var(--ok); }
   #boxResult.ng .res-head{ color:var(--ng); }
   #boxResult .res-detail{ font-size:13px; color:var(--text); }
-  /* 手動メジャー枠 */
-  #measRect{ position:absolute; display:none; z-index:25; border:2px solid #f59f00;
-    background:rgba(245,159,0,.10); touch-action:none; cursor:move; }
+  /* 手動メジャー枠は現在使用しない。旧JSがdisplay:blockを設定しても復活させない */
+  #measRect{ position:absolute; display:none !important; pointer-events:none !important;
+    z-index:25; border:2px solid #f59f00;
+    background:rgba(245,159,0,.10); touch-action:none; cursor:default; }
   #measRect .mh{ position:absolute; width:30px; height:30px; border-radius:50%;
     background:rgba(245,159,0,.95); border:2px solid #fff; touch-action:none;
     box-shadow:0 1px 4px rgba(0,0,0,.45); }
@@ -366,10 +367,6 @@
   #boxBar .bboverlay{ gap:6px; }
   #boxBar #boxOvToggle{ flex:1 1 0; min-height:0; padding:8px 4px; font-size:14px; background:rgba(255,255,255,.22); color:#fff; border:1px solid rgba(255,255,255,.4); }
   #boxBar #boxOvToggle.bbprimary{ background:var(--primary); color:#fff; border-color:var(--primary); }
-  #boxBar #boxOvControls{ display:none; flex:2 1 0; align-items:center; gap:6px; }
-  #boxBar #boxOvControls.show{ display:flex; }
-  #boxBar #boxOvControls input[type=range]{ flex:1; min-width:60px; }
-  #boxBar #boxOvControls button{ flex:0 0 auto; min-height:0; padding:7px 8px; font-size:13px; background:rgba(255,255,255,.85); }
   /* 判定オーバーレイ（カメラ上部に大きく表示して気づきやすく） */
   #boxVerdict{
     position:absolute; left:8px; right:8px; top:8px; z-index:35; display:none;
@@ -437,11 +434,6 @@
             </div>
             <div class="bbrow bboverlay">
               <button id="boxOvToggle" type="button">🖼 図面を重ねる</button>
-              <span id="boxOvControls">
-                <input id="boxOpacity" type="range" min="15" max="100" value="85" aria-label="透明度">
-                <button id="boxRotate" type="button">⟳90°</button>
-                <button id="boxReset" type="button">中央</button>
-              </span>
             </div>
           </div>
         </div>

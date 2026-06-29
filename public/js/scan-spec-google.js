@@ -19,8 +19,7 @@
     boxBar: q('#boxBar'), boxAiAll: q('#boxAiAll'),
     boxTgtDie: q('#boxTgtDie'), boxTgtFab: q('#boxTgtFab'), boxModel: q('#boxModel'),
     // 図面オーバーレイ（人の目で重ねる目視確認）
-    boxOvToggle: q('#boxOvToggle'), boxOvControls: q('#boxOvControls'),
-    boxOpacity: q('#boxOpacity'), boxRotate: q('#boxRotate'), boxReset: q('#boxReset'),
+    boxOvToggle: q('#boxOvToggle'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -710,8 +709,7 @@
       S.calSet = true;
       setBoxStatus(`✅ セットしました（${refMm}mm基準 / ${S.pxPerMmVideo.toFixed(2)} px/mm）`, true);
       if(navigator.vibrate) try{ navigator.vibrate(80); }catch{}
-      speakBox('基準をセットしました。オレンジ枠を現物に合わせてください。');
-      showMeasRect();
+      speakBox('基準をセットしました。');
     }
     if(D.measRect.style.display === 'block') layoutMeasRect(); // ライブ実寸を更新
   }
@@ -1096,7 +1094,6 @@
       D.measRect.style.display = 'none';
       setBoxStatus('🧵 生地モード：AI照合で生地柄を確認', false);
     }else{
-      if(S.boxMode) showMeasRect();   // 抜型は寸法用の枠を表示
       if(!S.calSet) setBoxStatus('そのまま🤖AI照合でOK（mmを出す時だけCAL-50）', false);
     }
     if(D.measRect.style.display === 'block') layoutMeasRect();
@@ -1116,7 +1113,8 @@
     hideVerdict();
     D.stack.style.touchAction = 'none'; // カメラ内ドラッグでページが動かないように
     // 基準・測定状態をリセット
-    S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null; S.measTouched = false;
+    S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S.lastMeasure = null;
+    S.meas = null; S.measTouched = false;
     D.boxCalibrate.disabled = true;
     D.boxRecalib.style.display = 'none';
     D.boxResult.style.display = 'none';
@@ -1126,7 +1124,7 @@
     await ensureLiveCam();
     await loadBoxDrawing(); // 図面はCV照合の入力に使うため読み込む（画面には重ねない）
     D.boxOverlay.style.display = 'none';
-    showMeasRect(); // 黄色枠は常に表示（基準セット前でもドラッグ可。mm表示はセット後）
+    D.measRect.style.display = 'none'; // 手動の寸法目安枠は現在使用しない
     D.boxAiAll.disabled = false; // AI照合はカメラが動いていれば可（寸法はCAL-50があれば加味）
     setBoxTarget(S.boxTarget);   // 対象トグル（抜型/生地）のUIを現在値に同期
     if(!S.boxRaf) boxTick();
@@ -1162,10 +1160,10 @@
   /* ===========================================================
      図面オーバーレイ（人の目で重ねる目視確認）
      AIが合否、最終確認は作業者が半透明の登録図面を現物にかざして照合。
-     ドラッグで移動／ピンチで拡縮（回転しない）／90°ボタンで回転／スライダで透明度。
+     ドラッグで移動／ピンチで拡縮。表示時は中央に初期配置する。
      =========================================================== */
   function applyOvTransform(){
-    D.boxOverlay.style.transform = `rotate(${S.ovRot||0}deg) scale(${S.ovScale||1})`;
+    D.boxOverlay.style.transform = `scale(${S.ovScale||1})`;
   }
   function centerOverlay(){
     const sw = D.stack.clientWidth || 320, sh = D.stack.clientHeight || 240;
@@ -1174,19 +1172,18 @@
     const w = nw * fit, h = nh * fit;
     D.boxOverlay.style.width = w + 'px';
     D.boxOverlay.style.height = h + 'px';
-    S.ovScale = 1; S.ovRot = 0;
+    S.ovScale = 1;
     D.boxOverlay.style.left = ((sw - w) / 2) + 'px';
     D.boxOverlay.style.top  = ((sh - h) / 2) + 'px';
     applyOvTransform();
   }
   function showOverlay(on){
     S.ovOn = on;
-    D.boxOvControls.classList.toggle('show', on);
     D.boxOvToggle.classList.toggle('bbprimary', on);
     D.boxOvToggle.textContent = on ? '🖼 重ね中（指で移動・ピンチ）' : '🖼 図面を重ねる';
     if(!on){ D.boxOverlay.style.display = 'none'; return; }
-    if(!D.boxOverlay.naturalWidth){ setBoxStatus('図面が読み込めていません（-zu 未登録の可能性）', false); S.ovOn = false; D.boxOvControls.classList.remove('show'); D.boxOvToggle.classList.remove('bbprimary'); D.boxOvToggle.textContent='🖼 図面を重ねる'; return; }
-    D.boxOverlay.style.opacity = (D.boxOpacity.value / 100);
+    if(!D.boxOverlay.naturalWidth){ setBoxStatus('図面が読み込めていません（-zu 未登録の可能性）', false); S.ovOn = false; D.boxOvToggle.classList.remove('bbprimary'); D.boxOvToggle.textContent='🖼 図面を重ねる'; return; }
+    D.boxOverlay.style.opacity = '0.85';
     centerOverlay();
     D.boxOverlay.style.display = 'block';
   }
@@ -1222,7 +1219,7 @@
       D.boxOverlay.style.left = (_ovStart.left + (p[0].x - _ovStart.x)) + 'px';
       D.boxOverlay.style.top  = (_ovStart.top  + (p[0].y - _ovStart.y)) + 'px';
     }else if(_ovStart.mode === 2 && p.length >= 2){
-      // ピンチ＝拡縮＋平行移動のみ。回転はしない（回転は90°ボタンで行う）。
+      // ピンチ＝拡縮＋平行移動のみ。
       const [a,b] = p;
       const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
       const dist=Math.hypot(a.x-b.x, a.y-b.y);
@@ -1240,9 +1237,6 @@
   D.modeSpec.onclick = () => setMode('spec');
   D.modeBox.onclick  = () => setMode('box');
   D.boxOvToggle.onclick = () => showOverlay(!S.ovOn);
-  D.boxOpacity.oninput  = () => { D.boxOverlay.style.opacity = (D.boxOpacity.value / 100); };
-  D.boxRotate.onclick   = () => { S.ovRot = ((S.ovRot||0) + 90) % 360; applyOvTransform(); };
-  D.boxReset.onclick    = () => centerOverlay();
   D.boxTgtDie.onclick = () => setBoxTarget('die');
   D.boxTgtFab.onclick = () => setBoxTarget('fabric');
   if(D.boxModel){

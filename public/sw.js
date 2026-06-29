@@ -3,7 +3,7 @@
 //  - アプリのHTML/JS/CSS/画像 … ネットワーク優先（デプロイを即反映。オフライン時のみキャッシュ）
 // ※ 以前は全部キャッシュ優先で、デプロイしても古いJSが配信され続ける問題があった。
 // ※ OpenCV.js(10MB)は廃止したのでキャッシュ優先の特例も撤去（v4で旧キャッシュごと破棄）。
-const CACHE = 'die-link-v4';
+const CACHE = 'die-link-v5';
 const ASSETS = [
   '/', '/index.html',
   '/scan-spec-google.html', '/scan-lookup.html', '/scan-register.html', '/find-die.html',
