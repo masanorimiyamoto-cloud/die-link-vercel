@@ -122,20 +122,22 @@ function runMatch(photoImg, drawImg, pxPerMmProc, tolMm) {
   const drawStats = maskMoments(drawMask.mask, dw, dh);
   if (!photoStats || !drawStats) return fail('形状統計の計算に失敗しました');
 
-  const size = { width: pw, height: ph };
   const baseRot = photoStats.angle - drawStats.angle; // 主軸を合わせる初期回転（rad）
 
-  // 回転 0/90/180/270 × 反転 を総当たりし IoU 最大の重なりを採用
-  let best = null;
+  // 1) 粗合わせ：回転 0/90/180/270 × 反転 を総当たりし IoU 最大の向きを選ぶ
+  let coarse = null;
   for (const flip of [false, true]) {
     for (const rot of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
       const moved = transformPoly(drawPoly0, drawStats, photoStats, baseRot + rot, flip);
-      const candMask = fillPoly(moved, pw, ph);
-      const score = iou(photoMask.mask, candMask);
-      if (!best || score > best.score) best = { score, moved };
+      const score = iou(photoMask.mask, fillPoly(moved, pw, ph));
+      if (!coarse || score > coarse.score) coarse = { score, rot, flip };
     }
   }
-  if (!best) return fail('位置合わせに失敗しました');
+  if (!coarse) return fail('位置合わせに失敗しました');
+
+  // 2) 微調整：平行移動・スケール・回転を局所探索して IoU を最大化（緑を箱の縁へ吸着）
+  const ref = refineAlignment(drawPoly0, drawStats, photoStats, baseRot + coarse.rot, coarse.flip, photoMask.mask, pw, ph);
+  const best = { score: ref.score, moved: ref.moved };
   const matchPct = Math.round(best.score * 1000) / 10;
 
   // mmズレ：現物輪郭の距離変換を作り、位置合わせ済み図面輪郭点でサンプル
@@ -417,6 +419,38 @@ function transformPoly(pts, src, dst, rotRad, flip) {
   }
   return out;
 }
+/**
+ * 粗合わせ後の微調整。dst中心まわりの 平行移動(ddx,ddy)・スケール(ds)・回転(dth) を
+ * 局所探索（粗→細の山登り）して IoU を最大化する。緑(図面)を箱の縁に吸着させる。
+ */
+function refineAlignment(drawPoly, src, dst, rot, flip, photoMask, w, h) {
+  const make = (ddx, ddy, ds, dth) => transformPoly(
+    drawPoly, src, { cx: dst.cx + ddx, cy: dst.cy + ddy, area: dst.area * ds * ds, angle: dst.angle }, rot + dth, flip);
+  const scoreOf = (ddx, ddy, ds, dth) => iou(photoMask, fillPoly(make(ddx, ddy, ds, dth), w, h));
+  const refLen = Math.sqrt(dst.area) || 1;
+  let cur = { ddx: 0, ddy: 0, ds: 1, dth: 0 };
+  let curScore = scoreOf(0, 0, 1, 0);
+  for (let pass = 0; pass < 3; pass++) {
+    const tStep = refLen * 0.05 / (pass + 1);   // 平行移動ステップ(px)
+    const sStep = 0.05 / (pass + 1);            // スケールステップ(比)
+    const aStep = (5 * Math.PI / 180) / (pass + 1); // 回転ステップ(rad)
+    let guard = 0;
+    for (let improved = true; improved && guard < 30; guard++) {
+      improved = false;
+      const cands = [
+        [tStep, 0, 0, 0], [-tStep, 0, 0, 0], [0, tStep, 0, 0], [0, -tStep, 0, 0],
+        [0, 0, sStep, 0], [0, 0, -sStep, 0], [0, 0, 0, aStep], [0, 0, 0, -aStep],
+      ];
+      for (const [a, b, c, d] of cands) {
+        const ds = cur.ds * (1 + c);
+        const sc = scoreOf(cur.ddx + a, cur.ddy + b, ds, cur.dth + d);
+        if (sc > curScore + 1e-4) { cur = { ddx: cur.ddx + a, ddy: cur.ddy + b, ds, dth: cur.dth + d }; curScore = sc; improved = true; }
+      }
+    }
+  }
+  return { moved: make(cur.ddx, cur.ddy, cur.ds, cur.dth), score: curScore };
+}
+
 /** 単純ポリゴンを even-odd 規則で塗りつぶし Uint8 マスクを返す。 */
 function fillPoly(poly, w, h) {
   const mask = new Uint8Array(w * h);
@@ -496,19 +530,23 @@ function renderOverlay(photo, sx, sy, k, movedPts, overTolPts, photoPts) {
   g.drawImage(photo, 0, 0, baseW, baseH);
   const inv = k > 0 ? 1 / k : 1;
   const map = (p) => ({ x: sx + p.x * inv, y: sy + p.y * inv });
+  const path = (pts) => { g.beginPath(); pts.forEach((p, i) => { const q = map(p); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.closePath(); };
   const stroke = (pts, color, width, dash) => {
     if (!pts || !pts.length) return;
     g.lineWidth = width; g.strokeStyle = color; g.setLineDash(dash || []);
-    g.beginPath();
-    pts.forEach((p, i) => { const q = map(p); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); });
-    g.closePath(); g.stroke(); g.setLineDash([]);
+    path(pts); g.stroke(); g.setLineDash([]);
   };
-  // 青：検出した「現物の外形」（CVが何を製品と認識したか）
-  stroke(photoPts, 'rgba(40, 140, 255, 0.85)', Math.max(2, baseW / 500), [10, 8]);
-  // 緑：位置合わせ済みの「登録図面の外形」
-  stroke(movedPts, 'rgba(0, 200, 80, 0.95)', Math.max(2, baseW / 380));
-  g.fillStyle = 'rgba(230, 30, 30, 0.9)';
-  const r = Math.max(3, baseW / 250);
+  // 緑の半透明塗り：位置合わせ済みの「登録図面」。箱を覆えば一致、白地にはみ出せばズレ。
+  if (movedPts && movedPts.length) {
+    path(movedPts);
+    g.fillStyle = 'rgba(0, 200, 90, 0.22)'; g.fill();
+    stroke(movedPts, 'rgba(0, 180, 70, 0.95)', Math.max(2, baseW / 360));
+  }
+  // 青の破線：検出した「現物の外形」（CVが何を製品と認識したか）
+  stroke(photoPts, 'rgba(30, 130, 255, 0.9)', Math.max(2, baseW / 520), [12, 9]);
+  // 赤：ズレが許容を超えた点（控えめな小ドット）
+  g.fillStyle = 'rgba(230, 30, 30, 0.85)';
+  const r = Math.max(1.5, baseW / 650);
   for (const p of (overTolPts || [])) {
     const q = map(p);
     g.beginPath(); g.arc(q.x, q.y, r, 0, Math.PI * 2); g.fill();
@@ -520,5 +558,5 @@ function renderOverlay(photo, sx, sy, k, movedPts, overTolPts, photoPts) {
 export const __test = {
   otsu, dilate, silhouetteFromBarrier, largestComponent, traceContour, simplifyPoly,
   maskMoments, transformPoly, fillPoly, iou, boundaryMask, distanceTransform,
-  fillHoles, brightnessSilhouette,
+  fillHoles, brightnessSilhouette, refineAlignment,
 };
