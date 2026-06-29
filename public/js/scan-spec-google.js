@@ -18,6 +18,9 @@
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxVerdict: q('#boxVerdict'),
     boxBar: q('#boxBar'), boxAiAll: q('#boxAiAll'),
     boxTgtDie: q('#boxTgtDie'), boxTgtFab: q('#boxTgtFab'), boxModel: q('#boxModel'),
+    // 図面オーバーレイ（人の目で重ねる目視確認）
+    boxOvToggle: q('#boxOvToggle'), boxOvControls: q('#boxOvControls'),
+    boxOpacity: q('#boxOpacity'), boxRotate: q('#boxRotate'), boxReset: q('#boxReset'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -1125,7 +1128,7 @@
     D.boxBar.classList.remove('show');
     hideVerdict();
     D.stack.style.touchAction = '';
-    D.boxOverlay.style.display = 'none';
+    showOverlay(false);
     D.boxResult.style.display = 'none';
     D.measRect.style.display = 'none';
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = '';
@@ -1144,9 +1147,92 @@
     }
   }
 
+  /* ===========================================================
+     図面オーバーレイ（人の目で重ねる目視確認）
+     AIが合否、最終確認は作業者が半透明の登録図面を現物にかざして照合。
+     ドラッグで移動／ピンチで拡縮・回転／スライダで透明度。
+     =========================================================== */
+  function applyOvTransform(){
+    D.boxOverlay.style.transform = `rotate(${S.ovRot||0}deg) scale(${S.ovScale||1})`;
+  }
+  function centerOverlay(){
+    const sw = D.stack.clientWidth || 320, sh = D.stack.clientHeight || 240;
+    const nw = D.boxOverlay.naturalWidth || 4, nh = D.boxOverlay.naturalHeight || 3;
+    const fit = Math.min(sw * 0.72 / nw, sh * 0.72 / nh) || 1;
+    const w = nw * fit, h = nh * fit;
+    D.boxOverlay.style.width = w + 'px';
+    D.boxOverlay.style.height = h + 'px';
+    S.ovScale = 1; S.ovRot = 0;
+    D.boxOverlay.style.left = ((sw - w) / 2) + 'px';
+    D.boxOverlay.style.top  = ((sh - h) / 2) + 'px';
+    applyOvTransform();
+  }
+  function showOverlay(on){
+    S.ovOn = on;
+    D.boxOvControls.classList.toggle('show', on);
+    D.boxOvToggle.classList.toggle('bbprimary', on);
+    D.boxOvToggle.textContent = on ? '🖼 重ね中（指で移動・ピンチ）' : '🖼 図面を重ねる';
+    if(!on){ D.boxOverlay.style.display = 'none'; return; }
+    if(!D.boxOverlay.naturalWidth){ setBoxStatus('図面が読み込めていません（-zu 未登録の可能性）', false); S.ovOn = false; D.boxOvControls.classList.remove('show'); D.boxOvToggle.classList.remove('bbprimary'); D.boxOvToggle.textContent='🖼 図面を重ねる'; return; }
+    D.boxOverlay.style.opacity = (D.boxOpacity.value / 100);
+    centerOverlay();
+    D.boxOverlay.style.display = 'block';
+  }
+  // ジェスチャ（1本指=移動 / 2本指=拡縮+回転+パン）
+  const _ovPtrs = new Map();
+  let _ovStart = null;
+  const _ovPts = () => [..._ovPtrs.values()];
+  function _ovBaseline(){
+    const p = _ovPts();
+    const left = parseFloat(D.boxOverlay.style.left) || 0;
+    const top  = parseFloat(D.boxOverlay.style.top)  || 0;
+    if(p.length === 1){
+      _ovStart = { mode:1, x:p[0].x, y:p[0].y, left, top };
+    }else if(p.length >= 2){
+      const [a,b] = p;
+      _ovStart = { mode:2, left, top,
+        mx:(a.x+b.x)/2, my:(a.y+b.y)/2,
+        dist:Math.hypot(a.x-b.x, a.y-b.y) || 1,
+        ang:Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI,
+        scale:S.ovScale||1, rot:S.ovRot||0 };
+    }else{ _ovStart = null; }
+  }
+  D.boxOverlay.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    try{ D.boxOverlay.setPointerCapture(e.pointerId); }catch{}
+    _ovPtrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    _ovBaseline();
+  });
+  D.boxOverlay.addEventListener('pointermove', (e) => {
+    if(!_ovPtrs.has(e.pointerId) || !_ovStart) return;
+    _ovPtrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    const p = _ovPts();
+    if(_ovStart.mode === 1 && p.length === 1){
+      D.boxOverlay.style.left = (_ovStart.left + (p[0].x - _ovStart.x)) + 'px';
+      D.boxOverlay.style.top  = (_ovStart.top  + (p[0].y - _ovStart.y)) + 'px';
+    }else if(_ovStart.mode === 2 && p.length >= 2){
+      const [a,b] = p;
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      const dist=Math.hypot(a.x-b.x, a.y-b.y);
+      const ang=Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI;
+      S.ovScale = Math.max(0.1, Math.min(8, _ovStart.scale * (dist / _ovStart.dist)));
+      S.ovRot   = _ovStart.rot + (ang - _ovStart.ang);
+      D.boxOverlay.style.left = (_ovStart.left + (mx - _ovStart.mx)) + 'px';
+      D.boxOverlay.style.top  = (_ovStart.top  + (my - _ovStart.my)) + 'px';
+      applyOvTransform();
+    }
+  });
+  const _ovEnd = (e) => { _ovPtrs.delete(e.pointerId); _ovBaseline(); };
+  D.boxOverlay.addEventListener('pointerup', _ovEnd);
+  D.boxOverlay.addEventListener('pointercancel', _ovEnd);
+
   // --- 配線 ---
   D.modeSpec.onclick = () => setMode('spec');
   D.modeBox.onclick  = () => setMode('box');
+  D.boxOvToggle.onclick = () => showOverlay(!S.ovOn);
+  D.boxOpacity.oninput  = () => { D.boxOverlay.style.opacity = (D.boxOpacity.value / 100); };
+  D.boxRotate.onclick   = () => { S.ovRot = ((S.ovRot||0) + 90) % 360; applyOvTransform(); };
+  D.boxReset.onclick    = () => centerOverlay();
   D.boxTgtDie.onclick = () => setBoxTarget('die');
   D.boxTgtFab.onclick = () => setBoxTarget('fabric');
   if(D.boxModel){

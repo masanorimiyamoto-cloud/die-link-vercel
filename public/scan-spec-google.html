@@ -305,8 +305,10 @@
   .modebtn.active{ background:var(--primary); color:#fff; }
   #boxOverlay{
     position:absolute; left:0; top:0; display:none; z-index:20;
-    pointer-events:auto; cursor:move; touch-action:none; opacity:.5;
+    pointer-events:auto; cursor:move; touch-action:none; opacity:.85;
     transform-origin:center center; -webkit-user-drag:none; user-select:none;
+    /* -zu は白地に黒線。multiply で白を透過させ、線だけを現物に重ねる */
+    mix-blend-mode:multiply; will-change:left,top,transform;
   }
   #boxPanel .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
   #boxPanel label{ font-size:13px; color:var(--text); }
@@ -360,6 +362,14 @@
   #boxBar .bbtargets{ gap:6px; }
   #boxBar .bbseg{ min-height:0; padding:7px 4px; font-size:14px; background:rgba(255,255,255,.22); color:#fff; border:1px solid rgba(255,255,255,.4); }
   #boxBar .bbseg.active{ background:#fff; color:#222; }
+  /* 図面オーバーレイ操作行 */
+  #boxBar .bboverlay{ gap:6px; }
+  #boxBar #boxOvToggle{ flex:1 1 0; min-height:0; padding:8px 4px; font-size:14px; background:rgba(255,255,255,.22); color:#fff; border:1px solid rgba(255,255,255,.4); }
+  #boxBar #boxOvToggle.bbprimary{ background:var(--primary); color:#fff; border-color:var(--primary); }
+  #boxBar #boxOvControls{ display:none; flex:2 1 0; align-items:center; gap:6px; }
+  #boxBar #boxOvControls.show{ display:flex; }
+  #boxBar #boxOvControls input[type=range]{ flex:1; min-width:60px; }
+  #boxBar #boxOvControls button{ flex:0 0 auto; min-height:0; padding:7px 8px; font-size:13px; background:rgba(255,255,255,.85); }
   /* 判定オーバーレイ（カメラ上部に大きく表示して気づきやすく） */
   #boxVerdict{
     position:absolute; left:8px; right:8px; top:8px; z-index:35; display:none;
@@ -424,6 +434,14 @@
             </div>
             <div class="bbrow bbactions">
               <button id="boxAiAll" class="bbprimary" disabled>🤖 AI照合</button>
+            </div>
+            <div class="bbrow bboverlay">
+              <button id="boxOvToggle" type="button">🖼 図面を重ねる</button>
+              <span id="boxOvControls">
+                <input id="boxOpacity" type="range" min="15" max="100" value="85" aria-label="透明度">
+                <button id="boxRotate" type="button">⟳90°</button>
+                <button id="boxReset" type="button">中央</button>
+              </span>
             </div>
           </div>
         </div>
