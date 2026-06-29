@@ -858,12 +858,13 @@
   const aiMaterialMatch = (frame) => aiImageMatch('/api/material-match', frame);  // 生地：色柄・織り
 
   /* ===========================================================
-     抜型 新方式：撮影 → クライアントCVで自動位置合わせ → 一致率(%)/ズレ(mm)/重ね合わせ画像
+     抜型 新方式：撮影 → 純JSで自動位置合わせ → 一致率(%)/ズレ(mm)/重ね合わせ画像
      → AIで「同一品番か」の意味照合（補助）。半透明目視と旧AI形状判定を置換。
+     ※ OpenCVは廃止（iOSでWASM初期化がメモリ超過でクラッシュするため）。
      =========================================================== */
   let _dieMatchMod = null;
   async function loadDieMatchMod(){
-    // OpenCV.js(WASM) を含む計算エンジンは照合時にだけ遅延ロード
+    // 照合エンジン（純JS・軽量）を照合時にだけ遅延ロード
     if(!_dieMatchMod) _dieMatchMod = await import('/js/die-overlay-match.js');
     return _dieMatchMod;
   }
@@ -880,9 +881,6 @@
       throw new Error('登録図面が読み込めていません（図面 -zu が未登録の可能性）');
     }
     const mod = await loadDieMatchMod();
-    // OpenCV.js(約10MB)は自サイトから取得。進捗(%)を画面に出し、止まる箇所を可視化。
-    setBoxStatus('CVライブラリを準備中…（初回のみ）', true);
-    await mod.ensureOpenCv((s) => setBoxStatus(s, true)); // 取得%→初期化中 を逐次表示
     setBoxStatus('撮影済み。スマホを動かしてOKです（自動位置合わせ中…）', true);
     const { matchDieOverlay } = mod;
     const photo = await frameToImage(frame);
@@ -901,6 +899,7 @@
       pxPerMm,
       productBox: productBox || undefined,
       tolMm: S.tolMm || 10,
+      onStatus: (s) => { if(s) setBoxStatus(s, true); },
     });
 
     // AI補助（同一品番かの意味照合）。CV計測値も渡して講評させる

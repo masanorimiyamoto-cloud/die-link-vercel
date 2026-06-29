@@ -1,3 +1,10 @@
+> **【2026-06 更新】OpenCV.js は廃止**しました。iOS Safari でフル版 OpenCV.js（7MBインライン
+> WASM）の初期化がタブごとメモリ killされ、撮影前にクラッシュするため。輪郭抽出・自動位置合わせ・
+> 一致率(IoU)・mmズレ・重ね合わせ画像はすべて **素のJS + Canvas** で実装し直しています
+> （`public/js/die-overlay-match.js`。480pxに縮小して純CPUで計算）。Web Worker版
+> `die-overlay-worker.js` と `opencv.js` は削除済み。以下の本文中の「OpenCV.js / Web Worker」
+> の記述は歴史的経緯として残しますが、実装は純JS版が正です。AI補助(`die-align-verify`)は継続。
+
 # 抜型照合 新方式（ハイブリッド：クライアントCV主＋AI補助）
 
 半透明の手動オーバーレイ目視と box-shape-match の純AI判定を**撤去**し、

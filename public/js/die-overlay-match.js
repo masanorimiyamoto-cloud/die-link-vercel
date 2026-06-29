@@ -1,139 +1,29 @@
 // public/js/die-overlay-match.js
 // ============================================================================
-// 抜型照合 新方式（ハイブリッド：クライアントCV主＋AI補助）— メインスレッド実行版。
+// 抜型照合 — 純JS版（OpenCV不使用）。
 //
-// iOS Safari は Web Worker 内で OpenCV の大きな WASM を初期化できない（メモリ制限で
-// 「初期化中」のまま停止）。そこで CV はメインスレッドで実行する。
-//   - OpenCV.js の WASM 初期化は非同期 → 読み込み中も画面は固まらない
-//   - 画像は必ず小さく縮小(maxSide=480)してから処理 → メモリ枯渇（初回フリーズの主因）を根絶
-//   - 計算は小画像なので一瞬（同期だが体感ブロックなし）
+// iOS Safari はフル版 OpenCV.js(7MBインラインWASM)の初期化でタブごとメモリ killされる
+// ため、OpenCV を全面撤去し、輪郭抽出・自動位置合わせ・一致率(IoU)・mmズレ・重ね合わせ画像を
+// すべて素のJS + Canvas で実装する。処理解像度は 480px に縮小するので計算は一瞬で、
+// 10MBのWASMロードも無くなるためクラッシュしない。
 //
 // 公開API:
-//   ensureOpenCv(onStatus) … opencv.js をDL(進捗)＋WASM初期化。onStatus(文字列)で進捗通知
-//   matchDieOverlay(o)     … 照合本体。{ ok, matchPct, maxDevMm, avgDevMm, maxDevPct,
-//                            avgDevPct, verdict, overlayCanvas, reason }
+//   matchDieOverlay(o) … 照合本体。o = { photo(Image), drawing(Image), pxPerMm,
+//                        productBox?, tolMm?, maxSide?, onStatus? }
+//                        → { ok, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct,
+//                            verdict, overlayCanvas, reason }
+//   ※ ensureOpenCv は廃止（互換のため呼ばれても何もしない no-op を残す）。
 // ============================================================================
 
 const DEFAULT_MAX_SIDE = 480;     // 処理解像度の上限（小さいほど速い・軽い）
-const INIT_TIMEOUT_MS = 60000;    // WASM初期化の上限
-const CV_SOURCES = [
-  '/js/opencv.js',
-  'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js',
-];
+const MAX_CONTOUR_PTS = 600;      // 輪郭点の上限（間引いて計算量を抑える）
 
-let _cv = null;
-let _cvBlobUrl = null;
+/* 互換: 旧コードが ensureOpenCv を呼んでもエラーにしない（OpenCVは使わない）。 */
+export async function ensureOpenCv(onStatus) { if (onStatus) onStatus(''); return null; }
 
-/* ---------- OpenCV.js のダウンロード（進捗付き）＋ WASM初期化 ---------- */
-
-async function downloadCv(onStatus) {
-  if (_cvBlobUrl) return _cvBlobUrl;
-  let lastErr;
-  for (const url of CV_SOURCES) {
-    try {
-      const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 120000);
-      const r = await fetch(url, { signal: ctrl.signal, cache: 'force-cache' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const total = Number(r.headers.get('content-length') || 0);
-      const reader = r.body.getReader();
-      const chunks = []; let received = 0; let lastPct = -1;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value); received += value.length;
-        if (onStatus) {
-          if (total) {
-            const pct = Math.round(received / total * 100);
-            if (pct !== lastPct) { lastPct = pct; onStatus(`CVライブラリを取得中… ${pct}%`); }
-          } else { onStatus(`CVライブラリを取得中… ${(received / 1048576).toFixed(1)}MB`); }
-        }
-      }
-      clearTimeout(to);
-      _cvBlobUrl = URL.createObjectURL(new Blob(chunks, { type: 'text/javascript' }));
-      return _cvBlobUrl;
-    } catch (e) { lastErr = e; if (onStatus) onStatus('別経路でCV取得を再試行中…'); }
-  }
-  throw new Error('CVライブラリの取得に失敗: ' + ((lastErr && lastErr.message) || ''));
-}
-
-/**
- * メインスレッドに opencv.js を読み込み、WASM初期化完了まで待つ（非同期＝画面は固まらない）。
- * iOSで「初期化中のまま停止」する真因（メモリ不足のabort/例外/未処理reject）を取りこぼさず
- * 早期に reject する。失敗理由を文字列で返すので、画面に出せば実機で原因が分かる。
- */
-function loadCvScript(blobUrl, onStatus) {
-  return new Promise((resolve, reject) => {
-    if (window.cv && window.cv.Mat) { resolve(window.cv); return; }
-
-    let done = false;
-    let captured = '';   // 初期化中に飛んできた実エラー（abort/例外/reject）
-
-    const fail = (msg) => {
-      if (done) return; done = true;
-      cleanup();
-      reject(new Error(msg + (captured ? `（詳細: ${captured}）` : '')));
-    };
-    const finish = () => {
-      if (done) return; done = true;
-      cleanup();
-      resolve(window.cv);
-    };
-
-    // 初期化フェーズ中だけ、グローバルの例外/未処理rejectを横取りして真因を握る
-    const onErr = (ev) => {
-      const m = (ev && (ev.message || (ev.error && ev.error.message))) || '';
-      if (/opencv|wasm|memory|abort|RuntimeError|table|Cannot enlarge/i.test(m)) captured = m;
-    };
-    const onRej = (ev) => {
-      const r = ev && ev.reason;
-      const m = (r && (r.message || String(r))) || '';
-      if (m) captured = m;
-    };
-    const cleanup = () => {
-      clearInterval(iv);
-      window.removeEventListener('error', onErr, true);
-      window.removeEventListener('unhandledrejection', onRej);
-    };
-    window.addEventListener('error', onErr, true);
-    window.addEventListener('unhandledrejection', onRej);
-
-    const s = document.createElement('script');
-    s.src = blobUrl; s.async = true;
-    s.onload = () => {
-      const cv = window.cv;
-      if (!cv) { fail('cv undefined（opencv.js の評価に失敗）'); return; }
-      if (cv.Mat) { finish(); return; }
-      // 初期化完了フック。abort（メモリ不足等）も拾えるよう onAbort を上書き
-      try { cv.onRuntimeInitialized = finish; } catch (e) {}
-      try { cv.onAbort = (what) => { captured = String(what || 'abort'); fail('OpenCV初期化が中断（abort）'); }; } catch (e) {}
-    };
-    s.onerror = () => fail('opencv.js のスクリプト読み込み失敗');
-    document.head.appendChild(s);
-
-    // ポーリング: Mat出現で成功 / 捕捉済みエラーがあれば即失敗 / 上限で打ち切り
-    const t0 = Date.now();
-    const iv = setInterval(() => {
-      if (window.cv && window.cv.Mat) { finish(); return; }
-      if (captured) { fail('OpenCV初期化エラー'); return; }
-      const sec = Math.round((Date.now() - t0) / 1000);
-      if (onStatus && sec > 0) onStatus(`CVライブラリを初期化中…（${sec}秒）`);
-      if (Date.now() - t0 > INIT_TIMEOUT_MS) fail('OpenCV初期化タイムアウト（WASMが応答しません。端末メモリ不足の可能性）');
-    }, 250);
-  });
-}
-
-/** opencv.js を用意（DL進捗→初期化）。onStatus に進捗通知。 */
-export async function ensureOpenCv(onStatus) {
-  if (_cv) return _cv;
-  const blobUrl = await downloadCv(onStatus);
-  if (onStatus) onStatus('CVライブラリを初期化中…');
-  _cv = await loadCvScript(blobUrl, onStatus);
-  return _cv;
-}
-
-/* ---------- 画像前処理（必ず縮小してから ImageData 化：メモリ枯渇を根絶）---------- */
-
+/* ============================================================================
+   画像前処理（必ず縮小してから ImageData 化：メモリ枯渇を根絶）
+   ========================================================================== */
 function srcDims(src) {
   return {
     w: src.naturalWidth || src.videoWidth || src.width || 0,
@@ -168,14 +58,17 @@ function prepareDrawing(drawing, maxSide) {
   return g.getImageData(0, 0, dw, dh);
 }
 
-/* ---------- メイン: 照合 ---------- */
+/* ============================================================================
+   メイン: 照合
+   ========================================================================== */
 export async function matchDieOverlay(o) {
   const maxSide = o.maxSide || DEFAULT_MAX_SIDE;
   const tolMm = o.tolMm ?? 10;
-  const cv = await ensureOpenCv(o.onStatus);
+  const onStatus = o.onStatus;
 
   let pPrep, drawImgData;
   try {
+    if (onStatus) onStatus('画像を解析中…');
     pPrep = preparePhoto(o.photo, o.productBox, maxSide);
     drawImgData = prepareDrawing(o.drawing, maxSide);
   } catch (e) {
@@ -185,9 +78,10 @@ export async function matchDieOverlay(o) {
 
   let res;
   try {
-    res = runMatch(cv, pPrep.imageData, drawImgData, pxPerMmProc, tolMm);
+    if (onStatus) onStatus('外形を抽出して位置合わせ中…');
+    res = runMatch(pPrep.imageData, drawImgData, pxPerMmProc, tolMm);
   } catch (e) {
-    return failResult('CV処理エラー: ' + ((e && e.message) || e));
+    return failResult('解析エラー: ' + ((e && e.message) || e));
   }
   if (!res || res.ok === false) return failResult((res && res.reason) || '照合に失敗しました');
 
@@ -205,76 +99,75 @@ function failResult(reason) {
   return { ok: false, matchPct: null, maxDevMm: null, avgDevMm: null, maxDevPct: null, avgDevPct: null, verdict: 'uncertain', overlayCanvas: null, reason };
 }
 
-/* ---------- CV パイプライン（メインスレッド・小画像なので一瞬）---------- */
-function runMatch(cv, photoImg, drawImg, pxPerMmProc, tolMm) {
-  const trash = [];
-  const keep = (m) => { trash.push(m); return m; };
-  const cleanup = () => { for (const m of trash) { try { m.delete(); } catch (e) {} } };
-  try {
-    const photoMat = keep(cv.matFromImageData(photoImg));
-    const drawMat  = keep(cv.matFromImageData(drawImg));
-    const size = { width: photoMat.cols, height: photoMat.rows };
+/* ============================================================================
+   照合パイプライン（純CPU・小画像なので一瞬）
+   ========================================================================== */
+function runMatch(photoImg, drawImg, pxPerMmProc, tolMm) {
+  const pw = photoImg.width, ph = photoImg.height;
+  const dw = drawImg.width, dh = drawImg.height;
 
-    const photoContour = extractPhotoContour(cv, photoMat);
-    if (!photoContour) { cleanup(); return fail('現物の外形を検出できませんでした'); }
-    keep(photoContour);
-    const drawContour = extractDrawingContour(cv, drawMat);
-    if (!drawContour) { cleanup(); return fail('図面の外形を抽出できませんでした'); }
-    keep(drawContour);
+  // --- 現物：エッジ→閉処理→背景フラッドフィル→最大連結成分 でシルエット ---
+  const photoMask = photoSilhouette(photoImg);
+  if (!photoMask || photoMask.area < pw * ph * 0.01) return fail('現物の外形を検出できませんでした');
+  // --- 図面(-zu 線画)：インク二値→閉処理→背景フラッドフィル でシルエット ---
+  const drawMask = drawingSilhouette(drawImg);
+  if (!drawMask || drawMask.area < dw * dh * 0.005) return fail('図面の外形を抽出できませんでした');
 
-    const photoPts = contourToPoints(photoContour);
-    const drawPts0 = contourToPoints(drawContour);
-    const photoStats = shapeStats(cv, photoPts);
-    const drawStats = shapeStats(cv, drawPts0);
-    const photoMask = keep(fillMask(cv, photoPts, size));
+  const photoPoly = simplifyPoly(traceContour(photoMask.mask, pw, ph), MAX_CONTOUR_PTS);
+  const drawPoly0 = simplifyPoly(traceContour(drawMask.mask, dw, dh), MAX_CONTOUR_PTS);
+  if (photoPoly.length < 8) return fail('現物の輪郭が取得できませんでした');
+  if (drawPoly0.length < 8) return fail('図面の輪郭が取得できませんでした');
 
-    let best = null;
-    for (const flipX of [false, true]) {
-      for (const rot of [0, 90, 180, 270]) {
-        const baseRot = (photoStats.angle - drawStats.angle);
-        const moved = transformPoints(drawPts0, drawStats, photoStats, baseRot + rot, flipX);
-        const mask = fillMask(cv, moved, size);
-        const score = iou(cv, photoMask, mask);
-        if (!best || score > best.score) { if (best) best.mask.delete(); best = { score, moved, mask }; }
-        else { mask.delete(); }
-      }
+  const photoStats = maskMoments(photoMask.mask, pw, ph);
+  const drawStats = maskMoments(drawMask.mask, dw, dh);
+  if (!photoStats || !drawStats) return fail('形状統計の計算に失敗しました');
+
+  const size = { width: pw, height: ph };
+  const baseRot = photoStats.angle - drawStats.angle; // 主軸を合わせる初期回転（rad）
+
+  // 回転 0/90/180/270 × 反転 を総当たりし IoU 最大の重なりを採用
+  let best = null;
+  for (const flip of [false, true]) {
+    for (const rot of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
+      const moved = transformPoly(drawPoly0, drawStats, photoStats, baseRot + rot, flip);
+      const candMask = fillPoly(moved, pw, ph);
+      const score = iou(photoMask.mask, candMask);
+      if (!best || score > best.score) best = { score, moved };
     }
-    if (!best) { cleanup(); return fail('位置合わせに失敗しました'); }
-    keep(best.mask);
-    const matchPct = Math.round(best.score * 1000) / 10;
+  }
+  if (!best) return fail('位置合わせに失敗しました');
+  const matchPct = Math.round(best.score * 1000) / 10;
 
-    const edgeImg = keep(new cv.Mat(size.height, size.width, cv.CV_8UC1, new cv.Scalar(255)));
-    drawPolyline(cv, edgeImg, photoPts, 0);
-    const dist = keep(new cv.Mat());
-    cv.distanceTransform(edgeImg, dist, cv.DIST_L2, 3);
+  // mmズレ：現物輪郭の距離変換を作り、位置合わせ済み図面輪郭点でサンプル
+  const photoBoundary = boundaryMask(photoMask.mask, pw, ph);
+  const dist = distanceTransform(photoBoundary, pw, ph);
 
-    const refLen = ((photoStats.w + photoStats.h) / 2) || 1;
-    const relTol = 0.05;
-    let sum = 0, n = 0, maxDevPx = 0;
-    const overTolPts = [];
-    for (const p of best.moved) {
-      const x = Math.round(p.x), y = Math.round(p.y);
-      if (x < 0 || y < 0 || x >= size.width || y >= size.height) continue;
-      const dpx = dist.floatAt(y, x);
-      sum += dpx; n++;
-      if (dpx > maxDevPx) maxDevPx = dpx;
-      const over = (pxPerMmProc > 0) ? (dpx / pxPerMmProc > tolMm) : (dpx / refLen > relTol);
-      if (over) overTolPts.push({ x: p.x, y: p.y });
-    }
-    const avgDevMm = (pxPerMmProc > 0 && n > 0) ? Math.round((sum / n) / pxPerMmProc * 10) / 10 : null;
-    const maxDevMm = (pxPerMmProc > 0) ? Math.round(maxDevPx / pxPerMmProc * 10) / 10 : null;
-    const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
-    const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
-    const verdict = decideVerdict(matchPct, maxDevMm, tolMm);
-    const movedPts = best.moved.map((p) => ({ x: p.x, y: p.y }));
-    cleanup();
-    return {
-      ok: true, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct, verdict, movedPts, overTolPts,
-      reason: (maxDevMm != null)
-        ? `IoU一致率 ${matchPct}%・最大ズレ ${maxDevMm}mm（許容±${tolMm}mm）`
-        : `IoU一致率 ${matchPct}%・最大ズレ 約${maxDevPct}%（現物サイズ比・CALなし）`,
-    };
-  } catch (e) { cleanup(); throw e; }
+  const refLen = Math.sqrt(photoStats.area) || 1;
+  const relTol = 0.05;
+  let sum = 0, n = 0, maxDevPx = 0;
+  const overTolPts = [];
+  for (const p of best.moved) {
+    const x = Math.round(p.x), y = Math.round(p.y);
+    if (x < 0 || y < 0 || x >= pw || y >= ph) continue;
+    const dpx = dist[y * pw + x];
+    sum += dpx; n++;
+    if (dpx > maxDevPx) maxDevPx = dpx;
+    const over = (pxPerMmProc > 0) ? (dpx / pxPerMmProc > tolMm) : (dpx / refLen > relTol);
+    if (over) overTolPts.push({ x: p.x, y: p.y });
+  }
+  const avgDevMm = (pxPerMmProc > 0 && n > 0) ? Math.round((sum / n) / pxPerMmProc * 10) / 10 : null;
+  const maxDevMm = (pxPerMmProc > 0) ? Math.round(maxDevPx / pxPerMmProc * 10) / 10 : null;
+  const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
+  const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
+  const verdict = decideVerdict(matchPct, maxDevMm, tolMm);
+
+  return {
+    ok: true, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct, verdict,
+    movedPts: best.moved, overTolPts,
+    reason: (maxDevMm != null)
+      ? `一致率(IoU) ${matchPct}%・最大ズレ ${maxDevMm}mm（許容±${tolMm}mm）`
+      : `一致率(IoU) ${matchPct}%・最大ズレ 約${maxDevPct}%（現物サイズ比・CALなし）`,
+  };
 }
 
 function decideVerdict(matchPct, maxDevMm, tolMm) {
@@ -286,98 +179,278 @@ function fail(reason) {
   return { ok: false, matchPct: null, maxDevMm: null, avgDevMm: null, maxDevPct: null, avgDevPct: null, verdict: 'uncertain', movedPts: [], overTolPts: [], reason };
 }
 
-/* ---------- 前処理・幾何ヘルパ（cv は引数で受け取る）---------- */
-function extractDrawingContour(cv, rgba) {
-  const gray = new cv.Mat();
-  cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
-  const bin = new cv.Mat();
-  cv.threshold(gray, bin, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
-  const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
-  cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, k);
-  const contour = largestExternalContour(cv, bin);
-  gray.delete(); bin.delete(); k.delete();
-  return contour;
-}
-function extractPhotoContour(cv, rgba) {
-  const gray = new cv.Mat();
-  cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-  const edges = new cv.Mat();
-  cv.Canny(gray, edges, 60, 160);
-  const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
-  cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, k);
-  cv.dilate(edges, edges, k);
-  const contour = largestExternalContour(cv, edges);
-  gray.delete(); edges.delete(); k.delete();
-  return contour;
-}
-function largestExternalContour(cv, bin) {
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-  cv.findContours(bin, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  let best = null, bestArea = 0;
-  for (let i = 0; i < contours.size(); i++) {
-    const c = contours.get(i);
-    const a = cv.contourArea(c);
-    if (a > bestArea) { bestArea = a; if (best) best.delete(); best = c.clone(); }
-    c.delete();
+/* ============================================================================
+   シルエット抽出（純JS）
+   ========================================================================== */
+function toGray(imgData) {
+  const { data, width, height } = imgData;
+  const g = new Uint8Array(width * height);
+  for (let i = 0, p = 0; i < g.length; i++, p += 4) {
+    g[i] = (data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114) | 0;
   }
-  contours.delete(); hierarchy.delete();
-  return best;
+  return g;
 }
-function contourToPoints(contour) {
-  const pts = []; const d = contour.data32S;
-  for (let i = 0; i < d.length; i += 2) pts.push({ x: d[i], y: d[i + 1] });
-  return pts;
+function otsu(g) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < g.length; i++) hist[g[i]]++;
+  const total = g.length;
+  let sum = 0; for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0, wB = 0, maxVar = -1, thr = 127;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = total - wB; if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > maxVar) { maxVar = v; thr = t; }
+  }
+  return thr;
 }
-function pointsToContour(cv, pts) {
-  const flat = [];
-  for (const p of pts) { flat.push(Math.round(p.x), Math.round(p.y)); }
-  return cv.matFromArray(pts.length, 1, cv.CV_32SC2, flat);
+function boxBlur3(g, w, h) {
+  const out = new Uint8Array(g.length);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let s = 0, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+      s += g[yy * w + xx]; n++;
+    }
+    out[y * w + x] = (s / n) | 0;
+  }
+  return out;
 }
-function fillMask(cv, pts, size) {
-  const mask = cv.Mat.zeros(size.height, size.width, cv.CV_8UC1);
-  const mv = new cv.MatVector(); const c = pointsToContour(cv, pts);
-  mv.push_back(c); cv.fillPoly(mask, mv, new cv.Scalar(255));
-  c.delete(); mv.delete();
-  return mask;
+/** Sobel勾配の大きさ（Uint8正規化）を返す。 */
+function sobelMag(g, w, h) {
+  const mag = new Uint8Array(w * h);
+  let mx = 1;
+  const raw = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    const gx = -g[i - w - 1] - 2 * g[i - 1] - g[i + w - 1] + g[i - w + 1] + 2 * g[i + 1] + g[i + w + 1];
+    const gy = -g[i - w - 1] - 2 * g[i - w] - g[i - w + 1] + g[i + w - 1] + 2 * g[i + w] + g[i + w + 1];
+    const m = Math.sqrt(gx * gx + gy * gy);
+    raw[i] = m; if (m > mx) mx = m;
+  }
+  for (let i = 0; i < mag.length; i++) mag[i] = Math.min(255, (raw[i] / mx) * 255) | 0;
+  return mag;
 }
-function iou(cv, a, b) {
-  const inter = new cv.Mat(), uni = new cv.Mat();
-  cv.bitwise_and(a, b, inter); cv.bitwise_or(a, b, uni);
-  const i = cv.countNonZero(inter), u = cv.countNonZero(uni);
-  inter.delete(); uni.delete();
-  return u > 0 ? i / u : 0;
+/** 二値マスクの矩形膨張（半径r・分離フィルタ）。 */
+function dilate(mask, w, h, r) {
+  if (r <= 0) return mask;
+  const tmp = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let v = 0;
+    for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx < 0 || xx >= w) continue; if (mask[y * w + xx]) { v = 1; break; } }
+    tmp[y * w + x] = v;
+  }
+  const out = new Uint8Array(w * h);
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) {
+    let v = 0;
+    for (let dy = -r; dy <= r; dy++) { const yy = y + dy; if (yy < 0 || yy >= h) continue; if (tmp[yy * w + x]) { v = 1; break; } }
+    out[y * w + x] = v;
+  }
+  return out;
 }
-function shapeStats(cv, pts) {
-  const c = pointsToContour(cv, pts);
-  const rect = cv.minAreaRect(c);
-  c.delete();
-  return { cx: rect.center.x, cy: rect.center.y, w: rect.size.width, h: rect.size.height, angle: rect.angle };
+/** 壁(barrier=1)で囲まれた内側を塗りつぶしたシルエットを最大連結成分で返す。 */
+function silhouetteFromBarrier(barrier, w, h) {
+  const bg = new Uint8Array(w * h);  // 1 = 外側(背景)
+  const stack = [];
+  const push = (x, y) => { if (x < 0 || y < 0 || x >= w || y >= h) return; const i = y * w + x; if (bg[i] || barrier[i]) return; bg[i] = 1; stack.push(i); };
+  for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
+  for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
+  while (stack.length) { const i = stack.pop(); const x = i % w, y = (i / w) | 0; push(x - 1, y); push(x + 1, y); push(x, y - 1); push(x, y + 1); }
+  const inside = new Uint8Array(w * h);
+  for (let i = 0; i < inside.length; i++) inside[i] = bg[i] ? 0 : 1;  // 外側でない＝内側(穴も内側扱い=穴埋め)
+  return largestComponent(inside, w, h);
 }
-function transformPoints(pts, src, dst, rotDeg, flipX) {
-  const rad = rotDeg * Math.PI / 180;
-  const cos = Math.cos(rad), sin = Math.sin(rad);
-  const sx = (dst.w && src.w) ? dst.w / src.w : 1;
-  const sy = (dst.h && src.h) ? dst.h / src.h : 1;
-  const s = (sx + sy) / 2;
-  return pts.map((p) => {
-    let dx = (p.x - src.cx) * (flipX ? -1 : 1);
-    let dy = (p.y - src.cy);
+function largestComponent(mask, w, h) {
+  const lab = new Int32Array(w * h);
+  let bestLab = 0, bestSize = 0, cur = 0;
+  const stack = [];
+  for (let s = 0; s < mask.length; s++) {
+    if (!mask[s] || lab[s]) continue;
+    cur++; let size = 0; lab[s] = cur; stack.push(s);
+    while (stack.length) {
+      const i = stack.pop(); size++;
+      const x = i % w, y = (i / w) | 0;
+      if (x > 0 && mask[i - 1] && !lab[i - 1]) { lab[i - 1] = cur; stack.push(i - 1); }
+      if (x < w - 1 && mask[i + 1] && !lab[i + 1]) { lab[i + 1] = cur; stack.push(i + 1); }
+      if (y > 0 && mask[i - w] && !lab[i - w]) { lab[i - w] = cur; stack.push(i - w); }
+      if (y < h - 1 && mask[i + w] && !lab[i + w]) { lab[i + w] = cur; stack.push(i + w); }
+    }
+    if (size > bestSize) { bestSize = size; bestLab = cur; }
+  }
+  const out = new Uint8Array(w * h);
+  if (bestLab) for (let i = 0; i < out.length; i++) out[i] = (lab[i] === bestLab) ? 1 : 0;
+  return { mask: out, area: bestSize };
+}
+function photoSilhouette(imgData) {
+  const w = imgData.width, h = imgData.height;
+  let g = toGray(imgData);
+  g = boxBlur3(g, w, h);
+  const mag = sobelMag(g, w, h);
+  const thr = Math.max(24, otsu(mag));         // エッジ二値化のしきい値
+  const edge = new Uint8Array(w * h);
+  for (let i = 0; i < edge.length; i++) edge[i] = mag[i] >= thr ? 1 : 0;
+  const r = Math.max(1, Math.round(Math.max(w, h) / 200));  // 線の途切れを閉じる
+  const closed = dilate(edge, w, h, r);
+  return silhouetteFromBarrier(closed, w, h);
+}
+function drawingSilhouette(imgData) {
+  const w = imgData.width, h = imgData.height;
+  const g = toGray(imgData);
+  const thr = otsu(g);
+  const ink = new Uint8Array(w * h);            // 暗い画素=インク(線)
+  for (let i = 0; i < ink.length; i++) ink[i] = g[i] < thr ? 1 : 0;
+  const r = Math.max(1, Math.round(Math.max(w, h) / 240));
+  const closed = dilate(ink, w, h, r);
+  return silhouetteFromBarrier(closed, w, h);
+}
+
+/* ============================================================================
+   輪郭トレース（Moore近傍・時計回り）／簡略化
+   ========================================================================== */
+function traceContour(mask, w, h) {
+  const at = (x, y) => (x >= 0 && y >= 0 && x < w && y < h && mask[y * w + x]) ? 1 : 0;
+  let sx = -1, sy = -1;
+  for (let y = 0; y < h && sy < 0; y++) for (let x = 0; x < w; x++) { if (mask[y * w + x]) { sx = x; sy = y; break; } }
+  if (sx < 0) return [];
+  // 時計回り8近傍（画面座標：yは下向き）。0=E,1=SE,2=S,3=SW,4=W,5=NW,6=N,7=NE
+  const ox = [1, 1, 0, -1, -1, -1, 0, 1];
+  const oy = [0, 1, 1, 1, 0, -1, -1, -1];
+  const out = [];
+  let px = sx, py = sy;
+  // 開始画素には左(W)から入った想定 → 逆方向(=探索開始)は W の次から
+  let backtrack = 4; // 直前画素の方向(W)
+  const limit = 8 * (w * h);
+  let count = 0;
+  do {
+    out.push({ x: px, y: py });
+    let moved = false;
+    // backtrack の次から時計回りに最初の前景画素を探す
+    for (let k = 1; k <= 8; k++) {
+      const d = (backtrack + k) % 8;
+      const nx = px + ox[d], ny = py + oy[d];
+      if (at(nx, ny)) {
+        backtrack = (d + 4) % 8; // 新しい画素から見た「来た方向」
+        px = nx; py = ny; moved = true; break;
+      }
+    }
+    if (!moved) break; // 孤立点
+    count++;
+  } while ((px !== sx || py !== sy) && count < limit);
+  return out;
+}
+/** 輪郭点を最大 maxPts 個に間引く（等間隔ストライド）。 */
+function simplifyPoly(poly, maxPts) {
+  const n = poly.length;
+  if (n <= maxPts) return poly.slice();
+  const stride = Math.ceil(n / maxPts);
+  const out = [];
+  for (let i = 0; i < n; i += stride) out.push(poly[i]);
+  return out;
+}
+
+/* ============================================================================
+   幾何ヘルパ（モーメント・相似変換・ポリゴン塗り・IoU・距離変換）
+   ========================================================================== */
+function maskMoments(mask, w, h) {
+  let m00 = 0, m10 = 0, m01 = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { if (mask[y * w + x]) { m00++; m10 += x; m01 += y; } }
+  if (!m00) return null;
+  const cx = m10 / m00, cy = m01 / m00;
+  let mu20 = 0, mu02 = 0, mu11 = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { if (mask[y * w + x]) { const dx = x - cx, dy = y - cy; mu20 += dx * dx; mu02 += dy * dy; mu11 += dx * dy; } }
+  mu20 /= m00; mu02 /= m00; mu11 /= m00;
+  const angle = 0.5 * Math.atan2(2 * mu11, mu20 - mu02); // 主軸角(rad)
+  return { area: m00, cx, cy, angle };
+}
+/** src(図面)の輪郭点を dst(現物)の中心・スケール・主軸へ移す相似変換。 */
+function transformPoly(pts, src, dst, rotRad, flip) {
+  const cos = Math.cos(rotRad), sin = Math.sin(rotRad);
+  const s = Math.sqrt((dst.area || 1) / (src.area || 1));
+  const out = new Array(pts.length);
+  for (let i = 0; i < pts.length; i++) {
+    let dx = (pts[i].x - src.cx) * (flip ? -1 : 1);
+    let dy = (pts[i].y - src.cy);
     dx *= s; dy *= s;
     const rx = dx * cos - dy * sin;
     const ry = dx * sin + dy * cos;
-    return { x: rx + dst.cx, y: ry + dst.cy };
-  });
-}
-function drawPolyline(cv, mat, pts, color) {
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i], b = pts[(i + 1) % pts.length];
-    cv.line(mat, new cv.Point(Math.round(a.x), Math.round(a.y)), new cv.Point(Math.round(b.x), Math.round(b.y)), new cv.Scalar(color), 2);
+    out[i] = { x: rx + dst.cx, y: ry + dst.cy };
   }
+  return out;
+}
+/** 単純ポリゴンを even-odd 規則で塗りつぶし Uint8 マスクを返す。 */
+function fillPoly(poly, w, h) {
+  const mask = new Uint8Array(w * h);
+  const n = poly.length;
+  if (n < 3) return mask;
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of poly) { if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+  minY = Math.max(0, Math.floor(minY)); maxY = Math.min(h - 1, Math.ceil(maxY));
+  const xs = [];
+  for (let y = minY; y <= maxY; y++) {
+    xs.length = 0;
+    const yc = y + 0.5;
+    for (let i = 0; i < n; i++) {
+      let a = poly[i], b = poly[(i + 1) % n];
+      let y1 = a.y, y2 = b.y, x1 = a.x, x2 = b.x;
+      if (y1 === y2) continue;
+      if (y1 > y2) { const ty = y1; y1 = y2; y2 = ty; const tx = x1; x1 = x2; x2 = tx; }
+      if (yc >= y1 && yc < y2) xs.push(x1 + (yc - y1) / (y2 - y1) * (x2 - x1));
+    }
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      let xa = Math.ceil(xs[k] - 0.5), xb = Math.floor(xs[k + 1] - 0.5);
+      if (xa < 0) xa = 0; if (xb > w - 1) xb = w - 1;
+      const row = y * w;
+      for (let x = xa; x <= xb; x++) mask[row + x] = 1;
+    }
+  }
+  return mask;
+}
+function iou(a, b) {
+  let inter = 0, uni = 0;
+  for (let i = 0; i < a.length; i++) { const av = a[i], bv = b[i]; if (av || bv) { uni++; if (av && bv) inter++; } }
+  return uni > 0 ? inter / uni : 0;
+}
+/** シルエット境界画素（前景で4近傍に背景を持つ）マスク。 */
+function boundaryMask(mask, w, h) {
+  const b = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; if (!mask[i]) continue;
+    if (x === 0 || y === 0 || x === w - 1 || y === h - 1) { b[i] = 1; continue; }
+    if (!mask[i - 1] || !mask[i + 1] || !mask[i - w] || !mask[i + w]) b[i] = 1;
+  }
+  return b;
+}
+/** 2パス chamfer 距離変換（seed=1 の画素を距離0とする近似ユークリッド距離）。 */
+function distanceTransform(seed, w, h) {
+  const INF = 1e9, c1 = 1, c2 = Math.SQRT2;
+  const d = new Float32Array(w * h);
+  for (let i = 0; i < d.length; i++) d[i] = seed[i] ? 0 : INF;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; let v = d[i];
+    if (x > 0 && d[i - 1] + c1 < v) v = d[i - 1] + c1;
+    if (y > 0 && d[i - w] + c1 < v) v = d[i - w] + c1;
+    if (x > 0 && y > 0 && d[i - w - 1] + c2 < v) v = d[i - w - 1] + c2;
+    if (x < w - 1 && y > 0 && d[i - w + 1] + c2 < v) v = d[i - w + 1] + c2;
+    d[i] = v;
+  }
+  for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+    const i = y * w + x; let v = d[i];
+    if (x < w - 1 && d[i + 1] + c1 < v) v = d[i + 1] + c1;
+    if (y < h - 1 && d[i + w] + c1 < v) v = d[i + w] + c1;
+    if (x < w - 1 && y < h - 1 && d[i + w + 1] + c2 < v) v = d[i + w + 1] + c2;
+    if (x > 0 && y < h - 1 && d[i + w - 1] + c2 < v) v = d[i + w - 1] + c2;
+    d[i] = v;
+  }
+  return d;
 }
 
-/* ---------- 重ね合わせ描画 ---------- */
+/* ============================================================================
+   重ね合わせ描画（現物写真 + 位置合わせ済み図面輪郭 + 許容超え点）
+   ========================================================================== */
 function renderOverlay(photo, sx, sy, k, movedPts, overTolPts) {
   const { w: baseW, h: baseH } = srcDims(photo);
   const canvas = document.createElement('canvas');
@@ -401,3 +474,9 @@ function renderOverlay(photo, sx, sy, k, movedPts, overTolPts) {
   }
   return canvas;
 }
+
+/* テスト用エクスポート（純関数のみ。ブラウザ実行には影響しない）。 */
+export const __test = {
+  otsu, dilate, silhouetteFromBarrier, largestComponent, traceContour, simplifyPoly,
+  maskMoments, transformPoly, fillPoly, iou, boundaryMask, distanceTransform,
+};

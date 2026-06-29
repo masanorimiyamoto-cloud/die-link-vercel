@@ -1,9 +1,9 @@
 /* sw.js */
 // キャッシュ戦略:
 //  - アプリのHTML/JS/CSS/画像 … ネットワーク優先（デプロイを即反映。オフライン時のみキャッシュ）
-//  - 不変の大型資材(opencv.js / jsQR) … キャッシュ優先（毎回10MB取得を避ける）
 // ※ 以前は全部キャッシュ優先で、デプロイしても古いJSが配信され続ける問題があった。
-const CACHE = 'die-link-v3';
+// ※ OpenCV.js(10MB)は廃止したのでキャッシュ優先の特例も撤去（v4で旧キャッシュごと破棄）。
+const CACHE = 'die-link-v4';
 const ASSETS = [
   '/', '/index.html',
   '/scan-spec-google.html', '/scan-lookup.html', '/scan-register.html', '/find-die.html',
@@ -22,9 +22,9 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// 不変の大型資材か（キャッシュ優先で良いもの）
+// 不変の外部資材か（キャッシュ優先で良いもの＝jsQR等のCDN）
 function isVendor(url) {
-  return url.pathname === '/js/opencv.js' || url.hostname === 'cdn.jsdelivr.net';
+  return url.hostname === 'cdn.jsdelivr.net';
 }
 
 self.addEventListener('fetch', (e) => {
