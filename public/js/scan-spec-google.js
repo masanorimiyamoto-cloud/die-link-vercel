@@ -1150,7 +1150,7 @@
   /* ===========================================================
      図面オーバーレイ（人の目で重ねる目視確認）
      AIが合否、最終確認は作業者が半透明の登録図面を現物にかざして照合。
-     ドラッグで移動／ピンチで拡縮・回転／スライダで透明度。
+     ドラッグで移動／ピンチで拡縮（回転しない）／90°ボタンで回転／スライダで透明度。
      =========================================================== */
   function applyOvTransform(){
     D.boxOverlay.style.transform = `rotate(${S.ovRot||0}deg) scale(${S.ovScale||1})`;
@@ -1178,7 +1178,7 @@
     centerOverlay();
     D.boxOverlay.style.display = 'block';
   }
-  // ジェスチャ（1本指=移動 / 2本指=拡縮+回転+パン）
+  // ジェスチャ（1本指=移動 / 2本指=拡縮+パン。回転はしない）
   const _ovPtrs = new Map();
   let _ovStart = null;
   const _ovPts = () => [..._ovPtrs.values()];
@@ -1193,8 +1193,7 @@
       _ovStart = { mode:2, left, top,
         mx:(a.x+b.x)/2, my:(a.y+b.y)/2,
         dist:Math.hypot(a.x-b.x, a.y-b.y) || 1,
-        ang:Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI,
-        scale:S.ovScale||1, rot:S.ovRot||0 };
+        scale:S.ovScale||1 };
     }else{ _ovStart = null; }
   }
   D.boxOverlay.addEventListener('pointerdown', (e) => {
@@ -1211,12 +1210,11 @@
       D.boxOverlay.style.left = (_ovStart.left + (p[0].x - _ovStart.x)) + 'px';
       D.boxOverlay.style.top  = (_ovStart.top  + (p[0].y - _ovStart.y)) + 'px';
     }else if(_ovStart.mode === 2 && p.length >= 2){
+      // ピンチ＝拡縮＋平行移動のみ。回転はしない（回転は90°ボタンで行う）。
       const [a,b] = p;
       const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
       const dist=Math.hypot(a.x-b.x, a.y-b.y);
-      const ang=Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI;
       S.ovScale = Math.max(0.1, Math.min(8, _ovStart.scale * (dist / _ovStart.dist)));
-      S.ovRot   = _ovStart.rot + (ang - _ovStart.ang);
       D.boxOverlay.style.left = (_ovStart.left + (mx - _ovStart.mx)) + 'px';
       D.boxOverlay.style.top  = (_ovStart.top  + (my - _ovStart.my)) + 'px';
       applyOvTransform();
