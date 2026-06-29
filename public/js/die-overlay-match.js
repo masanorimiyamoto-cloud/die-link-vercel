@@ -64,6 +64,8 @@ function prepareDrawing(drawing, maxSide) {
 export async function matchDieOverlay(o) {
   const maxSide = o.maxSide || DEFAULT_MAX_SIDE;
   const tolMm = o.tolMm ?? 10;
+  const expectedWmm = Number(o.expectedWmm) || 0;
+  const expectedHmm = Number(o.expectedHmm) || 0;
   const onStatus = o.onStatus;
 
   let pPrep, drawImgData;
@@ -79,7 +81,7 @@ export async function matchDieOverlay(o) {
   let res;
   try {
     if (onStatus) onStatus('外形を抽出して位置合わせ中…');
-    res = runMatch(pPrep.imageData, drawImgData, pxPerMmProc, tolMm);
+    res = runMatch(pPrep.imageData, drawImgData, pxPerMmProc, tolMm, expectedWmm, expectedHmm);
   } catch (e) {
     return failResult('解析エラー: ' + ((e && e.message) || e));
   }
@@ -91,7 +93,12 @@ export async function matchDieOverlay(o) {
 
   return {
     ok: true, matchPct: res.matchPct, maxDevMm: res.maxDevMm, avgDevMm: res.avgDevMm,
-    maxDevPct: res.maxDevPct, avgDevPct: res.avgDevPct, verdict: res.verdict, reason: res.reason, overlayCanvas,
+    maxDevPct: res.maxDevPct, avgDevPct: res.avgDevPct,
+    actualWmm: res.actualWmm, actualHmm: res.actualHmm,
+    expectedWmm: res.expectedWmm, expectedHmm: res.expectedHmm,
+    dimDeltaWmm: res.dimDeltaWmm, dimDeltaHmm: res.dimDeltaHmm,
+    dimensionVerdict: res.dimensionVerdict, shapeVerdict: res.shapeVerdict,
+    verdict: res.verdict, reason: res.reason, overlayCanvas,
   };
 }
 
@@ -102,7 +109,7 @@ function failResult(reason) {
 /* ============================================================================
    照合パイプライン（純CPU・小画像なので一瞬）
    ========================================================================== */
-function runMatch(photoImg, drawImg, pxPerMmProc, tolMm) {
+function runMatch(photoImg, drawImg, pxPerMmProc, tolMm, expectedWmm, expectedHmm) {
   const pw = photoImg.width, ph = photoImg.height;
   const dw = drawImg.width, dh = drawImg.height;
 
@@ -161,15 +168,98 @@ function runMatch(photoImg, drawImg, pxPerMmProc, tolMm) {
   const maxDevMm = (pxPerMmProc > 0) ? Math.round(maxDevPx / pxPerMmProc * 10) / 10 : null;
   const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
   const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
-  const verdict = decideVerdict(matchPct, maxDevMm, tolMm);
+  const shapeVerdict = decideVerdict(matchPct, maxDevMm, tolMm);
+  const dims = measureAndCompareDimensions(photoPoly, pxPerMmProc, expectedWmm, expectedHmm, tolMm);
+  const verdict = combineVerdicts(shapeVerdict, dims.verdict);
 
   return {
-    ok: true, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct, verdict,
+    ok: true, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct,
+    actualWmm: dims.actualWmm, actualHmm: dims.actualHmm,
+    expectedWmm: dims.expectedWmm, expectedHmm: dims.expectedHmm,
+    dimDeltaWmm: dims.deltaWmm, dimDeltaHmm: dims.deltaHmm,
+    dimensionVerdict: dims.verdict, shapeVerdict, verdict,
     movedPts: best.moved, overTolPts, photoPts: photoPoly,
-    reason: (maxDevMm != null)
-      ? `一致率(IoU) ${matchPct}%・最大ズレ ${maxDevMm}mm（許容±${tolMm}mm）`
-      : `一致率(IoU) ${matchPct}%・最大ズレ 約${maxDevPct}%（現物サイズ比・CALなし）`,
+    reason: buildReason(matchPct, maxDevMm, maxDevPct, tolMm, dims),
   };
+}
+
+/** 現物輪郭の最小面積外接矩形から、撮影時の回転に影響されない外寸を求める。 */
+function measureAndCompareDimensions(poly, pxPerMm, expectedWmm, expectedHmm, tolMm) {
+  const unavailable = {
+    actualWmm: null, actualHmm: null,
+    expectedWmm: expectedWmm > 0 ? expectedWmm : null,
+    expectedHmm: expectedHmm > 0 ? expectedHmm : null,
+    deltaWmm: null, deltaHmm: null, verdict: 'unavailable',
+  };
+  if (!(pxPerMm > 0) || !(expectedWmm > 0) || !(expectedHmm > 0) || !poly || poly.length < 2) return unavailable;
+
+  // 縦横の向きは撮影回転で入れ替わるため、短辺・長辺の順で比較する。
+  const ext = minimumAreaExtents(poly);
+  if (!ext) return unavailable;
+  const actual = [ext.w / pxPerMm, ext.h / pxPerMm].sort((a, b) => a - b);
+  const expected = [expectedWmm, expectedHmm].sort((a, b) => a - b);
+  const round1 = (v) => Math.round(v * 10) / 10;
+  const actualWmm = round1(actual[1]), actualHmm = round1(actual[0]);
+  const expWmm = round1(expected[1]), expHmm = round1(expected[0]);
+  const deltaWmm = round1(Math.abs(actualWmm - expWmm));
+  const deltaHmm = round1(Math.abs(actualHmm - expHmm));
+  return {
+    actualWmm, actualHmm, expectedWmm: expWmm, expectedHmm: expHmm,
+    deltaWmm, deltaHmm,
+    verdict: (deltaWmm <= tolMm && deltaHmm <= tolMm) ? 'match' : 'mismatch',
+  };
+}
+
+/** 輪郭の凸包を各辺方向へ投影し、面積が最小になる外接矩形の幅・高さを返す。 */
+function minimumAreaExtents(points) {
+  const pts = [...points].sort((a, b) => (a.x - b.x) || (a.y - b.y));
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const half = [];
+  for (const p of pts) {
+    while (half.length >= 2 && cross(half[half.length - 2], half[half.length - 1], p) <= 0) half.pop();
+    half.push(p);
+  }
+  const lower = half.slice();
+  half.length = 0;
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (half.length >= 2 && cross(half[half.length - 2], half[half.length - 1], p) <= 0) half.pop();
+    half.push(p);
+  }
+  const hull = lower.slice(0, -1).concat(half.slice(0, -1));
+  if (hull.length < 2) return null;
+
+  let best = null;
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i], b = hull[(i + 1) % hull.length];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0)) continue;
+    const ux = dx / len, uy = dy / len, vx = -uy, vy = ux;
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    for (const p of hull) {
+      const u = p.x * ux + p.y * uy, v = p.x * vx + p.y * vy;
+      if (u < minU) minU = u; if (u > maxU) maxU = u;
+      if (v < minV) minV = v; if (v > maxV) maxV = v;
+    }
+    const w = maxU - minU, h = maxV - minV, area = w * h;
+    if (!best || area < best.area) best = { w, h, area };
+  }
+  return best;
+}
+
+function combineVerdicts(shapeVerdict, dimensionVerdict) {
+  if (shapeVerdict === 'mismatch' || dimensionVerdict === 'mismatch') return 'mismatch';
+  if (shapeVerdict === 'match' && (dimensionVerdict === 'match' || dimensionVerdict === 'unavailable')) return 'match';
+  return 'uncertain';
+}
+
+function buildReason(matchPct, maxDevMm, maxDevPct, tolMm, dims) {
+  const shape = (maxDevMm != null)
+    ? `一致率(IoU) ${matchPct}%・輪郭最大ズレ ${maxDevMm}mm`
+    : `一致率(IoU) ${matchPct}%・輪郭最大ズレ 約${maxDevPct}%（現物サイズ比）`;
+  if (dims.verdict === 'unavailable') return `${shape}（実寸判定にはCAL-50と登録寸法が必要）`;
+  return `${shape}・実寸 ${dims.actualHmm}×${dims.actualWmm}mm / 登録 ${dims.expectedHmm}×${dims.expectedWmm}mm（許容±${tolMm}mm）`;
 }
 
 function decideVerdict(matchPct, maxDevMm, tolMm) {
@@ -559,4 +649,5 @@ export const __test = {
   otsu, dilate, silhouetteFromBarrier, largestComponent, traceContour, simplifyPoly,
   maskMoments, transformPoly, fillPoly, iou, boundaryMask, distanceTransform,
   fillHoles, brightnessSilhouette, refineAlignment,
+  minimumAreaExtents, measureAndCompareDimensions, combineVerdicts,
 };

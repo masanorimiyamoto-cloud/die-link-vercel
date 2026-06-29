@@ -619,9 +619,9 @@
   };
 
   /* ===========================================================
-     半製品照合（図面 1:1 オーバーレイ・目視確認）
+     半製品照合（図面との形状照合・実寸確認）
      - 基準QR「CAL-50」(1辺50mm) からスケール(px/mm)を算出
-     - Cut_Size(縦横mm) で図面を実寸スケールしカメラ映像に重ねる
+     - 現物輪郭の外寸をmm換算し、Cut_Size(縦横mm)との差を合否へ反映
      - 本番スキャンとは別の独立ライブループ（boxTick）で動かす
      =========================================================== */
   function parseDims(s){
@@ -890,7 +890,10 @@
 
     // 撮影画像はvideo解像度から縮小されているので px/mm も同率で補正（calFactorも反映）
     const capScale = (frame.cw && frame.vw) ? (frame.cw / frame.vw) : 1;
-    const pxPerMm = (S.pxPerMmVideo > 0) ? (S.pxPerMmVideo * capScale / (S.calFactor || 1)) : 0;
+    // 実寸判定時は、撮影直前まで同じ画面内で確認できたCAL-50だけを使う。
+    // 一度読んだ後にカメラ距離を変えた古い縮尺を流用すると誤判定になるため。
+    const calFresh = S.pxPerMmVideo > 0 && S.calSeenAt && (performance.now() - S.calSeenAt) < 2500;
+    const pxPerMm = calFresh ? (S.pxPerMmVideo * capScale / (S.calFactor || 1)) : 0;
 
     // 任意：box-detect で現物bboxを取り背景を除外（失敗しても続行）
     let productBox = null;
@@ -902,6 +905,8 @@
       pxPerMm,
       productBox: productBox || undefined,
       tolMm: S.tolMm || 10,
+      expectedWmm: S.cutW,
+      expectedHmm: S.cutH,
       onStatus: (s) => { if(s) setBoxStatus(s, true); },
     });
 
@@ -914,7 +919,7 @@
     } catch(e) { ai = { _err: String(e.message||e) }; }
 
     renderDieOverlayResult(cv, ai, pxPerMm);
-    S.lastMeasure = (cv.ok) ? { wMm:0, hMm:0, ok:(cv.verdict==='match') } : null;
+    S.lastMeasure = (cv.ok) ? { wMm:cv.actualWmm||0, hMm:cv.actualHmm||0, ok:(cv.verdict==='match') } : null;
     setBoxStatus(pxPerMm > 0 ? '✅ 照合完了' : '✅ 照合完了（CAL-50未設定：mmは表示なし）', true);
   }
 
@@ -927,6 +932,12 @@
       : (cv.maxDevPct != null
           ? `最大ズレ 約${cv.maxDevPct}％／平均 約${cv.avgDevPct ?? '—'}％（現物サイズ比・CAL-50なし）`
           : (pxPerMm > 0 ? 'ズレ算出不可（輪郭が取れませんでした）' : 'CAL-50なし：一致率のみ'));
+    const dimLine = (cv.dimensionVerdict === 'match' || cv.dimensionVerdict === 'mismatch')
+      ? `実寸 長辺${cv.actualWmm}×短辺${cv.actualHmm}mm／登録 長辺${cv.expectedWmm}×短辺${cv.expectedHmm}mm` +
+        `（差 長辺${cv.dimDeltaWmm}・短辺${cv.dimDeltaHmm}mm／許容±${S.tolMm||10}mm）`
+      : (!S.cutW || !S.cutH
+          ? '実寸判定：登録寸法（Cut_Size）がありません'
+          : '実寸判定：CAL-50を映すと登録寸法との差を判定します');
 
     const apprV = (ai && ai.found !== false && ai.ok !== false && !ai._err) ? ai.verdict : null;
     let aiLine;
@@ -953,6 +964,7 @@
     D.boxResult.innerHTML =
       `<div class="res-head">${overall}　一致率 ${cv.matchPct ?? '—'}％</div>`
       + `<div class="res-detail">${mmLine}</div>`
+      + `<div class="res-detail">${dimLine}</div>`
       + (cv.ok ? '' : `<div class="res-detail">${esc(cv.reason||'')}</div>`)
       + `<div class="res-detail">${aiLine}</div>`
       + `<div class="res-detail" style="font-size:11px;color:#999">AI: ${esc(AI_MODELS[S.aiModel]||S.aiModel)}</div>`
