@@ -940,12 +940,20 @@
 
     D.boxResult.style.display = 'flex';
     D.boxResult.className = 'row ' + cls;
+    const legend = cv.overlayCanvas
+      ? `<div class="res-detail" style="font-size:11px;color:#666">`
+        + `<span style="color:#0a0;font-weight:700">━ 緑</span>=登録図面　`
+        + `<span style="color:#28f;font-weight:700">┅ 青</span>=検出した現物の外形　`
+        + `<span style="color:#e22;font-weight:700">● 赤</span>=ズレ大の点`
+        + `</div>`
+      : '';
     D.boxResult.innerHTML =
       `<div class="res-head">${overall}　一致率 ${cv.matchPct ?? '—'}％</div>`
       + `<div class="res-detail">${mmLine}</div>`
       + (cv.ok ? '' : `<div class="res-detail">${esc(cv.reason||'')}</div>`)
       + `<div class="res-detail">${aiLine}</div>`
       + `<div class="res-detail" style="font-size:11px;color:#999">AI: ${esc(AI_MODELS[S.aiModel]||S.aiModel)}</div>`
+      + legend
       + `<div id="dieOverlayHost" style="margin-top:8px"></div>`;
     if(cv.overlayCanvas){
       cv.overlayCanvas.style.maxWidth = '100%';
@@ -954,6 +962,8 @@
       const host = document.getElementById('dieOverlayHost');
       if(host) host.appendChild(cv.overlayCanvas);
     }
+    // 重ね合わせ画像はカメラの下にあるため、結果を画面内へスクロールして必ず見せる
+    try{ D.boxResult.scrollIntoView({ behavior:'smooth', block:'center' }); }catch{}
 
     const sub = `一致率 ${cv.matchPct ?? '—'}％` + (cv.maxDevMm!=null ? ` / 最大${cv.maxDevMm}mm` : '');
     showVerdict(cls==='ok'?'ok':cls==='ng'?'ng':'warn', overall, sub);

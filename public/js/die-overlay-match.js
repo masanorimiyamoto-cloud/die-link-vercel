@@ -86,7 +86,7 @@ export async function matchDieOverlay(o) {
   if (!res || res.ok === false) return failResult((res && res.reason) || '照合に失敗しました');
 
   let overlayCanvas = null;
-  try { overlayCanvas = renderOverlay(o.photo, pPrep.sx, pPrep.sy, pPrep.k, res.movedPts, res.overTolPts); }
+  try { overlayCanvas = renderOverlay(o.photo, pPrep.sx, pPrep.sy, pPrep.k, res.movedPts, res.overTolPts, res.photoPts); }
   catch (e) { /* 描画失敗は数値だけ返す */ }
 
   return {
@@ -163,7 +163,7 @@ function runMatch(photoImg, drawImg, pxPerMmProc, tolMm) {
 
   return {
     ok: true, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct, verdict,
-    movedPts: best.moved, overTolPts,
+    movedPts: best.moved, overTolPts, photoPts: photoPoly,
     reason: (maxDevMm != null)
       ? `一致率(IoU) ${matchPct}%・最大ズレ ${maxDevMm}mm（許容±${tolMm}mm）`
       : `一致率(IoU) ${matchPct}%・最大ズレ 約${maxDevPct}%（現物サイズ比・CALなし）`,
@@ -284,8 +284,43 @@ function largestComponent(mask, w, h) {
   if (bestLab) for (let i = 0; i < out.length; i++) out[i] = (lab[i] === bestLab) ? 1 : 0;
   return { mask: out, area: bestSize };
 }
-function photoSilhouette(imgData) {
+/** マスク内部の穴（外周から到達できない背景）を埋める。 */
+function fillHoles(mask, w, h) {
+  const bg = new Uint8Array(w * h); const st = [];
+  const push = (x, y) => { if (x < 0 || y < 0 || x >= w || y >= h) return; const i = y * w + x; if (bg[i] || mask[i]) return; bg[i] = 1; st.push(i); };
+  for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
+  for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
+  while (st.length) { const i = st.pop(); const x = i % w, y = (i / w) | 0; push(x - 1, y); push(x + 1, y); push(x, y - 1); push(x, y + 1); }
+  const out = new Uint8Array(w * h);
+  let area = 0;
+  for (let i = 0; i < out.length; i++) { const v = (mask[i] || !bg[i]) ? 1 : 0; out[i] = v; if (v) area++; }
+  return { mask: out, area };
+}
+/**
+ * 明るさベースのシルエット抽出。四隅で背景の明暗極性を自動判定し、背景でない側の
+ * 最大連結成分を製品とみなす。明るい現物／暗い台（やその逆）のように明暗差がある現物に強い。
+ */
+function brightnessSilhouette(imgData) {
   const w = imgData.width, h = imgData.height;
+  let g = toGray(imgData); g = boxBlur3(g, w, h);
+  const thr = otsu(g);
+  const cs = Math.max(3, Math.round(Math.min(w, h) * 0.06));
+  let cornerDark = 0, cornerTot = 0;
+  const sample = (x0, y0) => { for (let y = y0; y < y0 + cs && y < h; y++) for (let x = x0; x < x0 + cs && x < w; x++) { cornerTot++; if (g[y * w + x] < thr) cornerDark++; } };
+  sample(0, 0); sample(w - cs, 0); sample(0, h - cs); sample(w - cs, h - cs);
+  const bgIsDark = cornerTot > 0 && (cornerDark / cornerTot) >= 0.5;  // 背景は暗いか？
+  const fg = new Uint8Array(w * h);
+  for (let i = 0; i < fg.length; i++) { const dark = g[i] < thr; fg[i] = (bgIsDark ? !dark : dark) ? 1 : 0; }
+  const lc = largestComponent(fg, w, h);
+  if (!lc.area) return null;
+  return fillHoles(lc.mask, w, h);
+}
+function photoSilhouette(imgData) {
+  const w = imgData.width, h = imgData.height, total = w * h;
+  // 主：明るさベース（明暗差のある現物に強い）。妥当な面積なら採用。
+  const b = brightnessSilhouette(imgData);
+  if (b && b.area > total * 0.04 && b.area < total * 0.92) return b;
+  // 副：エッジ＋背景フラッドフィル（明るさで分離できないとき）
   let g = toGray(imgData);
   g = boxBlur3(g, w, h);
   const mag = sobelMag(g, w, h);
@@ -294,7 +329,9 @@ function photoSilhouette(imgData) {
   for (let i = 0; i < edge.length; i++) edge[i] = mag[i] >= thr ? 1 : 0;
   const r = Math.max(1, Math.round(Math.max(w, h) / 200));  // 線の途切れを閉じる
   const closed = dilate(edge, w, h, r);
-  return silhouetteFromBarrier(closed, w, h);
+  const e = silhouetteFromBarrier(closed, w, h);
+  if (e && e.area > total * 0.04 && e.area < total * 0.97) return e;
+  return b || e;  // どちらも微妙なら明るさ側を優先で返す
 }
 function drawingSilhouette(imgData) {
   const w = imgData.width, h = imgData.height;
@@ -451,7 +488,7 @@ function distanceTransform(seed, w, h) {
 /* ============================================================================
    重ね合わせ描画（現物写真 + 位置合わせ済み図面輪郭 + 許容超え点）
    ========================================================================== */
-function renderOverlay(photo, sx, sy, k, movedPts, overTolPts) {
+function renderOverlay(photo, sx, sy, k, movedPts, overTolPts, photoPts) {
   const { w: baseW, h: baseH } = srcDims(photo);
   const canvas = document.createElement('canvas');
   canvas.width = baseW; canvas.height = baseH;
@@ -459,13 +496,17 @@ function renderOverlay(photo, sx, sy, k, movedPts, overTolPts) {
   g.drawImage(photo, 0, 0, baseW, baseH);
   const inv = k > 0 ? 1 / k : 1;
   const map = (p) => ({ x: sx + p.x * inv, y: sy + p.y * inv });
-  g.lineWidth = Math.max(2, baseW / 400);
-  g.strokeStyle = 'rgba(0, 200, 80, 0.9)';
-  if (movedPts && movedPts.length) {
+  const stroke = (pts, color, width, dash) => {
+    if (!pts || !pts.length) return;
+    g.lineWidth = width; g.strokeStyle = color; g.setLineDash(dash || []);
     g.beginPath();
-    movedPts.forEach((p, i) => { const q = map(p); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); });
-    g.closePath(); g.stroke();
-  }
+    pts.forEach((p, i) => { const q = map(p); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); });
+    g.closePath(); g.stroke(); g.setLineDash([]);
+  };
+  // 青：検出した「現物の外形」（CVが何を製品と認識したか）
+  stroke(photoPts, 'rgba(40, 140, 255, 0.85)', Math.max(2, baseW / 500), [10, 8]);
+  // 緑：位置合わせ済みの「登録図面の外形」
+  stroke(movedPts, 'rgba(0, 200, 80, 0.95)', Math.max(2, baseW / 380));
   g.fillStyle = 'rgba(230, 30, 30, 0.9)';
   const r = Math.max(3, baseW / 250);
   for (const p of (overTolPts || [])) {
@@ -479,4 +520,5 @@ function renderOverlay(photo, sx, sy, k, movedPts, overTolPts) {
 export const __test = {
   otsu, dilate, silhouetteFromBarrier, largestComponent, traceContour, simplifyPoly,
   maskMoments, transformPoly, fillPoly, iou, boundaryMask, distanceTransform,
+  fillHoles, brightnessSilhouette,
 };
