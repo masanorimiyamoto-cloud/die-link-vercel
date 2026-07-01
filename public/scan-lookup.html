@@ -575,6 +575,8 @@
         renderSpec(j);
         openDriveFigure((j.book||book),(j.workcord||wc));
       }catch(e){
+        // 取得に失敗したので dedup を解除（同じ型を再スキャン/再設定したら再取得できるように）
+        state.lastQueryKey = '';
         DOM.errApi.style.display='block'; DOM.errApi.textContent='❌ APIエラー: '+(e.message||e);
         DOM.gsBox.innerHTML='<div class="muted">（Google Sheets を取得できませんでした）</div>';
         // POSTがダメでも GETで救済（既存フォールバック）
@@ -582,7 +584,7 @@
           const qs=new URLSearchParams({book,wc,json:'1',limit:'1'}).toString();
           const r2=await fetch('/api/die-check?'+qs,{credentials:'same-origin'});
           const t2=await r2.text(); let j2={}; try{ j2=JSON.parse(t2);}catch{ throw new Error('JSON parse error'); }
-          if(r2.ok && j2.ok===true){ renderSpec(j2); openDriveFigure((j2.book||book),(j2.workcord||wc)); }
+          if(r2.ok && j2.ok===true){ renderSpec(j2); openDriveFigure((j2.book||book),(j2.workcord||wc)); state.lastQueryKey = key; }
         }catch{}
       }finally{
         DOM.loading.style.display='none';
@@ -681,7 +683,7 @@
           else if(data.kind==='loc'){ status=data.isMatch?'✔️ 一致 (棚)':'❌ 不一致 (棚)'; }
           else if(data.kind==='order'){ status='🧾 作業指示 読み取り'; }
           else{ status='❓ その他'; }
-          li.innerHTML = `<strong>${status}:</strong> ${raw.substring(0,60)}${raw.length>60?'...':''}`;
+          li.innerHTML = `<strong>${status}:</strong> ${esc(raw.substring(0,60))}${raw.length>60?'...':''}`;
           DOM.historyList.appendChild(li);
         }
       }
