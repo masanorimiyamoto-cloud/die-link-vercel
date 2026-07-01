@@ -324,8 +324,9 @@
     /* ==== UI描画 ==== */
     function fitOverlay(){
       if(DOM.video.videoWidth===0) return;
-      DOM.overlay.width = DOM.video.videoWidth;
-      DOM.overlay.height= DOM.video.videoHeight;
+      // width/height の再代入は canvas を全クリア＋再確保するため、変化時のみ行う
+      if(DOM.overlay.width  !== DOM.video.videoWidth)  DOM.overlay.width  = DOM.video.videoWidth;
+      if(DOM.overlay.height !== DOM.video.videoHeight) DOM.overlay.height = DOM.video.videoHeight;
       DOM.overlay.style.width  = DOM.video.clientWidth + 'px';
       DOM.overlay.style.height = DOM.video.clientHeight + 'px';
     }
@@ -337,7 +338,24 @@
       ctx.lineWidth = isNG ? 4 : (color === '#1c7ed6' ? 5 : 3);
       ctx.setLineDash(style==='dashed'?[8,6]:[]);
       ctx.shadowColor=color; ctx.shadowBlur=4; ctx.strokeStyle=color;
-      ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke(); ctx.restore();
+      ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y); for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y); ctx.closePath(); ctx.stroke();
+      // ラベル（一致/不一致/棚 等）を枠の左上に描画。overlay解像度に合わせて可読サイズに。
+      if(label){
+        ctx.setLineDash([]); ctx.shadowBlur=0;
+        const fs=Math.max(16, Math.round((DOM.overlay.width||640)/40));
+        const pad=Math.round(fs*0.35);
+        ctx.font=`bold ${fs}px system-ui,-apple-system,sans-serif`;
+        ctx.textBaseline='alphabetic';
+        const tw=ctx.measureText(label).width;
+        const lx=points[0].x;
+        let ly=points[0].y - pad;
+        if(ly - fs < 0) ly = points[0].y + fs + pad; // 上に余白がなければ下に出す
+        ctx.fillStyle='rgba(0,0,0,.6)';
+        ctx.fillRect(lx, ly-fs, tw+pad*2, fs+pad);
+        ctx.fillStyle = isNG ? '#ffd0d0' : '#fff';
+        ctx.fillText(label, lx+pad, ly);
+      }
+      ctx.restore();
     }
     function showToastNearBox(text,pts){
       if(!pts||pts.length<2) return;
@@ -532,9 +550,13 @@
       }
     }
 
+    const DETECT_INTERVAL_MS = 110; // 検出は約9fpsに間引く（QRは静止物なので十分・CPU/電池を節約）
+    let __lastDetectAt = 0;
     async function tick(){
       if(!state.stream) return;
-      if(DOM.video.readyState===DOM.video.HAVE_ENOUGH_DATA){
+      const now = performance.now();
+      if(DOM.video.readyState===DOM.video.HAVE_ENOUGH_DATA && (now - __lastDetectAt) >= DETECT_INTERVAL_MS){
+        __lastDetectAt = now;
         fitOverlay();
         const detections = await detectCombined();
         applyDetections(detections);
@@ -691,7 +713,6 @@
     }
 
     /* ==== イベント ==== */
-    /* ==== イベント ==== */
     // ★修正: 連打による多重起動を防止
     DOM.btnStart.addEventListener('click', async ()=>{ 
       if (DOM.btnStart.disabled) return;
@@ -714,7 +735,6 @@
         stopCam();
       }
     });
-    window.addEventListener('click', (ev)=>{ if(ev.target===DOM.historyModal) DOM.historyModal.style.display='none'; });
 
     // 手入力ターゲット設定 → ★ ここでも必ず querySpec()
     if(DOM.btnSetTarget){
