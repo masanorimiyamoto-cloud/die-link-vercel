@@ -87,9 +87,13 @@ export async function matchDieOverlay(o) {
   }
   if (!res || res.ok === false) return failResult((res && res.reason) || '照合に失敗しました');
 
+  // 色付き重ね合わせ画像は既定で生成しない（UIから廃止したため）。
+  // o.wantOverlay:true を渡したときだけ従来の緑塗り/青破線/赤点キャンバスを返す。
   let overlayCanvas = null;
-  try { overlayCanvas = renderOverlay(o.photo, pPrep.sx, pPrep.sy, pPrep.k, res.movedPts, res.overTolPts, res.photoPts); }
-  catch (e) { /* 描画失敗は数値だけ返す */ }
+  if (o.wantOverlay) {
+    try { overlayCanvas = renderOverlay(o.photo, pPrep.sx, pPrep.sy, pPrep.k, res.movedPts, res.overTolPts, res.photoPts); }
+    catch (e) { /* 描画失敗は数値だけ返す */ }
+  }
 
   return {
     ok: true, matchPct: res.matchPct, maxDevMm: res.maxDevMm, avgDevMm: res.avgDevMm,
