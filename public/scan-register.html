@@ -207,7 +207,8 @@
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"
 const AIRTABLE_ENABLED = false; 
-const SCAN_RESOLUTION = 600;
+const SCAN_RESOLUTION = 960; // 抜型QR（18mm角）は小さいため解像度を確保（600→960）
+const DETECT_INTERVAL_MS = 110; // QRは静止物なので間引いてCPU負荷を相殺（解像度アップ分の埋め合わせ）
 
 // ========= 状態 (State) =========
 let fixedLoc = null;
@@ -396,11 +397,19 @@ function stopCam(){ cancelAnimationFrame(rafId); rafId=null; if(stream){ stream.
 function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message||e}`); }
 async function startCam(){ 
     stopCam(); setError(""); 
-    try{ 
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} }, audio:false }); 
-    }catch(e){ showError(e); return; } 
-    v.srcObject=stream; 
-    try{ await v.play(); }catch(e){ showError(e); return; } 
+    try{
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ ideal:'environment' }, width:{ideal:1920}, height:{ideal:1080} }, audio:false });
+    }catch(e){ showError(e); return; }
+    v.srcObject=stream;
+    try{ await v.play(); }catch(e){ showError(e); return; }
+    // 抜型QR（18mm角）は近距離スキャンになりがちなので、対応端末では連続オートフォーカスを明示指定
+    try{
+        const track = stream.getVideoTracks()[0];
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        if(caps.focusMode && caps.focusMode.includes('continuous')){
+            await track.applyConstraints({ advanced:[{ focusMode:'continuous' }] });
+        }
+    }catch{}
     const w = v.videoWidth, h = v.videoHeight;
     ov.width = w; ov.height = h;
     scanCanvas.width = SCAN_RESOLUTION;
@@ -458,12 +467,17 @@ function processScanResult(hit) {
     }
 }
 
-async function tick() { 
-    if (!stream) return; 
-    const hit = scan();
-    processScanResult(hit);
-    drawOverlays(); 
-    rafId = requestAnimationFrame(tick); 
+let __lastDetectAt = 0;
+async function tick() {
+    if (!stream) return;
+    const now = performance.now();
+    if (now - __lastDetectAt >= DETECT_INTERVAL_MS) {
+        __lastDetectAt = now;
+        const hit = scan();
+        processScanResult(hit);
+    }
+    drawOverlays(); // フラッシュ/吹き出しのフェード演出は毎フレーム更新
+    rafId = requestAnimationFrame(tick);
 }
 
 // ========= 送信 =========

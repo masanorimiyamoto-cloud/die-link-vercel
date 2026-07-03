@@ -384,11 +384,19 @@
       DOM.error.textContent='';
       try{
         state.stream = await navigator.mediaDevices.getUserMedia({
-          video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} },
+          video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30} },
           audio:false
         });
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
+        // 抜型QR（18mm角）は近距離スキャンになりがちなので、対応端末では連続オートフォーカスを明示指定
+        try{
+          const track = state.stream.getVideoTracks()[0];
+          const caps = track.getCapabilities ? track.getCapabilities() : {};
+          if(caps.focusMode && caps.focusMode.includes('continuous')){
+            await track.applyConstraints({ advanced:[{ focusMode:'continuous' }] });
+          }
+        }catch{}
         DOM.btnStart.disabled=true; DOM.btnStop.disabled=false;
 
         if(state.useBarcodeDetector){
