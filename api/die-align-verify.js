@@ -123,7 +123,7 @@ async function fetchImageAsBase64(token, fileId) {
 /* ---------- AIプロンプト（意味照合＋CV計測値の講評） ---------- */
 function buildPrompt(cv) {
   const cvLine = cv && (cv.matchPct != null || cv.maxDevMm != null)
-    ? `\n参考: 別途のCV(コンピュータビジョン)計測では「一致率 ${cv.matchPct ?? '—'}%・最大ズレ ${cv.maxDevMm ?? '—'}mm」でした。この数値が形状の見た目と整合するかも踏まえて講評してください。`
+    ? `\n参考: 別途のCV(コンピュータビジョン)計測では「一致率 ${cv.matchPct ?? '—'}%・輪郭ズレ(外れ値5%除外) ${cv.maxDevMm ?? '—'}mm」でした。この数値が形状の見た目と整合するかも踏まえて講評してください。`
     : '';
   return `あなたは製造現場の抜き製品（段ボール／紙箱の半製品）の形状照合アシスタントです。
 1枚目は「登録済みの図面（抜き型の展開図・線画）」、2枚目は「作業者が目の前の抜き製品を撮影した静止画」です。

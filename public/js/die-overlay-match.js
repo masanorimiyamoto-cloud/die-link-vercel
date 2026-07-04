@@ -157,24 +157,28 @@ function runMatch(photoImg, drawImg, pxPerMmProc, tolMm, expectedWmm, expectedHm
 
   const refLen = Math.sqrt(photoStats.area) || 1;
   const relTol = 0.05;
-  let sum = 0, n = 0, maxDevPx = 0;
+  let sum = 0, n = 0;
+  const devsPx = [];
   const overTolPts = [];
   for (const p of best.moved) {
     const x = Math.round(p.x), y = Math.round(p.y);
     if (x < 0 || y < 0 || x >= pw || y >= ph) continue;
     const dpx = dist[y * pw + x];
-    sum += dpx; n++;
-    if (dpx > maxDevPx) maxDevPx = dpx;
+    sum += dpx; n++; devsPx.push(dpx);
     const over = (pxPerMmProc > 0) ? (dpx / pxPerMmProc > tolMm) : (dpx / refLen > relTol);
     if (over) overTolPts.push({ x: p.x, y: p.y });
   }
+  // 単純最大値は1点の外れ値（影・フラップ写り込み・位置合わせ残差）で跳ね上がり、
+  // 実寸がほぼ一致していても数十mmと表示され誤解を招くため、上位5%を除いたP95を報告する
+  devsPx.sort((a, b) => a - b);
+  const maxDevPx = n ? devsPx[Math.min(n - 1, Math.floor(n * 0.95))] : 0;
   const avgDevMm = (pxPerMmProc > 0 && n > 0) ? Math.round((sum / n) / pxPerMmProc * 10) / 10 : null;
   const maxDevMm = (pxPerMmProc > 0) ? Math.round(maxDevPx / pxPerMmProc * 10) / 10 : null;
   const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
   const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
   const shapeVerdict = decideVerdict(matchPct, maxDevMm, tolMm);
   const dims = measureAndCompareDimensions(photoPoly, pxPerMmProc, expectedWmm, expectedHmm, tolMm);
-  const verdict = combineVerdicts(shapeVerdict, dims.verdict);
+  const verdict = combineVerdicts(shapeVerdict, dims.verdict, matchPct);
 
   return {
     ok: true, matchPct, maxDevMm, avgDevMm, maxDevPct, avgDevPct,
@@ -252,16 +256,20 @@ function minimumAreaExtents(points) {
   return best;
 }
 
-function combineVerdicts(shapeVerdict, dimensionVerdict) {
-  if (shapeVerdict === 'mismatch' || dimensionVerdict === 'mismatch') return 'mismatch';
+function combineVerdicts(shapeVerdict, dimensionVerdict, matchPct) {
+  if (dimensionVerdict === 'mismatch') return 'mismatch';
+  // 実寸（CAL-50校正・回転不変の外接矩形）が最も信頼できる定量値。輪郭ズレは
+  // 位置合わせ残差に敏感なため、実寸一致かつ位置合わせが概ね成立(IoU70%以上)なら一致とする
+  if (dimensionVerdict === 'match' && matchPct >= 70) return 'match';
+  if (shapeVerdict === 'mismatch') return 'mismatch';
   if (shapeVerdict === 'match' && (dimensionVerdict === 'match' || dimensionVerdict === 'unavailable')) return 'match';
   return 'uncertain';
 }
 
 function buildReason(matchPct, maxDevMm, maxDevPct, tolMm, dims) {
   const shape = (maxDevMm != null)
-    ? `一致率(IoU) ${matchPct}%・輪郭最大ズレ ${maxDevMm}mm`
-    : `一致率(IoU) ${matchPct}%・輪郭最大ズレ 約${maxDevPct}%（現物サイズ比）`;
+    ? `一致率(IoU) ${matchPct}%・輪郭ズレ(P95) ${maxDevMm}mm`
+    : `一致率(IoU) ${matchPct}%・輪郭ズレ(P95) 約${maxDevPct}%（現物サイズ比）`;
   if (dims.verdict === 'unavailable') return `${shape}（実寸判定にはCAL-50と登録寸法が必要）`;
   return `${shape}・実寸 ${dims.actualHmm}×${dims.actualWmm}mm / 登録 ${dims.expectedHmm}×${dims.expectedWmm}mm（許容±${tolMm}mm）`;
 }

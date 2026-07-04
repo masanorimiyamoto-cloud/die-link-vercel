@@ -925,10 +925,11 @@
   function renderDieOverlayResult(cv, ai, pxPerMm){
     const cls = cv.verdict==='match' ? 'ok' : cv.verdict==='mismatch' ? 'ng' : '';
     const overall = cv.verdict==='match' ? '✅ 一致' : cv.verdict==='mismatch' ? '❌ 不一致' : '⚠ 要確認';
+    // 輪郭ズレは位置合わせ残差に敏感なため参考値扱い（値はP95=上位5%の外れ値除外済み）
     const mmLine = (cv.maxDevMm != null)
-      ? `最大ズレ ${cv.maxDevMm}mm／平均 ${cv.avgDevMm ?? '—'}mm（許容±${S.tolMm||10}mm）`
+      ? `参考：輪郭ズレ ${cv.maxDevMm}mm（外れ値除外）／平均 ${cv.avgDevMm ?? '—'}mm`
       : (cv.maxDevPct != null
-          ? `最大ズレ 約${cv.maxDevPct}％／平均 約${cv.avgDevPct ?? '—'}％（現物サイズ比・CAL-50なし）`
+          ? `参考：輪郭ズレ 約${cv.maxDevPct}％／平均 約${cv.avgDevPct ?? '—'}％（現物サイズ比・CAL-50なし）`
           : (pxPerMm > 0 ? 'ズレ算出不可（輪郭が取れませんでした）' : 'CAL-50なし：一致率のみ'));
     const dimLine = (cv.dimensionVerdict === 'match' || cv.dimensionVerdict === 'mismatch')
       ? `実寸 長辺${cv.actualWmm}×短辺${cv.actualHmm}mm／登録 長辺${cv.expectedWmm}×短辺${cv.expectedHmm}mm` +
@@ -956,14 +957,14 @@
     // 目視確認は「🖼 図面を重ねる」手動オーバーレイに一本化する。
     D.boxResult.innerHTML =
       `<div class="res-head">${overall}　一致率 ${cv.matchPct ?? '—'}％</div>`
-      + `<div class="res-detail">${mmLine}</div>`
       + `<div class="res-detail">${dimLine}</div>`
+      + `<div class="res-detail">${mmLine}</div>`
       + (cv.ok ? '' : `<div class="res-detail">${esc(cv.reason||'')}</div>`)
       + `<div class="res-detail">${aiLine}</div>`
       + `<div class="res-detail" style="font-size:11px;color:#999">AI: ${esc(AI_MODELS[S.aiModel]||S.aiModel)}</div>`
       + `<div class="res-detail" style="font-size:11px;color:#888">🖼「図面を重ねる」で登録図面を現物に重ね、目視でも確認できます</div>`;
 
-    const sub = `一致率 ${cv.matchPct ?? '—'}％` + (cv.maxDevMm!=null ? ` / 最大${cv.maxDevMm}mm` : '');
+    const sub = `一致率 ${cv.matchPct ?? '—'}％` + (cv.maxDevMm!=null ? ` / 輪郭${cv.maxDevMm}mm` : '');
     showVerdict(cls==='ok'?'ok':cls==='ng'?'ng':'warn', overall, sub);
     speakBox(cls==='ok' ? '一致です。' : cls==='ng' ? '不一致です。' : '要確認です。');
     if(navigator.vibrate) try{ navigator.vibrate(cls==='ng' ? [80,60,80] : 70); }catch{}
