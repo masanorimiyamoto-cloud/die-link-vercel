@@ -398,7 +398,8 @@ function showError(e){ console.error(e); setError(`❌ ${e.name||''} ${e.message
 async function startCam(){ 
     stopCam(); setError(""); 
     try{
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ ideal:'environment' }, width:{ideal:1920}, height:{ideal:1080} }, audio:false });
+        // 1920x1080は実機で読取感度が悪化（露光時間増・AF遅延）したため720pに戻す
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} }, audio:false });
     }catch(e){ showError(e); return; }
     v.srcObject=stream;
     try{ await v.play(); }catch(e){ showError(e); return; }

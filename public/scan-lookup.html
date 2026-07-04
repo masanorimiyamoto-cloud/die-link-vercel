@@ -384,7 +384,8 @@
       DOM.error.textContent='';
       try{
         state.stream = await navigator.mediaDevices.getUserMedia({
-          video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30} },
+          // 1920x1080は実機で読取感度が悪化（露光時間増・AF遅延）したため720pに戻す
+          video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} },
           audio:false
         });
         DOM.video.srcObject = state.stream;
@@ -427,6 +428,7 @@
     }
 
     /* ==== 検出 ==== */
+    const JSQR_MAX_WIDTH = 960; // jsQRは等倍フレームだと1回数百msかかり検出レートが落ちるため縮小してから渡す
     async function detectCombined(){
       if(!DOM.video.videoWidth) return [];
       const c=document.createElement('canvas'); c.width=DOM.video.videoWidth; c.height=DOM.video.videoHeight;
@@ -438,17 +440,26 @@
         catch(e){ console.warn('BarcodeDetector失敗',e); }
       }
 
-      const img=tctx.getImageData(0,0,c.width,c.height);
+      const scale=Math.min(1, JSQR_MAX_WIDTH/c.width);
+      let qctx=tctx, qw=c.width, qh=c.height;
+      if(scale<1){
+        const qc=document.createElement('canvas');
+        qw=qc.width=Math.round(c.width*scale); qh=qc.height=Math.round(c.height*scale);
+        qctx=qc.getContext('2d',{willReadFrequently:true}); qctx.drawImage(c,0,0,qw,qh);
+      }
+      const toVideoCoords=pt=>({ x:pt.x/scale, y:pt.y/scale }); // オーバーレイ描画は動画等倍座標なので戻す
+      const img=qctx.getImageData(0,0,qw,qh);
       const masked=new Uint8ClampedArray(img.data);
       for(let k=0;k<10;k++){
-        const hit=jsQR(masked,img.width,img.height,{ inversionAttempts:'attemptBoth' });
+        // ラベルは黒白印刷なので反転検出(attemptBoth)は不要。dontInvertで処理を半減
+        const hit=jsQR(masked,img.width,img.height,{ inversionAttempts:'dontInvert' });
         if(!hit) break;
         const raw=(hit.data||'').trim();
         if(raw && !all.has(raw)){
           all.set(raw,{ rawValue:raw, cornerPoints:[
             hit.location.topLeftCorner, hit.location.topRightCorner,
             hit.location.bottomRightCorner, hit.location.bottomLeftCorner
-          ]});
+          ].map(toVideoCoords)});
         }
         const {topLeftCorner, bottomRightCorner}=hit.location;
         for(let y=Math.floor(topLeftCorner.y); y<Math.ceil(bottomRightCorner.y); y++){
