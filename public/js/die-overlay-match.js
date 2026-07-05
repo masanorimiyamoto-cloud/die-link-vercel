@@ -165,20 +165,36 @@ export function measureObjectAABB(o) {
   return { x: x0 / fw, y: y0 / fh, w: bw / fw, h: bh / fh }; // 正規化(0..1)
 }
 
-/** 採寸用シルエット：外周多数決で背景を決め、CAL-QRを除外し、中央寄りの最大前景成分を返す。 */
+/**
+ * 採寸用シルエット：色ベース＋影抑制で前景を決め、CAL-QRを除外し、中央寄りの最大成分を返す。
+ * 影は「背景色を明るさ比で暗くしただけ（色みは同じ）」なので、背景色×明るさ比で作る"影予測色"
+ * からの色差(resid)で判定する。resid が大きい＝別素材（茶色い板など色違い）→前景。
+ * resid が小さくても十分暗い(ratio<DARK)＝影では説明できない濃さ（黒い物）→前景。
+ * これで「白背景×薄い影」を拾わず、茶色い板も黒い物もどちらも正しく取れる。
+ */
 function measurementSilhouette(imgData, calQuadProc) {
   const w = imgData.width, h = imgData.height, total = w * h;
-  let g = toGray(imgData); g = boxBlur3(g, w, h);
-  const thr = otsu(g);
-  // 背景クラス＝外周(枠)の多数決。四隅だけより頑健（現物が隅に寄っても効く）
-  const t = Math.max(2, Math.round(Math.min(w, h) * 0.03));
-  let bDark = 0, bTot = 0;
-  const samp = (x, y) => { bTot++; if (g[y * w + x] < thr) bDark++; };
-  for (let x = 0; x < w; x++) for (let dy = 0; dy < t; dy++) { samp(x, dy); samp(x, h - 1 - dy); }
-  for (let y = 0; y < h; y++) for (let dx = 0; dx < t; dx++) { samp(dx, y); samp(w - 1 - dx, y); }
-  const bgIsDark = bTot > 0 && (bDark / bTot) >= 0.5;
+  const data = imgData.data;
+  // 背景色(RGB)を外周(枠)の平均で推定（現物=中央/背景=周縁の前提）
+  const t = Math.max(2, Math.round(Math.min(w, h) * 0.04));
+  let br = 0, bgg = 0, bb = 0, bn = 0;
+  const addBg = (x, y) => { const i = (y * w + x) * 4; br += data[i]; bgg += data[i + 1]; bb += data[i + 2]; bn++; };
+  for (let x = 0; x < w; x++) for (let dy = 0; dy < t; dy++) { addBg(x, dy); addBg(x, h - 1 - dy); }
+  for (let y = 0; y < h; y++) for (let dx = 0; dx < t; dx++) { addBg(dx, y); addBg(w - 1 - dx, y); }
+  if (!bn) return null;
+  const bgR = br / bn, bgG = bgg / bn, bgB = bb / bn;
+  const bgL = (0.299 * bgR + 0.587 * bgG + 0.114 * bgB) || 1;
+  const TAU = 30;   // 影予測色からの色差しきい値（超えたら別素材＝前景）
+  const DARK = 0.34; // 背景比これ未満は影では説明できない濃さ＝前景（黒い物を拾う）
   const fg = new Uint8Array(total);
-  for (let i = 0; i < total; i++) { const dark = g[i] < thr; fg[i] = (bgIsDark ? !dark : dark) ? 1 : 0; }
+  for (let i = 0, p = 0; i < total; i++, p += 4) {
+    const r = data[p], g = data[p + 1], b = data[p + 2];
+    const l = 0.299 * r + 0.587 * g + 0.114 * b;
+    const ratio = l / bgL;
+    const pr = bgR * ratio, pg = bgG * ratio, pb = bgB * ratio; // 影予測色（同色みで減光）
+    const resid = Math.sqrt((r - pr) * (r - pr) + (g - pg) * (g - pg) + (b - pb) * (b - pb));
+    fg[i] = (resid > TAU || ratio < DARK) ? 1 : 0;
+  }
   // CAL-QR 領域を除外（少しマージン）。QRの黒縁を現物に含めない
   if (calQuadProc && calQuadProc.length >= 4) {
     let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
