@@ -51,6 +51,7 @@
     // 基準セット＆寸法測定
     calSet:false, pxPerMmVideo:0, calPts:null, calSeenAt:0, lastMeasure:null, _measCanvas:null,
     refMm:50,      // 基準マーカーの実測サイズ(mm)。印刷誤差はここで補正
+    _calNominal:0, // 直近に検出したCALマーカーの宣言サイズ(mm)。別サイズに切替時のみrefMmを追従
     calFactor:1,   // 実地校正係数（正しい現物で校正して系統誤差を吸収）
     meas:null,     // 手動メジャー枠 {l,t,w,h}（stack内CSS px）
     measTouched:false, // 作業者が黄色枠を手で合わせたら true。AI枠検出より優先する
@@ -694,6 +695,14 @@
 
   // 基準セット完了（px/mm を確定しロック）
   function setCalibrated(cal){
+    // QRの宣言サイズ(cal.mm)を基準の既定にする。CAL-50↔CAL-100 のように別サイズへ
+    // 切り替えたら実測サイズ入力も追従させる（追従しないとCAL-100を50mm基準で読み2倍ズレる）。
+    // 同一サイズを見続ける間はユーザーの微調整（印刷誤差補正）を保持する。
+    if(cal && cal.mm > 0 && S._calNominal !== cal.mm){
+      S._calNominal = cal.mm;
+      S.refMm = cal.mm;
+      if(D.boxRefMm) D.boxRefMm.value = String(cal.mm);
+    }
     const refMm = S.refMm || cal.mm;                     // 実測サイズ優先（印刷誤差補正）
     S.pxPerMmVideo = avgSide(cal.pts) / refMm;           // 映像px/mm（測定用）
     S.calPts = cal.pts.map(p => ({ x:p.x, y:p.y }));     // QR位置（測定時マスク用）

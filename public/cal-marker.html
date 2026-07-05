@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CAL-50 基準マーカー（1辺50mm）</title>
+<title>CAL 基準マーカー</title>
 <style>
   :root{ --ink:#1a1a1a; --sub:#666; --line:#ddd; --accent:#2f6df6; }
   *{ box-sizing:border-box; }
@@ -13,16 +13,20 @@
   .lead{ color:var(--sub); font-size:14px; margin:0 0 18px; line-height:1.7; }
   .card{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:18px; }
   .marker{ text-align:center; }
-  /* QR本体（黒モジュール領域）の1辺がちょうど50mmになるよう svg 側で実寸指定 */
+  /* QR本体（黒モジュール領域）の1辺がちょうど指定mmになるよう svg 側で実寸指定 */
   #qr svg{ display:block; margin:0 auto; }
   .mk-label{ margin-top:8px; font-weight:800; letter-spacing:.04em; }
   .mk-note{ font-size:12px; color:var(--sub); margin-top:2px; }
-  /* 50mm検証用ものさし */
-  .ruler{ width:50mm; height:14px; margin:14px auto 0; border:1.5px solid var(--ink);
+  /* 実寸検証用ものさし（幅・ラベルはJSで設定） */
+  .ruler{ height:14px; margin:14px auto 0; border:1.5px solid var(--ink);
           border-top:none; position:relative; }
-  .ruler::after{ content:"← 50mm →"; position:absolute; left:0; right:0; top:-16px;
+  .ruler::after{ content:attr(data-label); position:absolute; left:0; right:0; top:-16px;
                  text-align:center; font-size:11px; color:var(--sub); }
   ol{ margin:10px 0 0; padding-left:20px; font-size:14px; line-height:1.9; }
+  .sizes{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+  .sizes a{ text-decoration:none; border:1px solid var(--line); border-radius:8px;
+            padding:6px 12px; font-size:13px; font-weight:700; color:var(--ink); background:#fff; }
+  .sizes a.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
   .btn{ display:inline-block; border:none; border-radius:10px; padding:12px 20px;
         font-size:15px; font-weight:700; cursor:pointer; }
   .btn-print{ background:var(--accent); color:#fff; }
@@ -38,28 +42,34 @@
 </head>
 <body>
   <div class="wrap">
-    <h1 class="no-print">📐 CAL-50 基準マーカー</h1>
-    <p class="lead no-print">
-      半製品照合の「基準セット」用QRです。<b>印刷したQR本体の1辺がちょうど50mm</b>になるよう実寸で作成しています。<br>
-      内容は文字列 <code>CAL-50</code>（= 1辺50mmの意味）。これをカメラで映すと自動で基準がセットされます。
-    </p>
+    <h1 class="no-print" id="pageTitle">📐 CAL 基準マーカー</h1>
+    <p class="lead no-print" id="lead"></p>
+
+    <div class="card no-print">
+      <b>サイズを選ぶ</b>
+      <div class="sizes" id="sizes">
+        <a href="?mm=50">CAL-50（1辺50mm）</a>
+        <a href="?mm=100">CAL-100（1辺100mm）</a>
+      </div>
+      <p class="mk-note" style="margin-top:8px;">大きいほど計測が安定します。現物と一緒に画面へ収まるサイズを選んでください（大きい現物ほどCAL-100推奨）。</p>
+    </div>
 
     <div class="card marker">
       <div id="qr">生成中…</div>
-      <div class="mk-label">CAL-50</div>
-      <div class="mk-note">QR本体の1辺 = 50mm</div>
-      <div class="ruler"></div>
+      <div class="mk-label" id="mkLabel">CAL</div>
+      <div class="mk-note" id="mkNote">QR本体の1辺 = —mm</div>
+      <div class="ruler" id="ruler"></div>
     </div>
 
     <div class="card no-print">
       <b>印刷のしかた（重要）</b>
       <ol>
         <li>下の「印刷」ボタン → 倍率は必ず <b>100%（実寸／用紙に合わせない）</b> に設定。</li>
-        <li>印刷後、上の「←50mm→」ものさし、または QR本体の1辺を <b>定規で測って50mmか確認</b>。</li>
+        <li>印刷後、上の「ものさし」または QR本体の1辺を <b>定規で測って指定mmか確認</b>。</li>
         <li>ズレていたらプリンタの「ページに合わせる」をオフにして再印刷。</li>
         <li>厚紙に貼る／台紙に固定して、現物と同じ平面（机の上）に置いて使用。</li>
       </ol>
-      <div class="warn">スマホで表示したQRを直接撮ってもOKですが、画面のサイズが50mmと一致しないため<b>スケールが不正確</b>になります。基準には必ず<b>印刷した50mm</b>を使ってください。</div>
+      <div class="warn">スマホで表示したQRを直接撮ってもOKですが、画面のサイズが指定mmと一致しないため<b>スケールが不正確</b>になります。基準には必ず<b>印刷した実寸</b>を使ってください。</div>
       <p style="margin-top:16px;"><button class="btn btn-print" onclick="window.print()">🖨 印刷</button></p>
     </div>
   </div>
@@ -67,9 +77,27 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" crossorigin="anonymous"></script>
 <script>
 (function(){
-  var TEXT = 'CAL-50';
-  var SIDE_MM = 50;     // QR本体（データ領域）の実寸
-  var MARGIN  = 4;      // クワイエットゾーン（モジュール数, 規格推奨4）
+  // ?mm=50 / ?mm=100 でサイズ切替（既定50・後方互換）。QR文字列は "CAL-<mm>"。
+  var params = new URLSearchParams(location.search);
+  var SIDE_MM = parseFloat(params.get('mm'));
+  if(!(SIDE_MM > 0)) SIDE_MM = 50;
+  var TEXT = 'CAL-' + SIDE_MM;
+  var MARGIN = 4;      // クワイエットゾーン（モジュール数, 規格推奨4）
+
+  document.title = TEXT + ' 基準マーカー（1辺' + SIDE_MM + 'mm）';
+  document.getElementById('pageTitle').textContent = '📐 ' + TEXT + ' 基準マーカー';
+  document.getElementById('lead').innerHTML =
+    '半製品照合の「基準セット」用QRです。<b>印刷したQR本体の1辺がちょうど' + SIDE_MM + 'mm</b>になるよう実寸で作成しています。<br>'
+    + '内容は文字列 <code>' + TEXT + '</code>（= 1辺' + SIDE_MM + 'mmの意味）。これをカメラで映すと自動で基準がセットされます。';
+  document.getElementById('mkLabel').textContent = TEXT;
+  document.getElementById('mkNote').textContent = 'QR本体の1辺 = ' + SIDE_MM + 'mm';
+  var ruler = document.getElementById('ruler');
+  ruler.style.width = SIDE_MM + 'mm';
+  ruler.dataset.label = '← ' + SIDE_MM + 'mm →';
+  // 選択中サイズをハイライト
+  Array.prototype.forEach.call(document.querySelectorAll('#sizes a'), function(a){
+    if(a.getAttribute('href') === '?mm=' + SIDE_MM) a.classList.add('active');
+  });
 
   try{
     var qr = qrcode(0, 'M');     // 型番自動 / 誤り訂正レベルM
@@ -77,7 +105,7 @@
     qr.make();
     var n = qr.getModuleCount();
     var total = n + MARGIN * 2;                 // 余白込みのモジュール総数
-    var totalMm = SIDE_MM * total / n;          // → データ領域n個分が50mmになる
+    var totalMm = SIDE_MM * total / n;          // → データ領域n個分が指定mmになる
 
     var rects = '';
     for(var r=0; r<n; r++){
