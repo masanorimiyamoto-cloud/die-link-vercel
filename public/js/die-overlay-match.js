@@ -124,6 +124,10 @@ export async function matchDieOverlay(o) {
 /* ============================================================================
    採寸専用（図面・比較なし）: 現物シルエットの軸並行バウンディングボックスを
    正規化座標(0..1)で返す。scan側が pxPerMm を掛けて mm 化し、手動枠へ流す。
+   ・背景は「外周の多数決」で決める（現物は中央・背景は周縁の前提）→ 白背景/暗背景どちらも可
+   ・CAL-QR 領域はマスク除外（QRの黒縁を現物に含めない）
+   ・中央に重なる前景成分を優先（隅の孤立ノイズ・背景片を拾わない）
+   ・画面ほぼ全域や極小は棄却（背景誤検出を弾く）→ null なら手動枠にフォールバック
    ========================================================================== */
 export function measureObjectAABB(o) {
   const maxSide = o.maxSide || DEFAULT_MAX_SIDE;
@@ -133,18 +137,86 @@ export function measureObjectAABB(o) {
   try { pPrep = preparePhoto(o.photo, o.productBox, maxSide); }
   catch { return null; }
   const img = pPrep.imageData, pw = img.width, ph = img.height;
-  const sil = photoSilhouette(img);
-  if (!sil || sil.area < pw * ph * 0.01) return null;
+
+  // CAL-QR の4隅(撮影画像=frame座標) → 処理座標へ（除外マスク用）
+  let calQuadProc = null;
+  if (o.calQuad && o.calQuad.length >= 4) {
+    const k = pPrep.k, sx = pPrep.sx, sy = pPrep.sy;
+    calQuadProc = o.calQuad.slice(0, 4).map(q => ({ x: (q.x - sx) * k, y: (q.y - sy) * k }));
+  }
+
+  const sil = measurementSilhouette(img, calQuadProc);
+  if (!sil || sil.area < pw * ph * 0.005) return null;
+
   const mask = sil.mask;
   let minX = pw, minY = ph, maxX = -1, maxY = -1;
   for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
     if (mask[y * pw + x]) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
   }
   if (maxX < minX || maxY < minY) return null;
+  // 画面ほぼ全域を占めるなら背景を掴んだとみなして棄却（手動枠へ）
+  if ((maxX - minX + 1) * (maxY - minY + 1) > pw * ph * 0.9) return null;
+
   const inv = pPrep.k > 0 ? 1 / pPrep.k : 1;             // proc座標 → 撮影画像(frame)座標
   const x0 = pPrep.sx + minX * inv, y0 = pPrep.sy + minY * inv;
   const bw = (maxX - minX + 1) * inv, bh = (maxY - minY + 1) * inv;
   return { x: x0 / fw, y: y0 / fh, w: bw / fw, h: bh / fh }; // 正規化(0..1)
+}
+
+/** 採寸用シルエット：外周多数決で背景を決め、CAL-QRを除外し、中央寄りの最大前景成分を返す。 */
+function measurementSilhouette(imgData, calQuadProc) {
+  const w = imgData.width, h = imgData.height, total = w * h;
+  let g = toGray(imgData); g = boxBlur3(g, w, h);
+  const thr = otsu(g);
+  // 背景クラス＝外周(枠)の多数決。四隅だけより頑健（現物が隅に寄っても効く）
+  const t = Math.max(2, Math.round(Math.min(w, h) * 0.03));
+  let bDark = 0, bTot = 0;
+  const samp = (x, y) => { bTot++; if (g[y * w + x] < thr) bDark++; };
+  for (let x = 0; x < w; x++) for (let dy = 0; dy < t; dy++) { samp(x, dy); samp(x, h - 1 - dy); }
+  for (let y = 0; y < h; y++) for (let dx = 0; dx < t; dx++) { samp(dx, y); samp(w - 1 - dx, y); }
+  const bgIsDark = bTot > 0 && (bDark / bTot) >= 0.5;
+  const fg = new Uint8Array(total);
+  for (let i = 0; i < total; i++) { const dark = g[i] < thr; fg[i] = (bgIsDark ? !dark : dark) ? 1 : 0; }
+  // CAL-QR 領域を除外（少しマージン）。QRの黒縁を現物に含めない
+  if (calQuadProc && calQuadProc.length >= 4) {
+    let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
+    for (const p of calQuadProc) { if (p.x < mnx) mnx = p.x; if (p.x > mxx) mxx = p.x; if (p.y < mny) mny = p.y; if (p.y > mxy) mxy = p.y; }
+    const mx = (mxx - mnx) * 0.25 + 2, my = (mxy - mny) * 0.25 + 2;
+    const x0 = Math.max(0, Math.floor(mnx - mx)), x1 = Math.min(w - 1, Math.ceil(mxx + mx));
+    const y0 = Math.max(0, Math.floor(mny - my)), y1 = Math.min(h - 1, Math.ceil(mxy + my));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) fg[y * w + x] = 0;
+  }
+  const lc = largestCentralComponent(fg, w, h);
+  if (!lc.area) return null;
+  return fillHoles(lc.mask, w, h);
+}
+
+/** 前景の連結成分のうち、中央領域(20〜80%)に重なるものを優先して最大を返す。 */
+function largestCentralComponent(mask, w, h) {
+  const lab = new Int32Array(w * h);
+  const cx0 = w * 0.2, cx1 = w * 0.8, cy0 = h * 0.2, cy1 = h * 0.8;
+  let best = 0, bestSize = 0, bestCentral = 0, bestCentralSize = 0, cur = 0;
+  const stack = [];
+  for (let s = 0; s < mask.length; s++) {
+    if (!mask[s] || lab[s]) continue;
+    cur++; let size = 0, central = false; lab[s] = cur; stack.push(s);
+    while (stack.length) {
+      const i = stack.pop(); size++;
+      const x = i % w, y = (i / w) | 0;
+      if (x >= cx0 && x <= cx1 && y >= cy0 && y <= cy1) central = true;
+      if (x > 0 && mask[i - 1] && !lab[i - 1]) { lab[i - 1] = cur; stack.push(i - 1); }
+      if (x < w - 1 && mask[i + 1] && !lab[i + 1]) { lab[i + 1] = cur; stack.push(i + 1); }
+      if (y > 0 && mask[i - w] && !lab[i - w]) { lab[i - w] = cur; stack.push(i - w); }
+      if (y < h - 1 && mask[i + w] && !lab[i + w]) { lab[i + w] = cur; stack.push(i + w); }
+    }
+    if (size > bestSize) { bestSize = size; best = cur; }
+    if (central && size > bestCentralSize) { bestCentralSize = size; bestCentral = cur; }
+  }
+  const pick = bestCentral || best;
+  const out = new Uint8Array(w * h);
+  let area = 0;
+  if (pick) for (let i = 0; i < out.length; i++) { if (lab[i] === pick) { out[i] = 1; area++; } }
+  return { mask: out, area };
 }
 
 function failResult(reason) {

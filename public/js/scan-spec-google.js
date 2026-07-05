@@ -1237,7 +1237,12 @@
     try{
       const mod = await loadDieMatchMod();
       const photo = await frameToImage(frame);
-      const aabb = mod.measureObjectAABB({ photo, maxSide: 768 });
+      // CAL-QRの4隅（映像px）を撮影画像(frame)座標へ換算して渡し、採寸から除外させる
+      const capScale = (frame.cw && frame.vw) ? (frame.cw / frame.vw) : 1;
+      const calQuad = (S.calPts && S.calPts.length >= 4)
+        ? S.calPts.map(p => ({ x: p.x * capScale, y: p.y * capScale }))
+        : undefined;
+      const aabb = mod.measureObjectAABB({ photo, calQuad, maxSide: 768 });
       if(aabb && aabb.w > 0 && aabb.h > 0){
         const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
         S.meas = { l: aabb.x*sw, t: aabb.y*sh, w: aabb.w*sw, h: aabb.h*sh };
