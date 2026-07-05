@@ -121,6 +121,32 @@ export async function matchDieOverlay(o) {
   };
 }
 
+/* ============================================================================
+   採寸専用（図面・比較なし）: 現物シルエットの軸並行バウンディングボックスを
+   正規化座標(0..1)で返す。scan側が pxPerMm を掛けて mm 化し、手動枠へ流す。
+   ========================================================================== */
+export function measureObjectAABB(o) {
+  const maxSide = o.maxSide || DEFAULT_MAX_SIDE;
+  const { w: fw, h: fh } = srcDims(o.photo);
+  if (!(fw > 0) || !(fh > 0)) return null;
+  let pPrep;
+  try { pPrep = preparePhoto(o.photo, o.productBox, maxSide); }
+  catch { return null; }
+  const img = pPrep.imageData, pw = img.width, ph = img.height;
+  const sil = photoSilhouette(img);
+  if (!sil || sil.area < pw * ph * 0.01) return null;
+  const mask = sil.mask;
+  let minX = pw, minY = ph, maxX = -1, maxY = -1;
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+    if (mask[y * pw + x]) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  }
+  if (maxX < minX || maxY < minY) return null;
+  const inv = pPrep.k > 0 ? 1 / pPrep.k : 1;             // proc座標 → 撮影画像(frame)座標
+  const x0 = pPrep.sx + minX * inv, y0 = pPrep.sy + minY * inv;
+  const bw = (maxX - minX + 1) * inv, bh = (maxY - minY + 1) * inv;
+  return { x: x0 / fw, y: y0 / fh, w: bw / fw, h: bh / fh }; // 正規化(0..1)
+}
+
 function failResult(reason) {
   return { ok: false, matchPct: null, maxDevMm: null, avgDevMm: null, maxDevPct: null, avgDevPct: null, verdict: 'uncertain', overlayCanvas: null, reason };
 }

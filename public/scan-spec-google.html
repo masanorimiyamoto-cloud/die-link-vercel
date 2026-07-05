@@ -323,8 +323,8 @@
   #boxResult.ok .res-head{ color:var(--ok); }
   #boxResult.ng .res-head{ color:var(--ng); }
   #boxResult .res-detail{ font-size:13px; color:var(--text); }
-  /* 手動メジャー枠は現在使用しない。旧JSがdisplay:blockを設定しても復活させない */
-  #measRect{ position:absolute; display:none !important; pointer-events:none !important;
+  /* 採寸モードの手動メジャー枠（📏採寸で使用）。表示はJSが制御する */
+  #measRect{ position:absolute; display:none;
     z-index:25; border:2px solid #f59f00;
     background:rgba(245,159,0,.10); touch-action:none; cursor:default; }
   #measRect .mh{ position:absolute; width:30px; height:30px; border-radius:50%;
@@ -347,6 +347,12 @@
   }
   .box-ctrlbar.show{ display:flex; }
   #boxBar{ bottom:0; padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  #measBar{ bottom:0; padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  #measBar #measStatus{ flex:1; color:#fff; font-size:12px; text-shadow:0 1px 2px #000; }
+  #measBar #measStatus.active{ color:#8ff0c8; }
+  #measBar #measReadout{ flex:1; color:#fff; font-size:20px; font-weight:900; text-align:center; text-shadow:0 1px 3px #000; letter-spacing:.02em; }
+  #measBar #measRetake{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
+  #measBar .bbactions button{ min-height:60px; font-size:18px; border-radius:12px; }
   .box-ctrlbar .bbrow{ display:flex; align-items:center; gap:5px; }
   .box-ctrlbar button{
     flex:1 1 0; min-width:0; padding:8px 2px; font-size:15px; font-weight:800;
@@ -393,6 +399,7 @@
     <span class="modeseg">
       <button id="modeSpec" class="modebtn active" type="button">📐 仕様を見る</button>
       <button id="modeBox" class="modebtn" type="button">🧩 半製品を照合</button>
+      <button id="modeMeasure" class="modebtn" type="button">📏 採寸</button>
     </span>
     <div id="scanStatus" class="status-indicator">待機中</div>
   </div>
@@ -434,6 +441,16 @@
             </div>
             <div class="bbrow bboverlay">
               <button id="boxOvToggle" type="button">🖼 図面を重ねる</button>
+            </div>
+          </div>
+          <div id="measBar" class="box-ctrlbar">
+            <div class="bbrow">
+              <span id="measStatus">CAL-QR（脇に置く）と現物を画面に収めてください</span>
+              <button id="measRetake" style="display:none;">取り直す</button>
+            </div>
+            <div class="bbrow"><span id="measReadout">基準QRを映すと寸法が出ます</span></div>
+            <div class="bbrow bbactions">
+              <button id="measCapture" class="bbprimary" type="button">📸 自動計測</button>
             </div>
           </div>
         </div>

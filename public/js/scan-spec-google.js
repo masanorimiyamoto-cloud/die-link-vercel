@@ -10,7 +10,10 @@
     driveStatus: q('#driveStatus'), driveView: q('#driveView'), driveActions: q('#driveActions'),
     nowTarget: q('#nowTarget'),
     // 半製品照合
-    modeSpec: q('#modeSpec'), modeBox: q('#modeBox'),
+    modeSpec: q('#modeSpec'), modeBox: q('#modeBox'), modeMeasure: q('#modeMeasure'),
+    // 採寸モード（図面・品番不要／CAL-QRで縦横mm）
+    measBar: q('#measBar'), measStatus: q('#measStatus'), measReadout: q('#measReadout'),
+    measCapture: q('#measCapture'), measRetake: q('#measRetake'),
     // boxOverlay は画面表示用ではなく「CV照合に渡す図面ソース」として隠して保持
     boxOverlay: q('#boxOverlay'), boxPanel: q('#boxPanel'), boxStatus: q('#boxStatus'),
     boxRecalib: q('#boxRecalib'), boxResult: q('#boxResult'),
@@ -46,6 +49,8 @@
     lastScanAt: 0,
     // 半製品照合
     boxMode:false, boxRaf:null, boxLastAt:0, boxAiBusy:false, pxPerMm:0,
+    measureMode:false, measRaf:null, measFrozen:false, // 採寸モード
+
     cutW:null, cutH:null, drawingId:null, drawingName:null, drawingReady:false,
     _boxUrl:null,
     // 基準セット＆寸法測定
@@ -798,11 +803,14 @@
     if(S.pxPerMm > 0){
       const k = S.calFactor || 1;
       const wMm = m.w / S.pxPerMm * k, hMm = m.h / S.pxPerMm * k;
-      D.measLabel.textContent = `横 ${Math.round(wMm)} × 縦 ${Math.round(hMm)} mm`;
+      const txt = `横 ${Math.round(wMm)} × 縦 ${Math.round(hMm)} mm`;
+      D.measLabel.textContent = txt;
+      if(S.measureMode && D.measReadout) D.measReadout.textContent = txt;
     }else if(S.boxTarget === 'fabric'){
       D.measLabel.textContent = '枠を生地の外形に合わせてください';
     }else{
-      D.measLabel.textContent = '基準QR(CAL-50)を映してください';
+      D.measLabel.textContent = '基準QR(CAL)を映してください';
+      if(S.measureMode && D.measReadout) D.measReadout.textContent = '基準QRを映すと寸法が出ます';
     }
   }
   // 枠の現在寸法(mm)。校正係数込み。scaleOk=QRが最近見えていて縮尺が有効か
@@ -1146,14 +1154,121 @@
     if(S.stream && D.video.srcObject && !S.rafId){ S.lastScanAt = 0; setStatus('スキャン中', true); tick(); }
   }
 
-  async function setMode(mode){
-    if(mode === 'box'){
-      D.modeBox.classList.add('active'); D.modeSpec.classList.remove('active');
-      await enterBoxMode();
-    }else{
-      D.modeSpec.classList.add('active'); D.modeBox.classList.remove('active');
-      exitBoxMode();
+  /* ===========================================================
+     採寸モード（図面・品番不要）：CAL-QRでスケール → 現物の縦横をmm表示
+     自動検出（シルエットの外接矩形）で枠を吸着し、四隅ドラッグで微調整。
+     =========================================================== */
+  function setMeasStatus(t, ok){ if(D.measStatus){ D.measStatus.textContent = t; D.measStatus.classList.toggle('active', !!ok); } }
+
+  async function enterMeasureMode(){
+    S.measureMode = true;
+    if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
+    const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = 'none';
+    D.measBar.classList.add('show');
+    D.stack.style.touchAction = 'none';
+    hideVerdict();
+    D.boxPanel.style.display = 'none';
+    D.boxResult.style.display = 'none';
+    // スケール状態をリセット（採寸はCAL-QRだけ使う）
+    S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S._calNominal = 0;
+    S.meas = null; S.measTouched = false; S.measFrozen = false;
+    D.boxRecalib.style.display = 'none';
+    await ensureLiveCam();
+    D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
+    showMeasRect();                 // オレンジ枠を中央に初期表示
+    D.measRetake.style.display = 'none';
+    setMeasStatus('CAL-QR（脇に置く）と現物を画面に収めてください');
+    if(!S.measRaf) measureTick();
+  }
+
+  function exitMeasureMode(){
+    S.measureMode = false;
+    S.measFrozen = false;
+    if(S.measRaf){ cancelAnimationFrame(S.measRaf); S.measRaf = null; }
+    D.measBar.classList.remove('show');
+    D.stack.style.touchAction = '';
+    D.measRect.style.display = 'none';
+    D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
+    if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+    const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = '';
+    if(S.stream && D.video.srcObject && !S.rafId){ S.lastScanAt = 0; setStatus('スキャン中', true); tick(); }
+  }
+
+  async function measureTick(){
+    if(!S.measureMode){ return; }
+    if(!S.measFrozen){
+      const now = performance.now();
+      if(now - (S.boxLastAt||0) >= 120 && D.video.readyState === D.video.HAVE_ENOUGH_DATA){
+        S.boxLastAt = now;
+        fitAll();
+        if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+        let cal = null;
+        try{
+          const dets = await detectCombined();
+          for(const d of dets){
+            const m = /^cal[-_]?(\d+(?:\.\d+)?)$/i.exec((d.raw||'').trim());
+            if(m && d.pts && d.pts.length >= 4){ cal = { mm: parseFloat(m[1]), pts: d.pts }; break; }
+          }
+        }catch{}
+        if(cal){
+          drawPoly(cal.pts, '#12b886', 4, null, 0.9);
+          setCalibrated(cal);
+          setMeasStatus(`✅ ${S.refMm}mm基準。現物をまっすぐ置き、枠を外形に合わせるか「📸 自動計測」`, true);
+        }else if(S.calSet){
+          setMeasStatus('⚠ CAL-QRを画面内に入れたまま計測してください', true);
+        }else{
+          setMeasStatus('CAL-QR（脇に置く）と現物を画面に収めてください');
+        }
+        layoutMeasRect();
+      }
     }
+    S.measRaf = requestAnimationFrame(measureTick);
+  }
+
+  async function measureCapture(){
+    if(!D.video.videoWidth){ return; }
+    const calFresh = S.pxPerMm > 0 && S.calSeenAt && (performance.now() - S.calSeenAt) < 2500;
+    if(!calFresh){ alert('CAL-QRを画面に入れたまま「自動計測」を押してください'); return; }
+    const frame = captureAiFrame();      // 映像を静止（freeze表示）
+    if(!frame){ return; }
+    S.measFrozen = true;
+    D.measRetake.style.display = '';
+    setMeasStatus('現物を自動検出中…', true);
+    try{
+      const mod = await loadDieMatchMod();
+      const photo = await frameToImage(frame);
+      const aabb = mod.measureObjectAABB({ photo, maxSide: 768 });
+      if(aabb && aabb.w > 0 && aabb.h > 0){
+        const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+        S.meas = { l: aabb.x*sw, t: aabb.y*sh, w: aabb.w*sw, h: aabb.h*sh };
+        S.measTouched = false;
+        layoutMeasRect();
+        setMeasStatus('自動検出しました。四隅ドラッグで微調整（現物はまっすぐ置くと正確）', true);
+      }else{
+        setMeasStatus('自動検出できませんでした。枠を手で外形に合わせてください', true);
+      }
+    }catch(e){
+      setMeasStatus('検出エラー。枠を手で外形に合わせてください', true);
+    }
+  }
+
+  function measureRetake(){
+    S.measFrozen = false;
+    D.measRetake.style.display = 'none';
+    D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
+    setMeasStatus('ライブに戻りました。CAL-QRと現物を映してください', S.calSet);
+  }
+
+  async function setMode(mode){
+    D.modeSpec.classList.toggle('active', mode==='spec');
+    D.modeBox.classList.toggle('active', mode==='box');
+    if(D.modeMeasure) D.modeMeasure.classList.toggle('active', mode==='measure');
+    // 現在のモードを抜ける
+    if(mode!=='box' && S.boxMode) exitBoxMode();
+    if(mode!=='measure' && S.measureMode) exitMeasureMode();
+    // 目的のモードへ入る（spec は入る処理なし＝各exitがスキャンを再開）
+    if(mode==='box') await enterBoxMode();
+    else if(mode==='measure') await enterMeasureMode();
   }
 
   /* ===========================================================
@@ -1235,6 +1350,9 @@
   // --- 配線 ---
   D.modeSpec.onclick = () => setMode('spec');
   D.modeBox.onclick  = () => setMode('box');
+  if(D.modeMeasure) D.modeMeasure.onclick = () => setMode('measure');
+  if(D.measCapture) D.measCapture.onclick = () => measureCapture();
+  if(D.measRetake)  D.measRetake.onclick  = () => measureRetake();
   D.boxOvToggle.onclick = () => showOverlay(!S.ovOn);
   D.boxTgtDie.onclick = () => setBoxTarget('die');
   D.boxTgtFab.onclick = () => setBoxTarget('fabric');
@@ -1264,7 +1382,7 @@
   let _md = null; // {mode:'move'|'nw'|'ne'|'sw'|'se', x,y, l,t,w,h}
   const MIN = 24;
   function stackDown(e){
-    if(!S.boxMode || !S.meas) return;
+    if((!S.boxMode && !S.measureMode) || !S.meas) return;
     const t = e.target;
     if(t && t.closest && t.closest('.box-ctrlbar')) return; // 操作バー（上下）のタップは除外
     if(t === D.boxOverlay) return;                      // 図面オーバーレイは別ハンドラ
