@@ -892,6 +892,11 @@
     // 一度読んだ後にカメラ距離を変えた古い縮尺を流用すると誤判定になるため。
     const calFresh = S.pxPerMmVideo > 0 && S.calSeenAt && (performance.now() - S.calSeenAt) < 2500;
     const pxPerMm = calFresh ? (S.pxPerMmVideo * capScale / (S.calFactor || 1)) : 0;
+    // CAL-50 の4隅（映像px）を撮影画像(frame)座標へ換算して渡す。
+    // die-overlay-match 側が射影変換を組み、傾き・透視ゆがみを補正した実寸を出す。
+    const calQuad = (calFresh && S.calPts && S.calPts.length >= 4)
+      ? S.calPts.map(p => ({ x: p.x * capScale, y: p.y * capScale }))
+      : null;
 
     // 任意：box-detect で現物bboxを取り背景を除外（失敗しても続行）
     let productBox = null;
@@ -901,6 +906,9 @@
       photo,
       drawing: D.boxOverlay,
       pxPerMm,
+      calQuad: calQuad || undefined,   // 4隅→mm平面の射影変換で実寸を補正
+      refMm: S.refMm || 50,
+      calFactor: S.calFactor || 1,
       productBox: productBox || undefined,
       tolMm: S.tolMm || 10,
       expectedWmm: S.cutW,

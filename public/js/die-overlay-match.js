@@ -78,10 +78,25 @@ export async function matchDieOverlay(o) {
   }
   const pxPerMmProc = (o.pxPerMm > 0) ? o.pxPerMm * pPrep.k : 0;
 
+  // CAL-50 の4隅から「画像→mm平面」の射影変換(ホモグラフィ)を作る。
+  // これで撮影がやや斜めでも透視ゆがみ・縦横の異方性を直接補正し、真の外寸(mm)を測れる。
+  // calQuad は撮影画像(frame)座標。preparePhoto と同じ (k,sx,sy) で処理座標へ移してから解く
+  // ため、box-detect の切り出し有無に依らず同じ mm 結果になる（射影変換は座標変換を吸収する）。
+  let homography = null;
+  if (o.calQuad && o.calQuad.length >= 4 && (o.refMm > 0)) {
+    try {
+      const k = pPrep.k, sx = pPrep.sx, sy = pPrep.sy, mm = o.refMm;
+      const srcProc = o.calQuad.slice(0, 4).map(q => ({ x: (q.x - sx) * k, y: (q.y - sy) * k }));
+      const dstMm = [{ x: 0, y: 0 }, { x: mm, y: 0 }, { x: mm, y: mm }, { x: 0, y: mm }];
+      homography = computeHomography(srcProc, dstMm);
+    } catch { homography = null; }
+  }
+  const calFactor = (o.calFactor > 0.3 && o.calFactor < 3) ? o.calFactor : 1;
+
   let res;
   try {
     if (onStatus) onStatus('外形を抽出して位置合わせ中…');
-    res = runMatch(pPrep.imageData, drawImgData, pxPerMmProc, tolMm, expectedWmm, expectedHmm);
+    res = runMatch(pPrep.imageData, drawImgData, pxPerMmProc, tolMm, expectedWmm, expectedHmm, homography, calFactor);
   } catch (e) {
     return failResult('解析エラー: ' + ((e && e.message) || e));
   }
@@ -101,7 +116,7 @@ export async function matchDieOverlay(o) {
     actualWmm: res.actualWmm, actualHmm: res.actualHmm,
     expectedWmm: res.expectedWmm, expectedHmm: res.expectedHmm,
     dimDeltaWmm: res.dimDeltaWmm, dimDeltaHmm: res.dimDeltaHmm,
-    dimensionVerdict: res.dimensionVerdict, shapeVerdict: res.shapeVerdict,
+    dimensionVerdict: res.dimensionVerdict, dimMethod: res.dimMethod, shapeVerdict: res.shapeVerdict,
     verdict: res.verdict, reason: res.reason, overlayCanvas,
   };
 }
@@ -113,7 +128,7 @@ function failResult(reason) {
 /* ============================================================================
    照合パイプライン（純CPU・小画像なので一瞬）
    ========================================================================== */
-function runMatch(photoImg, drawImg, pxPerMmProc, tolMm, expectedWmm, expectedHmm) {
+function runMatch(photoImg, drawImg, pxPerMmProc, tolMm, expectedWmm, expectedHmm, homography, calFactor) {
   const pw = photoImg.width, ph = photoImg.height;
   const dw = drawImg.width, dh = drawImg.height;
 
@@ -177,7 +192,7 @@ function runMatch(photoImg, drawImg, pxPerMmProc, tolMm, expectedWmm, expectedHm
   const maxDevPct = Math.round((maxDevPx / refLen) * 1000) / 10;
   const avgDevPct = (n > 0) ? Math.round((sum / n / refLen) * 1000) / 10 : null;
   const shapeVerdict = decideVerdict(matchPct, maxDevMm, tolMm);
-  const dims = measureAndCompareDimensions(photoPoly, pxPerMmProc, expectedWmm, expectedHmm, tolMm);
+  const dims = measureAndCompareDimensions(photoPoly, pxPerMmProc, expectedWmm, expectedHmm, tolMm, homography, calFactor);
   const verdict = combineVerdicts(shapeVerdict, dims.verdict, matchPct);
 
   return {
@@ -185,26 +200,44 @@ function runMatch(photoImg, drawImg, pxPerMmProc, tolMm, expectedWmm, expectedHm
     actualWmm: dims.actualWmm, actualHmm: dims.actualHmm,
     expectedWmm: dims.expectedWmm, expectedHmm: dims.expectedHmm,
     dimDeltaWmm: dims.deltaWmm, dimDeltaHmm: dims.deltaHmm,
-    dimensionVerdict: dims.verdict, shapeVerdict, verdict,
+    dimensionVerdict: dims.verdict, dimMethod: dims.measuredBy, shapeVerdict, verdict,
     movedPts: best.moved, overTolPts, photoPts: photoPoly,
     reason: buildReason(matchPct, maxDevMm, maxDevPct, tolMm, dims),
   };
 }
 
-/** 現物輪郭の最小面積外接矩形から、撮影時の回転に影響されない外寸を求める。 */
-function measureAndCompareDimensions(poly, pxPerMm, expectedWmm, expectedHmm, tolMm) {
+/**
+ * 現物輪郭の最小面積外接矩形から、撮影時の回転に影響されない外寸を求める。
+ * homography（CAL-50由来の射影変換）があれば輪郭をmm平面へ写してから測るので、
+ * カメラの傾き・透視ゆがみを補正した実寸になる。無ければ等方スカラー pxPerMm で換算する。
+ * calFactor は homography 経路のみ適用（pxPerMm 経路は呼び出し側で既に係数を織り込み済み）。
+ */
+function measureAndCompareDimensions(poly, pxPerMm, expectedWmm, expectedHmm, tolMm, homography, calFactor) {
   const unavailable = {
     actualWmm: null, actualHmm: null,
     expectedWmm: expectedWmm > 0 ? expectedWmm : null,
     expectedHmm: expectedHmm > 0 ? expectedHmm : null,
-    deltaWmm: null, deltaHmm: null, verdict: 'unavailable',
+    deltaWmm: null, deltaHmm: null, verdict: 'unavailable', measuredBy: null,
   };
-  if (!(pxPerMm > 0) || !(expectedWmm > 0) || !(expectedHmm > 0) || !poly || poly.length < 2) return unavailable;
+  const hasScale = (homography != null) || (pxPerMm > 0);
+  if (!hasScale || !(expectedWmm > 0) || !(expectedHmm > 0) || !poly || poly.length < 2) return unavailable;
 
-  // 縦横の向きは撮影回転で入れ替わるため、短辺・長辺の順で比較する。
-  const ext = minimumAreaExtents(poly);
-  if (!ext) return unavailable;
-  const actual = [ext.w / pxPerMm, ext.h / pxPerMm].sort((a, b) => a - b);
+  // 外寸(mm)を求める。縦横の向きは撮影回転で入れ替わるため、短辺・長辺の順で比較する。
+  let extW, extH, measuredBy;
+  if (homography) {
+    const mmPoly = poly.map(p => applyHomography(homography, p.x, p.y)); // 画像px → mm平面
+    const ext = minimumAreaExtents(mmPoly);                              // 既にmm単位
+    if (!ext) return unavailable;
+    const cf = (calFactor > 0.3 && calFactor < 3) ? calFactor : 1;
+    extW = ext.w * cf; extH = ext.h * cf;
+    measuredBy = 'homography';
+  } else {
+    const ext = minimumAreaExtents(poly);
+    if (!ext) return unavailable;
+    extW = ext.w / pxPerMm; extH = ext.h / pxPerMm;
+    measuredBy = 'scale';
+  }
+  const actual = [extW, extH].sort((a, b) => a - b);
   const expected = [expectedWmm, expectedHmm].sort((a, b) => a - b);
   const round1 = (v) => Math.round(v * 10) / 10;
   const actualWmm = round1(actual[1]), actualHmm = round1(actual[0]);
@@ -213,9 +246,53 @@ function measureAndCompareDimensions(poly, pxPerMm, expectedWmm, expectedHmm, to
   const deltaHmm = round1(Math.abs(actualHmm - expHmm));
   return {
     actualWmm, actualHmm, expectedWmm: expWmm, expectedHmm: expHmm,
-    deltaWmm, deltaHmm,
+    deltaWmm, deltaHmm, measuredBy,
     verdict: (deltaWmm <= tolMm && deltaHmm <= tolMm) ? 'match' : 'mismatch',
   };
+}
+
+/* ============================================================================
+   ホモグラフィ（4点射影変換）— CAL-50 の正方形から画像→mm平面の写像を作る
+   ========================================================================== */
+/** 4点対応 src→dst から射影変換の8係数[h0..h7]（h8=1固定）を解く。失敗時 null。 */
+function computeHomography(src, dst) {
+  if (!src || !dst || src.length < 4 || dst.length < 4) return null;
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const x = src[i].x, y = src[i].y, u = dst[i].x, v = dst[i].y;
+    A.push([x, y, 1, 0, 0, 0, -x * u, -y * u]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -x * v, -y * v]); b.push(v);
+  }
+  const h = solveLinear(A, b);
+  if (!h) return null;
+  for (const v of h) if (!isFinite(v)) return null;
+  return h;
+}
+/** ガウス消去（部分ピボット）で Ax=b を解く。特異なら null。 */
+function solveLinear(A, b) {
+  const n = b.length;
+  const M = A.map((row, i) => row.concat(b[i]));
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-12) return null;
+    if (piv !== col) { const t = M[piv]; M[piv] = M[col]; M[col] = t; }
+    const pv = M[col][col];
+    for (let c = col; c <= n; c++) M[col][c] /= pv;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col];
+      if (!f) continue;
+      for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  return M.map(row => row[n]);
+}
+/** ホモグラフィ h で画像点 (x,y) を mm 平面へ写像。 */
+function applyHomography(h, x, y) {
+  const denom = h[6] * x + h[7] * y + 1;
+  if (!denom) return { x: 0, y: 0 };
+  return { x: (h[0] * x + h[1] * y + h[2]) / denom, y: (h[3] * x + h[4] * y + h[5]) / denom };
 }
 
 /** 輪郭の凸包を各辺方向へ投影し、面積が最小になる外接矩形の幅・高さを返す。 */
@@ -271,7 +348,8 @@ function buildReason(matchPct, maxDevMm, maxDevPct, tolMm, dims) {
     ? `一致率(IoU) ${matchPct}%・輪郭ズレ(P95) ${maxDevMm}mm`
     : `一致率(IoU) ${matchPct}%・輪郭ズレ(P95) 約${maxDevPct}%（現物サイズ比）`;
   if (dims.verdict === 'unavailable') return `${shape}（実寸判定にはCAL-50と登録寸法が必要）`;
-  return `${shape}・実寸 ${dims.actualHmm}×${dims.actualWmm}mm / 登録 ${dims.expectedHmm}×${dims.expectedWmm}mm（許容±${tolMm}mm）`;
+  const corr = dims.measuredBy === 'homography' ? '・透視補正あり' : '';
+  return `${shape}・実寸 ${dims.actualHmm}×${dims.actualWmm}mm / 登録 ${dims.expectedHmm}×${dims.expectedWmm}mm（許容±${tolMm}mm${corr}）`;
 }
 
 function decideVerdict(matchPct, maxDevMm, tolMm) {
@@ -662,4 +740,5 @@ export const __test = {
   maskMoments, transformPoly, fillPoly, iou, boundaryMask, distanceTransform,
   fillHoles, brightnessSilhouette, refineAlignment,
   minimumAreaExtents, measureAndCompareDimensions, combineVerdicts,
+  computeHomography, solveLinear, applyHomography,
 };
