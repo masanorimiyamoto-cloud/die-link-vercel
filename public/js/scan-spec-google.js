@@ -13,7 +13,7 @@
     modeSpec: q('#modeSpec'), modeBox: q('#modeBox'), modeMeasure: q('#modeMeasure'),
     // 採寸モード（図面・品番不要／CAL-QRで縦横mm）
     measBar: q('#measBar'), measStatus: q('#measStatus'), measReadout: q('#measReadout'),
-    measCapture: q('#measCapture'), measRetake: q('#measRetake'),
+    measCapture: q('#measCapture'), measRetake: q('#measRetake'), measGuide: q('#measGuide'),
     // boxOverlay は画面表示用ではなく「CV照合に渡す図面ソース」として隠して保持
     boxOverlay: q('#boxOverlay'), boxPanel: q('#boxPanel'), boxStatus: q('#boxStatus'),
     boxRecalib: q('#boxRecalib'), boxResult: q('#boxResult'),
@@ -805,12 +805,10 @@
       const wMm = m.w / S.pxPerMm * k, hMm = m.h / S.pxPerMm * k;
       const txt = `横 ${Math.round(wMm)} × 縦 ${Math.round(hMm)} mm`;
       D.measLabel.textContent = txt;
-      if(S.measureMode && D.measReadout) D.measReadout.textContent = txt;
     }else if(S.boxTarget === 'fabric'){
       D.measLabel.textContent = '枠を生地の外形に合わせてください';
     }else{
       D.measLabel.textContent = '基準QR(CAL)を映してください';
-      if(S.measureMode && D.measReadout) D.measReadout.textContent = '基準QRを映すと寸法が出ます';
     }
   }
   // 枠の現在寸法(mm)。校正係数込み。scaleOk=QRが最近見えていて縮尺が有効か
@@ -1156,9 +1154,13 @@
 
   /* ===========================================================
      採寸モード（図面・品番不要）：CAL-QRでスケール → 現物の縦横をmm表示
-     自動検出（シルエットの外接矩形）で枠を吸着し、四隅ドラッグで微調整。
+     手動枠は廃止。固定ガイド枠(照準)内に現物を入れて📸→自動検出した外形の
+     実寸を表示（測定値は検出結果由来で、枠の当て方に依存しない）。
      =========================================================== */
   function setMeasStatus(t, ok){ if(D.measStatus){ D.measStatus.textContent = t; D.measStatus.classList.toggle('active', !!ok); } }
+
+  // 固定ガイド枠(#measGuide)と一致する検索ROI。CSSと値を合わせること。
+  const MEAS_ROI = { x:0.12, y:0.09, w:0.76, h:0.82 };
 
   async function enterMeasureMode(){
     S.measureMode = true;
@@ -1169,15 +1171,18 @@
     hideVerdict();
     D.boxPanel.style.display = 'none';
     D.boxResult.style.display = 'none';
+    D.measRect.style.display = 'none';
     // スケール状態をリセット（採寸はCAL-QRだけ使う）
     S.calSet = false; S.pxPerMmVideo = 0; S.calPts = null; S._calNominal = 0;
-    S.meas = null; S.measTouched = false; S.measFrozen = false;
+    S.measFrozen = false; S.lastMeasure = null;
     D.boxRecalib.style.display = 'none';
     await ensureLiveCam();
     D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
-    showMeasRect();                 // オレンジ枠を中央に初期表示
+    if(D.measGuide) D.measGuide.style.display = 'block';
+    if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
     D.measRetake.style.display = 'none';
-    setMeasStatus('CAL-QR（脇に置く）と現物を画面に収め、枠を現物の周りに合わせてください');
+    D.measReadout.textContent = '基準QRを映すと寸法が出ます';
+    setMeasStatus('現物をガイド枠(点線)内に入れ、CAL-QRは枠外に置いてください');
     if(!S.measRaf) measureTick();
   }
 
@@ -1187,7 +1192,7 @@
     if(S.measRaf){ cancelAnimationFrame(S.measRaf); S.measRaf = null; }
     D.measBar.classList.remove('show');
     D.stack.style.touchAction = '';
-    D.measRect.style.display = 'none';
+    if(D.measGuide) D.measGuide.style.display = 'none';
     D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
     if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
     const ts = D.stack.querySelector('.target-scope'); if(ts) ts.style.display = '';
@@ -1213,16 +1218,34 @@
         if(cal){
           drawPoly(cal.pts, '#12b886', 4, null, 0.9);
           setCalibrated(cal);
-          setMeasStatus(`✅ ${S.refMm}mm基準。枠を現物の周りに大まかに合わせて📸自動計測（枠内で検出）`, true);
+          setMeasStatus(`✅ ${S.refMm}mm基準。現物をガイド枠内に入れて📸自動計測`, true);
+          if(!S.lastMeasure) D.measReadout.textContent = '📸自動計測で寸法を表示';
         }else if(S.calSet){
           setMeasStatus('⚠ CAL-QRを画面内に入れたまま計測してください', true);
         }else{
-          setMeasStatus('CAL-QR（脇に置く）と現物を画面に収めてください');
+          setMeasStatus('現物をガイド枠(点線)内に入れ、CAL-QRは枠外に置いてください');
         }
-        layoutMeasRect();
       }
     }
     S.measRaf = requestAnimationFrame(measureTick);
+  }
+
+  // 検出した外形(正規化AABB)を緑線で重ね、実寸(mm)をreadoutへ。枠操作は不要。
+  function showMeasResult(aabb){
+    if(D.overlay.width){
+      ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+      const vw = D.overlay.width, vh = D.overlay.height;
+      ctx.save();
+      ctx.lineWidth = Math.max(3, vw/240); ctx.strokeStyle = '#12b886';
+      ctx.strokeRect(aabb.x*vw, aabb.y*vh, aabb.w*vw, aabb.h*vh);
+      ctx.restore();
+    }
+    const k = S.calFactor || 1;
+    const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
+    const wMm = aabb.w * sw / S.pxPerMm * k;
+    const hMm = aabb.h * sh / S.pxPerMm * k;
+    S.lastMeasure = { wMm, hMm };
+    D.measReadout.textContent = `横 ${Math.round(wMm)} × 縦 ${Math.round(hMm)} mm`;
   }
 
   async function measureCapture(){
@@ -1232,47 +1255,40 @@
     const frame = captureAiFrame();      // 映像を静止（freeze表示）
     if(!frame){ return; }
     S.measFrozen = true;
+    if(D.measGuide) D.measGuide.style.display = 'none';
     D.measRetake.style.display = '';
-    setMeasStatus('現物を自動検出中…', true);
+    setMeasStatus('ガイド枠内で現物を自動検出中…', true);
     try{
       const mod = await loadDieMatchMod();
       const photo = await frameToImage(frame);
-      const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
       // CAL-QRの4隅（映像px）を撮影画像(frame)座標へ換算して渡し、採寸から除外させる
       const capScale = (frame.cw && frame.vw) ? (frame.cw / frame.vw) : 1;
       const calQuad = (S.calPts && S.calPts.length >= 4)
         ? S.calPts.map(p => ({ x: p.x * capScale, y: p.y * capScale }))
         : undefined;
-      // 現在のオレンジ枠を検索ROIにする（少し広げて背景マージン確保）。
-      // 全画面だと背景の影・しわ・QRを拾うため、枠内に限定して対象の縁へ吸着させる。
-      let productBox;
-      if(S.meas && sw > 0 && sh > 0){
-        const mgx = S.meas.w * 0.15, mgy = S.meas.h * 0.15;
-        let l = (S.meas.l - mgx) / sw, t = (S.meas.t - mgy) / sh;
-        let w = (S.meas.w + 2*mgx) / sw, h = (S.meas.h + 2*mgy) / sh;
-        l = Math.max(0, Math.min(0.95, l)); t = Math.max(0, Math.min(0.95, t));
-        w = Math.max(0.05, Math.min(1 - l, w)); h = Math.max(0.05, Math.min(1 - t, h));
-        productBox = { x: l, y: t, w, h };
-      }
-      const aabb = mod.measureObjectAABB({ photo, calQuad, productBox, maxSide: 768 });
+      // 検索は固定ガイド枠(ROI)内に限定。ROI外のQR・背景の影・しわを最初から除外する。
+      const aabb = mod.measureObjectAABB({ photo, calQuad, productBox: MEAS_ROI, maxSide: 768 });
       if(aabb && aabb.w > 0 && aabb.h > 0){
-        S.meas = { l: aabb.x*sw, t: aabb.y*sh, w: aabb.w*sw, h: aabb.h*sh };
-        S.measTouched = false;
-        layoutMeasRect();
-        setMeasStatus('枠内で自動検出しました。四隅ドラッグで微調整できます', true);
+        showMeasResult(aabb);
+        setMeasStatus('自動検出しました（緑線）。ズレたら「取り直す」で再撮影', true);
       }else{
-        setMeasStatus('自動検出できませんでした。枠を手で外形に合わせてください', true);
+        D.measReadout.textContent = '検出できませんでした';
+        setMeasStatus('検出できません。現物をガイド枠内に大きく入れて取り直してください', true);
       }
     }catch(e){
-      setMeasStatus('検出エラー。枠を手で外形に合わせてください', true);
+      setMeasStatus('検出エラー。取り直してください', true);
     }
   }
 
   function measureRetake(){
     S.measFrozen = false;
+    S.lastMeasure = null;
     D.measRetake.style.display = 'none';
     D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
-    setMeasStatus('ライブに戻りました。CAL-QRと現物を映してください', S.calSet);
+    if(D.measGuide) D.measGuide.style.display = 'block';
+    if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+    D.measReadout.textContent = '📸自動計測で寸法を表示';
+    setMeasStatus('ライブに戻りました。現物をガイド枠内に入れて📸自動計測', S.calSet);
   }
 
   async function setMode(mode){
@@ -1398,7 +1414,7 @@
   let _md = null; // {mode:'move'|'nw'|'ne'|'sw'|'se', x,y, l,t,w,h}
   const MIN = 24;
   function stackDown(e){
-    if((!S.boxMode && !S.measureMode) || !S.meas) return;
+    if(!S.boxMode || !S.meas) return;
     const t = e.target;
     if(t && t.closest && t.closest('.box-ctrlbar')) return; // 操作バー（上下）のタップは除外
     if(t === D.boxOverlay) return;                      // 図面オーバーレイは別ハンドラ

@@ -323,8 +323,12 @@
   #boxResult.ok .res-head{ color:var(--ok); }
   #boxResult.ng .res-head{ color:var(--ng); }
   #boxResult .res-detail{ font-size:13px; color:var(--text); }
-  /* 採寸モードの手動メジャー枠（📏採寸で使用）。表示はJSが制御する */
-  #measRect{ position:absolute; display:none;
+  /* 採寸モードの固定ガイド枠（照準）。動かさない。この中に現物を入れて撮影する */
+  #measGuide{ position:absolute; left:12%; top:9%; width:76%; height:82%;
+    border:2px dashed rgba(245,159,0,.95); border-radius:10px; pointer-events:none;
+    display:none; z-index:16; box-shadow:0 0 0 9999px rgba(0,0,0,.14); }
+  /* 旧・手動メジャー枠は廃止（要素は残すが使用しない） */
+  #measRect{ position:absolute; display:none !important;
     z-index:25; border:2px solid #f59f00;
     background:rgba(245,159,0,.10); touch-action:none; cursor:default; }
   #measRect .mh{ position:absolute; width:30px; height:30px; border-radius:50%;
@@ -418,6 +422,7 @@
           <div class="lockmark"><div class="em" id="lockEmoji">🔒</div></div>
           <canvas id="scanCanvas" style="display:none"></canvas>
           <div class="target-scope"><div class="scan-line"></div></div>
+          <div id="measGuide"></div>
           <img id="boxOverlay" alt="図面オーバーレイ" draggable="false" />
           <div id="measRect">
             <div class="mh mh-nw" data-h="nw"></div>
