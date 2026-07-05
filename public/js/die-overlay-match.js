@@ -154,8 +154,10 @@ export function measureObjectAABB(o) {
     if (mask[y * pw + x]) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
   }
   if (maxX < minX || maxY < minY) return null;
-  // 画面ほぼ全域を占めるなら背景を掴んだとみなして棄却（手動枠へ）
-  if ((maxX - minX + 1) * (maxY - minY + 1) > pw * ph * 0.9) return null;
+  // 全画面探索で領域が広すぎるのは背景誤検出→棄却。ROI(productBox)指定時は対象が枠一杯に
+  // なるのが正常なので、ほぼクロップ全域(>98.5%)のときだけ棄却する。
+  const maxFrac = o.productBox ? 0.985 : 0.9;
+  if ((maxX - minX + 1) * (maxY - minY + 1) > pw * ph * maxFrac) return null;
 
   const inv = pPrep.k > 0 ? 1 / pPrep.k : 1;             // proc座標 → 撮影画像(frame)座標
   const x0 = pPrep.sx + minX * inv, y0 = pPrep.sy + minY * inv;

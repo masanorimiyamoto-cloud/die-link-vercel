@@ -1177,7 +1177,7 @@
     D.freeze.style.display = 'none'; D.video.style.visibility = 'visible';
     showMeasRect();                 // オレンジ枠を中央に初期表示
     D.measRetake.style.display = 'none';
-    setMeasStatus('CAL-QR（脇に置く）と現物を画面に収めてください');
+    setMeasStatus('CAL-QR（脇に置く）と現物を画面に収め、枠を現物の周りに合わせてください');
     if(!S.measRaf) measureTick();
   }
 
@@ -1213,7 +1213,7 @@
         if(cal){
           drawPoly(cal.pts, '#12b886', 4, null, 0.9);
           setCalibrated(cal);
-          setMeasStatus(`✅ ${S.refMm}mm基準。現物をまっすぐ置き、枠を外形に合わせるか「📸 自動計測」`, true);
+          setMeasStatus(`✅ ${S.refMm}mm基準。枠を現物の周りに大まかに合わせて📸自動計測（枠内で検出）`, true);
         }else if(S.calSet){
           setMeasStatus('⚠ CAL-QRを画面内に入れたまま計測してください', true);
         }else{
@@ -1237,18 +1237,29 @@
     try{
       const mod = await loadDieMatchMod();
       const photo = await frameToImage(frame);
+      const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
       // CAL-QRの4隅（映像px）を撮影画像(frame)座標へ換算して渡し、採寸から除外させる
       const capScale = (frame.cw && frame.vw) ? (frame.cw / frame.vw) : 1;
       const calQuad = (S.calPts && S.calPts.length >= 4)
         ? S.calPts.map(p => ({ x: p.x * capScale, y: p.y * capScale }))
         : undefined;
-      const aabb = mod.measureObjectAABB({ photo, calQuad, maxSide: 768 });
+      // 現在のオレンジ枠を検索ROIにする（少し広げて背景マージン確保）。
+      // 全画面だと背景の影・しわ・QRを拾うため、枠内に限定して対象の縁へ吸着させる。
+      let productBox;
+      if(S.meas && sw > 0 && sh > 0){
+        const mgx = S.meas.w * 0.15, mgy = S.meas.h * 0.15;
+        let l = (S.meas.l - mgx) / sw, t = (S.meas.t - mgy) / sh;
+        let w = (S.meas.w + 2*mgx) / sw, h = (S.meas.h + 2*mgy) / sh;
+        l = Math.max(0, Math.min(0.95, l)); t = Math.max(0, Math.min(0.95, t));
+        w = Math.max(0.05, Math.min(1 - l, w)); h = Math.max(0.05, Math.min(1 - t, h));
+        productBox = { x: l, y: t, w, h };
+      }
+      const aabb = mod.measureObjectAABB({ photo, calQuad, productBox, maxSide: 768 });
       if(aabb && aabb.w > 0 && aabb.h > 0){
-        const sw = D.stack.clientWidth, sh = D.stack.clientHeight;
         S.meas = { l: aabb.x*sw, t: aabb.y*sh, w: aabb.w*sw, h: aabb.h*sh };
         S.measTouched = false;
         layoutMeasRect();
-        setMeasStatus('自動検出しました。四隅ドラッグで微調整（現物はまっすぐ置くと正確）', true);
+        setMeasStatus('枠内で自動検出しました。四隅ドラッグで微調整できます', true);
       }else{
         setMeasStatus('自動検出できませんでした。枠を手で外形に合わせてください', true);
       }
