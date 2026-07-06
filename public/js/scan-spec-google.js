@@ -62,7 +62,13 @@
         if(r.step) ev = Math.round(ev/r.step)*r.step;
         if(ev < 0) adv.push({ exposureCompensation: ev });
       }
-      if(adv.length) await track.applyConstraints({ advanced: adv });
+      if(adv.length){
+        // 一部Android端末でapplyConstraintsのPromiseが返らず後続処理が止まるため、待ちは最大1.5秒
+        await Promise.race([
+          track.applyConstraints({ advanced: adv }).catch(()=>{}),
+          new Promise(res=>setTimeout(res, 1500))
+        ]);
+      }
     }catch{}
   }
 
@@ -1026,7 +1032,12 @@
 
   // 🤖 AI照合：撮影 → 抜型は新方式(CV自動位置合わせ＋AI意味照合)／生地は色柄AI
   async function aiAllInOne(){
-    if(!D.video.videoWidth){ return; }
+    if(!D.video.videoWidth){
+      // 以前は無言で終わっていて「押しても反応がない」ように見えた
+      setBoxStatus('⚠ カメラ映像がありません。「カメラ開始」を押してから照合してください', false);
+      if(navigator.vibrate) try{ navigator.vibrate([60,40,60]); }catch{}
+      return;
+    }
     if(!S.current.book || !S.current.wc){ alert('先に品番をスキャン／照会してください'); return; }
     const fabric = (S.boxTarget === 'fabric');
     const btn = D.boxAiAll, prev = btn.textContent;
@@ -1162,10 +1173,10 @@
       D.boxCalInfo.textContent = `校正済（係数 ${S.calFactor.toFixed(3)}）。再校正は正しい現物で再度ボタン`;
     }
     await ensureLiveCam();
+    D.boxAiAll.disabled = false; // AI照合はカメラが動いていれば可（図面読込を待たずに押せるよう先に有効化）
     await loadBoxDrawing(); // 図面はCV照合の入力に使うため読み込む（画面には重ねない）
     D.boxOverlay.style.display = 'none';
     D.measRect.style.display = 'none'; // 手動の寸法目安枠は現在使用しない
-    D.boxAiAll.disabled = false; // AI照合はカメラが動いていれば可（寸法はCAL-50があれば加味）
     setBoxTarget(S.boxTarget);   // 対象トグル（抜型/生地）のUIを現在値に同期
     if(!S.boxRaf) boxTick();
   }
