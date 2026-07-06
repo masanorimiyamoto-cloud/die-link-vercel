@@ -390,14 +390,7 @@
         });
         DOM.video.srcObject = state.stream;
         await DOM.video.play();
-        // 抜型QR（18mm角）は近距離スキャンになりがちなので、対応端末では連続オートフォーカスを明示指定
-        try{
-          const track = state.stream.getVideoTracks()[0];
-          const caps = track.getCapabilities ? track.getCapabilities() : {};
-          if(caps.focusMode && caps.focusMode.includes('continuous')){
-            await track.applyConstraints({ advanced:[{ focusMode:'continuous' }] });
-          }
-        }catch{}
+        await tuneCameraTrack(state.stream);
         DOM.btnStart.disabled=true; DOM.btnStop.disabled=false;
 
         if(state.useBarcodeDetector){
@@ -429,6 +422,31 @@
 
     /* ==== 検出 ==== */
     const JSQR_MAX_WIDTH = 960; // jsQRは等倍フレームだと1回数百msかかり検出レートが落ちるため縮小してから渡す
+
+    // 照明の反射でQRが白飛びすると黒モジュールまで明るく浮いて読めない。
+    // ガンマ>1でハイライト側の差を広げると救済できる（失敗フレームのみ適用）
+    const GAMMA_LUT = new Uint8ClampedArray(256);
+    for(let i=0;i<256;i++) GAMMA_LUT[i] = Math.round(255*Math.pow(i/255, 2.2));
+    function gammaDarkenInPlace(d){
+      for(let i=0;i<d.length;i+=4){ d[i]=GAMMA_LUT[d[i]]; d[i+1]=GAMMA_LUT[d[i+1]]; d[i+2]=GAMMA_LUT[d[i+2]]; }
+    }
+    // 対応端末では連続AF＋露出補正マイナス（白飛び抑制）を指定
+    async function tuneCameraTrack(mediaStream){
+      try{
+        const track = mediaStream.getVideoTracks()[0];
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        const adv = [];
+        if(caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode:'continuous' });
+        // 室内照明の反射で白飛び→QR不読になるため、露出をやや暗め(-1EV)に振る（iOS Safariは非対応）
+        if(caps.exposureCompensation && typeof caps.exposureCompensation.min === 'number'){
+          const r = caps.exposureCompensation;
+          let ev = Math.max(r.min, Math.min(r.max, -1));
+          if(r.step) ev = Math.round(ev/r.step)*r.step;
+          if(ev < 0) adv.push({ exposureCompensation: ev });
+        }
+        if(adv.length) await track.applyConstraints({ advanced: adv });
+      }catch{}
+    }
     async function detectCombined(){
       if(!DOM.video.videoWidth) return [];
       const c=document.createElement('canvas'); c.width=DOM.video.videoWidth; c.height=DOM.video.videoHeight;
@@ -449,24 +467,31 @@
       }
       const toVideoCoords=pt=>({ x:pt.x/scale, y:pt.y/scale }); // オーバーレイ描画は動画等倍座標なので戻す
       const img=qctx.getImageData(0,0,qw,qh);
-      const masked=new Uint8ClampedArray(img.data);
-      for(let k=0;k<10;k++){
-        // ラベルは黒白印刷なので反転検出(attemptBoth)は不要。dontInvertで処理を半減
-        const hit=jsQR(masked,img.width,img.height,{ inversionAttempts:'dontInvert' });
-        if(!hit) break;
-        const raw=(hit.data||'').trim();
-        if(raw && !all.has(raw)){
-          all.set(raw,{ rawValue:raw, cornerPoints:[
-            hit.location.topLeftCorner, hit.location.topRightCorner,
-            hit.location.bottomRightCorner, hit.location.bottomLeftCorner
-          ].map(toVideoCoords)});
-        }
-        const {topLeftCorner, bottomRightCorner}=hit.location;
-        for(let y=Math.floor(topLeftCorner.y); y<Math.ceil(bottomRightCorner.y); y++){
-          for(let x=Math.floor(topLeftCorner.x); x<Math.ceil(bottomRightCorner.x); x++){
-            const i=(y*img.width+x)*4; masked[i]=masked[i+1]=masked[i+2]=255;
+      const runJsqr=(buf)=>{
+        for(let k=0;k<10;k++){
+          // ラベルは黒白印刷なので反転検出(attemptBoth)は不要。dontInvertで処理を半減
+          const hit=jsQR(buf,img.width,img.height,{ inversionAttempts:'dontInvert' });
+          if(!hit) break;
+          const raw=(hit.data||'').trim();
+          if(raw && !all.has(raw)){
+            all.set(raw,{ rawValue:raw, cornerPoints:[
+              hit.location.topLeftCorner, hit.location.topRightCorner,
+              hit.location.bottomRightCorner, hit.location.bottomLeftCorner
+            ].map(toVideoCoords)});
+          }
+          const {topLeftCorner, bottomRightCorner}=hit.location;
+          for(let y=Math.floor(topLeftCorner.y); y<Math.ceil(bottomRightCorner.y); y++){
+            for(let x=Math.floor(topLeftCorner.x); x<Math.ceil(bottomRightCorner.x); x++){
+              const i=(y*img.width+x)*4; buf[i]=buf[i+1]=buf[i+2]=255;
+            }
           }
         }
+      };
+      runJsqr(new Uint8ClampedArray(img.data));
+      if(all.size===0){
+        // 白飛びフレーム救済：暗くしてもう一度だけ試す（何も検出できなかった時のみ）
+        gammaDarkenInPlace(img.data);
+        runJsqr(img.data);
       }
       return Array.from(all.values());
     }

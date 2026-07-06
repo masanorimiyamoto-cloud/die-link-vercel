@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>棚QRラベル一括生成</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --border:#dfe4ea; --text:#2c3e50; --muted:#6b7a8d;
+    --accent:#1d7c70;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif; background:var(--bg); color:var(--text); }
+
+  .toolbar{
+    background:var(--card); border-bottom:1px solid var(--border);
+    padding:14px 18px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;
+    position:sticky; top:0; z-index:10;
+  }
+  .toolbar h1{ font-size:1rem; margin:0 12px 6px 0; width:100%; }
+  .field{ display:flex; flex-direction:column; gap:4px; }
+  .field label{ font-size:11px; color:var(--muted); font-weight:bold; }
+  .field input{
+    padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:14px; width:110px;
+  }
+  .field input#prefix{ width:150px; text-transform:uppercase; }
+  .btn{
+    padding:10px 18px; border:none; border-radius:8px; font-size:14px; font-weight:bold;
+    cursor:pointer; background:var(--accent); color:#fff;
+  }
+  .btn.secondary{ background:#5a6b7d; }
+  .hint{ font-size:12px; color:var(--muted); width:100%; margin:2px 0 0; }
+
+  .sheet{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(58mm, 1fr));
+    gap:6mm; padding:18px; max-width:1100px; margin:0 auto;
+  }
+  .label-card{
+    background:var(--card); border:1px solid var(--border); border-radius:6px;
+    padding:6mm 4mm; text-align:center;
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  .label-card .title{ font-size:22px; font-weight:700; margin:0 0 4mm; letter-spacing:1px; }
+  .label-card svg{ display:block; margin:0 auto; }
+  .label-card .payload{ font-size:13px; color:var(--muted); margin:4mm 0 0; word-break:break-all; }
+  .error{ color:#c0392b; padding:18px; font-weight:bold; }
+
+  @media print{
+    .toolbar{ display:none; }
+    body{ background:#fff; }
+    .sheet{ padding:0; gap:4mm; }
+    .label-card{ border:1px dashed #bbb; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>棚QRラベル一括生成（scan-register 用 / 中身は <code>loc-棚コード</code>）</h1>
+  <div class="field">
+    <label for="prefix">プレフィックス</label>
+    <input id="prefix" value="LOK-A">
+  </div>
+  <div class="field">
+    <label for="start">開始番号</label>
+    <input id="start" type="number" value="1" min="0">
+  </div>
+  <div class="field">
+    <label for="end">終了番号</label>
+    <input id="end" type="number" value="20" min="0">
+  </div>
+  <div class="field">
+    <label for="pad">番号の桁数</label>
+    <input id="pad" type="number" value="2" min="1" max="4">
+  </div>
+  <div class="field">
+    <label for="size">QRサイズ(mm)</label>
+    <input id="size" type="number" value="40" min="20" max="80">
+  </div>
+  <button class="btn" onclick="generate()">生成</button>
+  <button class="btn secondary" onclick="window.print()">🖨 印刷</button>
+  <p class="hint">例: プレフィックス LOK-A / 1〜20 → 棚コード LOK-A-01 … LOK-A-20（QRの中身は loc-LOK-A-01 …）</p>
+</div>
+
+<div id="sheet" class="sheet"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" crossorigin="anonymous"></script>
+<script>
+"use strict";
+var QUIET = 4; // クワイエットゾーン（モジュール数, 規格推奨4）
+
+function buildQrSvg(text, sideMm){
+  var qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  var n = qr.getModuleCount();
+  var total = n + QUIET * 2;
+  var totalMm = sideMm * total / n;   // データ領域が sideMm になるよう余白込みで拡大
+  var rects = '';
+  for(var r=0; r<n; r++){
+    for(var c=0; c<n; c++){
+      if(qr.isDark(r, c)){
+        rects += '<rect x="'+(c+QUIET)+'" y="'+(r+QUIET)+'" width="1" height="1"/>';
+      }
+    }
+  }
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="'+totalMm+'mm" height="'+totalMm+'mm" '
+    + 'viewBox="0 0 '+total+' '+total+'" shape-rendering="crispEdges">'
+    + '<rect width="'+total+'" height="'+total+'" fill="#fff"/>'
+    + '<g fill="#000">'+rects+'</g>'
+    + '</svg>';
+}
+
+function generate(){
+  var sheet = document.getElementById('sheet');
+  sheet.innerHTML = '';
+
+  var prefix = document.getElementById('prefix').value.trim().toUpperCase().replace(/-+$/,'');
+  var start  = parseInt(document.getElementById('start').value, 10);
+  var end    = parseInt(document.getElementById('end').value, 10);
+  var pad    = parseInt(document.getElementById('pad').value, 10) || 2;
+  var sizeMm = parseInt(document.getElementById('size').value, 10) || 40;
+
+  if(!prefix || isNaN(start) || isNaN(end) || start > end || end - start > 499){
+    var err = document.createElement('div');
+    err.className = 'error';
+    err.textContent = '入力を確認してください（開始 ≤ 終了、最大500件）。';
+    sheet.appendChild(err);
+    return;
+  }
+
+  for(var i=start; i<=end; i++){
+    var num = String(i);
+    while(num.length < pad) num = '0' + num;
+    var code = prefix + '-' + num;      // 例: LOK-A-01
+    var payload = 'loc-' + code;        // 例: loc-LOK-A-01（scan-register が読む形式）
+
+    var card = document.createElement('div');
+    card.className = 'label-card';
+
+    var title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = code;
+    card.appendChild(title);
+
+    var qrBox = document.createElement('div');
+    try{
+      qrBox.innerHTML = buildQrSvg(payload, sizeMm);
+    }catch(e){
+      qrBox.textContent = 'QR生成失敗: ' + (e && e.message || e);
+    }
+    card.appendChild(qrBox);
+
+    var cap = document.createElement('div');
+    cap.className = 'payload';
+    cap.textContent = payload;
+    card.appendChild(cap);
+
+    sheet.appendChild(card);
+  }
+}
+
+generate();
+</script>
+</body>
+</html>

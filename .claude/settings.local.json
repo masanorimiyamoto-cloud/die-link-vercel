@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(where node.exe)",
+      "Bash(command -v npx)"
+    ]
+  }
+}

@@ -41,6 +41,31 @@
     audio: false
   };
 
+  // 照明の反射でQRが白飛びすると黒モジュールまで明るく浮いて読めない。
+  // ガンマ>1でハイライト側の差を広げると救済できる（失敗フレームのみ適用）
+  const GAMMA_LUT = new Uint8ClampedArray(256);
+  for(let i=0;i<256;i++) GAMMA_LUT[i] = Math.round(255*Math.pow(i/255, 2.2));
+  function gammaDarkenInPlace(d){
+    for(let i=0;i<d.length;i+=4){ d[i]=GAMMA_LUT[d[i]]; d[i+1]=GAMMA_LUT[d[i+1]]; d[i+2]=GAMMA_LUT[d[i+2]]; }
+  }
+  // 対応端末では連続AF＋露出補正マイナス（白飛び抑制）を指定
+  async function tuneCameraTrack(mediaStream){
+    try{
+      const track = mediaStream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      const adv = [];
+      if(caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode:'continuous' });
+      // 室内照明の反射で白飛び→QR不読になるため、露出をやや暗め(-1EV)に振る（iOS Safariは非対応）
+      if(caps.exposureCompensation && typeof caps.exposureCompensation.min === 'number'){
+        const r = caps.exposureCompensation;
+        let ev = Math.max(r.min, Math.min(r.max, -1));
+        if(r.step) ev = Math.round(ev/r.step)*r.step;
+        if(ev < 0) adv.push({ exposureCompensation: ev });
+      }
+      if(adv.length) await track.applyConstraints({ advanced: adv });
+    }catch{}
+  }
+
   const S = {
     stream: null, rafId: null,
     useBarcodeDetector: ('BarcodeDetector' in window), detector: null,
@@ -214,6 +239,7 @@
       D.video.srcObject = S.stream;
 
       await D.video.play();
+      await tuneCameraTrack(S.stream);
 
       const ok = await waitVideoSize();
       if(!ok) throw new Error('カメラ解像度が確定しませんでした');
@@ -350,6 +376,14 @@
       img = scanCtx.getImageData(0,0,w,h);
       for(const h2 of jsqrMulti(img)){
         if(h2.raw && !dets.has(h2.raw)) dets.set(h2.raw, h2);
+      }
+
+      if(dets.size === 0){
+        // 白飛びフレーム救済：中央ROIを暗くしてもう一度だけ試す
+        gammaDarkenInPlace(img.data);
+        for(const h3 of jsqrMulti(img)){
+          if(h3.raw && !dets.has(h3.raw)) dets.set(h3.raw, h3);
+        }
       }
     }
 
@@ -680,6 +714,7 @@
       D.freeze.style.display = 'none';
       D.lockEmoji.style.display = 'none';
       await D.video.play();
+      await tuneCameraTrack(S.stream);
       await waitVideoSize();
       fitAll();
       if(!S.detector) await setupDetector();

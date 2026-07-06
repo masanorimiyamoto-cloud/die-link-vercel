@@ -210,6 +210,33 @@ const AIRTABLE_ENABLED = false;
 const SCAN_RESOLUTION = 960; // 抜型QR（18mm角）は小さいため解像度を確保（600→960）
 const DETECT_INTERVAL_MS = 110; // QRは静止物なので間引いてCPU負荷を相殺（解像度アップ分の埋め合わせ）
 
+// 照明の反射でQRが白飛びすると黒モジュールまで明るく浮いて読めない。
+// ガンマ>1でハイライト側の差を広げると救済できる（失敗フレームのみ適用）
+const GAMMA_LUT = new Uint8ClampedArray(256);
+for(let i=0;i<256;i++) GAMMA_LUT[i] = Math.round(255*Math.pow(i/255, 2.2));
+function gammaDarken(src){
+    const d = new Uint8ClampedArray(src);
+    for(let i=0;i<d.length;i+=4){ d[i]=GAMMA_LUT[d[i]]; d[i+1]=GAMMA_LUT[d[i+1]]; d[i+2]=GAMMA_LUT[d[i+2]]; }
+    return d;
+}
+// 対応端末では連続AF＋露出補正マイナス（白飛び抑制）を指定
+async function tuneCameraTrack(mediaStream){
+    try{
+        const track = mediaStream.getVideoTracks()[0];
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        const adv = [];
+        if(caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode:'continuous' });
+        // 室内照明の反射で白飛び→QR不読になるため、露出をやや暗め(-1EV)に振る（iOS Safariは非対応）
+        if(caps.exposureCompensation && typeof caps.exposureCompensation.min === 'number'){
+            const r = caps.exposureCompensation;
+            let ev = Math.max(r.min, Math.min(r.max, -1));
+            if(r.step) ev = Math.round(ev/r.step)*r.step;
+            if(ev < 0) adv.push({ exposureCompensation: ev });
+        }
+        if(adv.length) await track.applyConstraints({ advanced: adv });
+    }catch{}
+}
+
 // ========= 状態 (State) =========
 let fixedLoc = null;
 const fixedDies = new Map();
@@ -403,14 +430,7 @@ async function startCam(){
     }catch(e){ showError(e); return; }
     v.srcObject=stream;
     try{ await v.play(); }catch(e){ showError(e); return; }
-    // 抜型QR（18mm角）は近距離スキャンになりがちなので、対応端末では連続オートフォーカスを明示指定
-    try{
-        const track = stream.getVideoTracks()[0];
-        const caps = track.getCapabilities ? track.getCapabilities() : {};
-        if(caps.focusMode && caps.focusMode.includes('continuous')){
-            await track.applyConstraints({ advanced:[{ focusMode:'continuous' }] });
-        }
-    }catch{}
+    await tuneCameraTrack(stream);
     const w = v.videoWidth, h = v.videoHeight;
     ov.width = w; ov.height = h;
     scanCanvas.width = SCAN_RESOLUTION;
@@ -423,7 +443,11 @@ function scan() {
     if (v.readyState !== v.HAVE_ENOUGH_DATA) return null;
     sctx.drawImage(v, 0, 0, scanCanvas.width, scanCanvas.height);
     const imgData = sctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-    const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+    let code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+    if (!code) {
+        // 白飛びフレーム救済：暗くしてもう一度だけ試す
+        code = jsQR(gammaDarken(imgData.data), imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+    }
     if (!code) return null;
     return { raw: code.data.trim(), corners: [code.location.topLeftCorner, code.location.topRightCorner, code.location.bottomRightCorner, code.location.bottomLeftCorner] };
 }
