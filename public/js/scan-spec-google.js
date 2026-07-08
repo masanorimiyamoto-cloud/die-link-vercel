@@ -78,6 +78,7 @@
     csrf: '', locked: false,
     current: { book:'', wc:'' }, lastQueryKey:'',
     lastScanAt: 0,
+    progressSentKey:'', // 進行社外の重複更新抑止（action@book@@wc）
     // 半製品照合
     boxMode:false, boxRaf:null, boxLastAt:0, boxAiBusy:false, pxPerMm:0,
     measureMode:false, measRaf:null, measFrozen:false, // 採寸モード
@@ -115,6 +116,31 @@
     if(t) S.csrf = t;
   }
   document.addEventListener('DOMContentLoaded', ensureCsrf);
+
+  // --- Airtable 進行社外 自動更新（生地照合一致 → 生地照合済 等）---
+  async function notifyProgress(action){
+    const book = S.current.book, wc = S.current.wc;
+    if(!book || !wc) return null;
+    const key = action + '@' + dieKey(book, wc);
+    if(key === S.progressSentKey) return null;   // 同一品番への重複送信を抑止
+    S.progressSentKey = key;
+    try{
+      await ensureCsrf();
+      const r = await fetch('/api/airtable-update-progress', {
+        method:'POST', credentials:'same-origin', cache:'no-store',
+        headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
+        body: JSON.stringify({ action, book, wc }),
+      });
+      const j = await r.json().catch(()=>({}));
+      if(r.ok && j.ok === true) return j;
+      S.progressSentKey = '';                    // 失敗時は再照合で再送できるように解除
+      console.warn('進行社外 更新NG', j);
+    }catch(e){
+      S.progressSentKey = '';
+      console.warn('進行社外 更新エラー', e);
+    }
+    return null;
+  }
 
   // --- Helpers ---
   async function waitVideoSize(timeoutMs = 2500){
@@ -1058,6 +1084,13 @@
         const a = await aiMaterialMatch(frame).then(v => ({ v })).catch(e => ({ err: String(e.message||e) }));
         renderApprOnly(a.v||null, a.err||null, '生地');
         setBoxStatus('✅ 生地照合 完了', true);
+        // ★ 一致なら Airtable 進行社外 →「生地照合済」（同一品番は1回だけ）
+        const mv = a.v;
+        if(mv && mv.ok !== false && mv.found !== false && mv.verdict === 'match'){
+          notifyProgress('fabric').then(j => {
+            if(j && j.updated > 0) setBoxStatus(`✅ 生地照合 完了（進行社外 →「${j.status}」）`, true);
+          });
+        }
         return;
       }
 

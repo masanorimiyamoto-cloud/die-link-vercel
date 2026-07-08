@@ -2,13 +2,14 @@
 // 「探す」「仕舞う」の操作に連動して TableJuchu の 進行社外(singleSelect) を自動更新する
 // （進行社内は表示したい情報が多いため使わない）
 //
-//  POST {  action: 'found' | 'stored',
-//          book, wc            … 単発（探す＝照合一致時）
+//  POST {  action: 'found' | 'stored' | 'fabric',
+//          book, wc            … 単発（探す＝照合一致時／知る＝生地照合一致時）
 //          items: [{book,wc}]  … 複数（仕舞う＝棚登録時） }
 //
 //  action → 進行社外 の値:
 //    found  = 抜型照合済
 //    stored = 抜型棚に登録済
+//    fabric = 生地照合済
 //
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
 export const config = { runtime: 'edge' };
@@ -28,6 +29,7 @@ const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
 const STATUS_LABELS = {
   found:  process.env.PROGRESS_LABEL_FOUND  || '抜型照合済',
   stored: process.env.PROGRESS_LABEL_STORED || '抜型棚に登録済',
+  fabric: process.env.PROGRESS_LABEL_FABRIC || '生地照合済',
 };
 // 進行社外に何が入っていても抜型ステータスで上書きする（ユーザー要望）
 
