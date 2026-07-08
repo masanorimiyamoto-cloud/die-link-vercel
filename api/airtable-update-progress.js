@@ -4,7 +4,8 @@
 //
 //  POST {  action: 'found' | 'stored' | 'fabric',
 //          book, wc            … 単発（探す＝照合一致時／知る＝生地照合一致時）
-//          items: [{book,wc}]  … 複数（仕舞う＝棚登録時） }
+//          items: [{book,wc,loc?}]  … 複数（仕舞う＝棚登録時）
+//          loc がある item は Location（棚番号）と LastSeen（当日）も併せて更新する }
 //
 //  action → 進行社外 の値:
 //    found  = 抜型照合済
@@ -25,6 +26,13 @@ const FIELD_BOOK     = process.env.FIELD_BOOK     || 'Book';
 const FIELD_WC       = process.env.FIELD_WC       || 'WorkCord';   // number型
 const FIELD_PROGRESS = process.env.FIELD_PROGRESS || '進行社外';
 const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
+const FIELD_LOCATION = process.env.FIELD_LOCATION || 'Location';
+const FIELD_LASTSEEN = process.env.FIELD_LASTSEEN || 'LastSeen';
+
+// Edge Runtime は UTC のため JST の「今日」を自前で算出
+function todayJST() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
 
 const STATUS_LABELS = {
   found:  process.env.PROGRESS_LABEL_FOUND  || '抜型照合済',
@@ -166,7 +174,11 @@ export default async function handler(req) {
     let items = Array.isArray(body?.items) ? body.items : [];
     if (!items.length && (body?.book || body?.wc)) items = [{ book: body.book, wc: body.wc }];
     items = items
-      .map(it => ({ book: String(it?.book || '').trim(), wc: String(it?.wc || '').trim() }))
+      .map(it => ({
+        book: String(it?.book || '').trim(),
+        wc: String(it?.wc || '').trim(),
+        loc: String(it?.loc || '').trim(),
+      }))
       .filter(it => it.book && it.wc);
     // 同一(book,wc)はユニーク化
     items = Array.from(new Map(items.map(it => [`${it.book}:::${it.wc}`, it])).values());
@@ -191,15 +203,23 @@ export default async function handler(req) {
       }
       totalMatched += records.length;
 
+      // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
+      const fields = { [FIELD_PROGRESS]: status };
+      if (it.loc) {
+        fields[FIELD_LOCATION] = it.loc;
+        fields[FIELD_LASTSEEN] = todayJST();
+      }
+
       const targets = [];
       for (const rec of records) {
         const cur = String(rec.fields?.[FIELD_PROGRESS] || '').trim();
-        if (cur === status) continue; // 既に同じ値
+        // 進行社外が既に同じ値でも、棚番号の付け替えがあり得るため loc 付きは更新する
+        if (cur === status && !it.loc) continue;
         targets.push(rec.id);
       }
       if (!targets.length) continue;
 
-      totalUpdated += await batchUpdate(targets, { [FIELD_PROGRESS]: status });
+      totalUpdated += await batchUpdate(targets, fields);
       await new Promise(r => setTimeout(r, 140));
     }
 

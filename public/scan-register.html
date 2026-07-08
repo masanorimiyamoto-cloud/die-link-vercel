@@ -207,7 +207,7 @@
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"
 const AIRTABLE_ENABLED = false;
-const PROGRESS_ENDPOINT = "/api/airtable-update-progress"; // 進行社外 →「抜型棚に登録済」
+const PROGRESS_ENDPOINT = "/api/airtable-update-progress"; // 進行社外 →「抜型棚に登録済」＋ Location / LastSeen
 const PROGRESS_ENABLED = true;
 const SCAN_RESOLUTION = 960; // 抜型QR（18mm角）は小さいため解像度を確保（600→960）
 const DETECT_INTERVAL_MS = 110; // QRは静止物なので間引いてCPU負荷を相殺（解像度アップ分の埋め合わせ）
@@ -570,7 +570,7 @@ async function submitUpdate() {
         } catch(e) { console.warn("Airtable skip", e); }
     }
 
-    // 3) Airtable 進行社外 →「抜型棚に登録済」
+    // 3) Airtable 進行社外 →「抜型棚に登録済」＋ Location（棚番号）/ LastSeen（当日）
     if (PROGRESS_ENABLED) {
         try {
             const csrf = await ensureCsrf();
@@ -578,7 +578,7 @@ async function submitUpdate() {
                 method: "POST",
                 credentials: "same-origin",
                 headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF": csrf } : {}) },
-                body: JSON.stringify({ action: "stored", items: items.map(({ book, wc }) => ({ book, wc })) })
+                body: JSON.stringify({ action: "stored", items: items.map(({ book, wc, loc }) => ({ book, wc, loc })) })
             });
             const jP = await rP.json().catch(() => ({}));
             if (rP.ok && jP.ok === true && jP.updated > 0) {
