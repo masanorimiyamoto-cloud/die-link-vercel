@@ -206,7 +206,9 @@
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"
-const AIRTABLE_ENABLED = false; 
+const AIRTABLE_ENABLED = false;
+const PROGRESS_ENDPOINT = "/api/airtable-update-progress"; // 進行社外 →「抜型棚に登録済」
+const PROGRESS_ENABLED = true;
 const SCAN_RESOLUTION = 960; // 抜型QR（18mm角）は小さいため解像度を確保（600→960）
 const DETECT_INTERVAL_MS = 110; // QRは静止物なので間引いてCPU負荷を相殺（解像度アップ分の埋め合わせ）
 
@@ -355,6 +357,17 @@ function renderDies() {
 
 // ========= ユーティリティ =========
 const dieKey = (bn, wc) => `${bn}-${wc}`;
+// 進行社外更新API用のCSRFトークン（/api/session が xcsrf Cookie を発行）
+const readCookie = name => { const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; };
+async function ensureCsrf() {
+  let t = readCookie('xcsrf');
+  if (!t) {
+    const isLocal = location.protocol === 'http:' && /localhost|127\.0\.0\.1/.test(location.host);
+    await fetch(isLocal ? '/api/session?dev=1' : '/api/session', { method: 'GET', credentials: 'same-origin', cache: 'no-store' }).catch(() => {});
+    t = readCookie('xcsrf');
+  }
+  return t || '';
+}
 function setError(t) { errEl.textContent = t || ""; errEl.style.display = t ? 'block' : 'none'; }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function toast(msg, sub = "") { const el = document.createElement("div"); el.className = "toast"; el.innerHTML = `<b>${msg}</b>${sub ? `<br><small>${sub}</small>` : ""}`; toasts.appendChild(el); setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, 1200); setTimeout(() => { el.remove(); }, 1800); }
@@ -555,6 +568,25 @@ async function submitUpdate() {
                 body: JSON.stringify({ items })
             });
         } catch(e) { console.warn("Airtable skip", e); }
+    }
+
+    // 3) Airtable 進行社外 →「抜型棚に登録済」
+    if (PROGRESS_ENABLED) {
+        try {
+            const csrf = await ensureCsrf();
+            const rP = await fetch(PROGRESS_ENDPOINT, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF": csrf } : {}) },
+                body: JSON.stringify({ action: "stored", items: items.map(({ book, wc }) => ({ book, wc })) })
+            });
+            const jP = await rP.json().catch(() => ({}));
+            if (rP.ok && jP.ok === true && jP.updated > 0) {
+                toast("進行社外を更新", `「${jP.status}」 ${jP.updated}件`);
+            } else if (!rP.ok || jP.ok !== true) {
+                console.warn("進行社外 更新NG", jP);
+            }
+        } catch(e) { console.warn("進行社外 skip", e); }
     }
 
     toast("登録完了！", `${items.length}件を保存しました`);

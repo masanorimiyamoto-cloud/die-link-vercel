@@ -211,7 +211,8 @@
       scanHistory:new Map(),
       __lastOrderKey:'', __orderSetAt:0,
       csrf:'',
-      lastQueryKey:''   // ★ 同一ターゲットの重複フェッチ抑止
+      lastQueryKey:'',   // ★ 同一ターゲットの重複フェッチ抑止
+      progressSentKey:'' // ★ 進行社外の重複更新抑止（action@book@@wc）
     };
 
     /* ==== utils ==== */
@@ -550,6 +551,8 @@
             setTimeout(()=>{ state.isLocked=false; },700);
             // ★ 型が一致した瞬間にも仕様/図面を確実取得（同一キーは抑止）
             querySpec();
+            // ★ Airtable 進行社外 →「抜型照合済」（同一ターゲットは1回だけ）
+            notifyProgress('found');
           }
         }else if(kind==='loc'){
           const locData=parseLoc(raw);
@@ -660,6 +663,35 @@
         }catch{}
       }finally{
         DOM.loading.style.display='none';
+      }
+    }
+
+    /* ==== Airtable 進行社外 自動更新（照合一致 → 抜型照合済） ==== */
+    async function notifyProgress(action){
+      const {book,wc}=state.currentTarget; if(!book||!wc) return;
+      const key = `${action}@${dieKey(book,wc)}`;
+      if(key===state.progressSentKey) return;         // 同一ターゲットへの重複送信を抑止
+      state.progressSentKey=key;
+      try{
+        if(!state.csrf) await ensureCsrf();
+        const r=await fetch('/api/airtable-update-progress',{ method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json', ...(state.csrf?{'X-CSRF':state.csrf}:{})},
+          body:JSON.stringify({ action, book, wc })
+        });
+        const j=await r.json().catch(()=>({}));
+        if(r.ok && j.ok===true){
+          if(j.updated>0){
+            showBigMessage('進行を更新しました', `進行社外 →「${j.status}」（${j.updated}件）`);
+            speakLineOnce(`進行を、${j.status}、に更新しました`,{cooldown:2500});
+          }
+          // updated=0（該当受注なし・既に同値・別の進行状態）は静かに何もしない
+        }else{
+          state.progressSentKey='';                   // 失敗時は再スキャンで再送できるように解除
+          console.warn('進行社外 更新NG', j);
+        }
+      }catch(e){
+        state.progressSentKey='';
+        console.warn('進行社外 更新エラー', e);
       }
     }
 
