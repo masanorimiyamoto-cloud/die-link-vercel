@@ -9,7 +9,7 @@
 //
 //  action → 進行社外 の値:
 //    found  = 抜型照合済
-//    stored = 抜型棚に登録済
+//    stored = 抜型を棚に仕舞い完了
 //    fabric = 生地照合済
 //
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
@@ -36,7 +36,7 @@ function todayJST() {
 
 const STATUS_LABELS = {
   found:  process.env.PROGRESS_LABEL_FOUND  || '抜型照合済',
-  stored: process.env.PROGRESS_LABEL_STORED || '抜型棚に登録済',
+  stored: process.env.PROGRESS_LABEL_STORED || '抜型を棚に仕舞い完了',
   fabric: process.env.PROGRESS_LABEL_FABRIC || '生地照合済',
 };
 // 進行社外に何が入っていても抜型ステータスで上書きする（ユーザー要望）
