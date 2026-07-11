@@ -1,16 +1,15 @@
 // api/airtable-update-progress.js  Edge Runtime 版
-// 「探す」「仕舞う」の操作に連動して TableJuchu の 進行社外(singleSelect) を自動更新する
-// （進行社内は表示したい情報が多いため使わない）
+// 「探す」「仕舞う」の操作に連動して TableJuchu の 進行社内/進行社外(singleSelect) を自動更新する
 //
 //  POST {  action: 'found' | 'stored' | 'fabric',
 //          book, wc            … 単発（探す＝照合一致時／知る＝生地照合一致時）
 //          items: [{book,wc,loc?}]  … 複数（仕舞う＝棚登録時）
 //          loc がある item は Location（棚番号）と LastSeen（当日）も併せて更新する }
 //
-//  action → 進行社外 の値:
-//    found  = 抜型照合済
-//    stored = 抜型を棚に仕舞い完了
-//    fabric = 生地照合済
+//  action → 更新フィールドと値:
+//    found  = 進行社内 → 抜型照合済
+//    stored = 進行社外 → 抜型を棚に仕舞い完了
+//    fabric = 進行社内 → 生地照合済
 //
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
 export const config = { runtime: 'edge' };
@@ -24,7 +23,8 @@ const API              = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${TABL
 
 const FIELD_BOOK     = process.env.FIELD_BOOK     || 'Book';
 const FIELD_WC       = process.env.FIELD_WC       || 'WorkCord';   // number型
-const FIELD_PROGRESS = process.env.FIELD_PROGRESS || '進行社外';
+const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // stored（仕舞う）用
+const FIELD_PROGRESS_IN  = process.env.FIELD_PROGRESS_IN || '進行社内'; // found / fabric 用
 const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
 const FIELD_LOCATION = process.env.FIELD_LOCATION || 'Location';
 const FIELD_LASTSEEN = process.env.FIELD_LASTSEEN || 'LastSeen';
@@ -39,7 +39,13 @@ const STATUS_LABELS = {
   stored: process.env.PROGRESS_LABEL_STORED || '抜型を棚に仕舞い完了',
   fabric: process.env.PROGRESS_LABEL_FABRIC || '生地照合済',
 };
-// 進行社外に何が入っていても抜型ステータスで上書きする（ユーザー要望）
+// action ごとの更新先フィールド（found/fabric は進行社内、stored は進行社外）
+const ACTION_FIELDS = {
+  found:  FIELD_PROGRESS_IN,
+  stored: FIELD_PROGRESS_OUT,
+  fabric: FIELD_PROGRESS_IN,
+};
+// フィールドに何が入っていても抜型ステータスで上書きする（ユーザー要望）
 
 function corsHeaders() {
   return {
@@ -83,8 +89,8 @@ async function fetchWithRetry(input, init = {}) {
   return fetchWithRetry(input, { ...init, _attempt: attempt });
 }
 
-// --- Airtable: Book+WorkCord で該当レコード（進行社外の現在値つき）を取得 ---
-async function fetchRecords(book, wc) {
+// --- Airtable: Book+WorkCord で該当レコード（進行フィールドの現在値つき）を取得 ---
+async function fetchRecords(book, wc, progressField) {
   const esc = (s) => String(s).replace(/'/g, "\\'");
   const n = Number(wc);
   const wcExpr = Number.isFinite(n) ? String(n) : `'${esc(wc)}'`; // WorkCordはnumber型なので数値比較
@@ -97,7 +103,7 @@ async function fetchRecords(book, wc) {
     const url = new URL(API);
     url.searchParams.set('filterByFormula', formula);
     url.searchParams.set('pageSize', '100');
-    url.searchParams.append('fields[]', FIELD_PROGRESS);
+    url.searchParams.append('fields[]', progressField);
     if (offset) url.searchParams.set('offset', offset);
 
     const r = await fetchWithRetry(url, {
@@ -166,6 +172,7 @@ export default async function handler(req) {
 
     const action = String(body?.action || '').trim();
     const status = STATUS_LABELS[action];
+    const progressField = ACTION_FIELDS[action];
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
     }
@@ -191,7 +198,7 @@ export default async function handler(req) {
     for (const it of items) {
       let records = [];
       try {
-        const r = await fetchRecords(it.book, it.wc);
+        const r = await fetchRecords(it.book, it.wc, progressField);
         records = r.records;
         if (records.length === 0) {
           skippedDetails.push(`{${it.book}/${it.wc}}: 0 matches`);
@@ -204,7 +211,7 @@ export default async function handler(req) {
       totalMatched += records.length;
 
       // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
-      const fields = { [FIELD_PROGRESS]: status };
+      const fields = { [progressField]: status };
       if (it.loc) {
         fields[FIELD_LOCATION] = it.loc;
         fields[FIELD_LASTSEEN] = todayJST();
@@ -212,8 +219,8 @@ export default async function handler(req) {
 
       const targets = [];
       for (const rec of records) {
-        const cur = String(rec.fields?.[FIELD_PROGRESS] || '').trim();
-        // 進行社外が既に同じ値でも、棚番号の付け替えがあり得るため loc 付きは更新する
+        const cur = String(rec.fields?.[progressField] || '').trim();
+        // 既に同じ値でも、棚番号の付け替えがあり得るため loc 付きは更新する
         if (cur === status && !it.loc) continue;
         targets.push(rec.id);
       }
