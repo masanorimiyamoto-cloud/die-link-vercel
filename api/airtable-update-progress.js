@@ -8,7 +8,7 @@
 //
 //  action → 更新フィールドと値:
 //    found  = 進行社内 → 抜型照合済　＋ 抜型照合(checkbox) → ON
-//    stored = 進行社外 → 抜型を棚に仕舞い完了
+//    stored = 進行社外 → 抜型を棚に仕舞い完了　＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
 //
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
@@ -30,6 +30,7 @@ const FIELD_LOCATION = process.env.FIELD_LOCATION || 'Location';
 const FIELD_LASTSEEN = process.env.FIELD_LASTSEEN || 'LastSeen';
 const FIELD_CHECK_DIE    = process.env.FIELD_CHECK_DIE    || '抜型照合'; // checkbox
 const FIELD_CHECK_FABRIC = process.env.FIELD_CHECK_FABRIC || '生地照合'; // checkbox
+const FIELD_CHECK_STORED = process.env.FIELD_CHECK_STORED || '抜型仕舞済'; // checkbox
 
 // Edge Runtime は UTC のため JST の「今日」を自前で算出
 function todayJST() {
@@ -51,6 +52,7 @@ const ACTION_FIELDS = {
 const ACTION_CHECKBOX = {
   found:  FIELD_CHECK_DIE,
   fabric: FIELD_CHECK_FABRIC,
+  stored: FIELD_CHECK_STORED,
 };
 // フィールドに何が入っていても抜型ステータスで上書きする（ユーザー要望）
 
