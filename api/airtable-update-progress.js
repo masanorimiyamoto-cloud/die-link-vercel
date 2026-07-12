@@ -7,9 +7,9 @@
 //          loc がある item は Location（棚番号）と LastSeen（当日）も併せて更新する }
 //
 //  action → 更新フィールドと値:
-//    found  = 進行社内 → 抜型照合済
+//    found  = 進行社内 → 抜型照合済　＋ 抜型照合(checkbox) → ON
 //    stored = 進行社外 → 抜型を棚に仕舞い完了
-//    fabric = 進行社内 → 生地照合済
+//    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
 //
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
 export const config = { runtime: 'edge' };
@@ -28,6 +28,8 @@ const FIELD_PROGRESS_IN  = process.env.FIELD_PROGRESS_IN || '進行社内'; // f
 const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
 const FIELD_LOCATION = process.env.FIELD_LOCATION || 'Location';
 const FIELD_LASTSEEN = process.env.FIELD_LASTSEEN || 'LastSeen';
+const FIELD_CHECK_DIE    = process.env.FIELD_CHECK_DIE    || '抜型照合'; // checkbox
+const FIELD_CHECK_FABRIC = process.env.FIELD_CHECK_FABRIC || '生地照合'; // checkbox
 
 // Edge Runtime は UTC のため JST の「今日」を自前で算出
 function todayJST() {
@@ -44,6 +46,11 @@ const ACTION_FIELDS = {
   found:  FIELD_PROGRESS_IN,
   stored: FIELD_PROGRESS_OUT,
   fabric: FIELD_PROGRESS_IN,
+};
+// action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）
+const ACTION_CHECKBOX = {
+  found:  FIELD_CHECK_DIE,
+  fabric: FIELD_CHECK_FABRIC,
 };
 // フィールドに何が入っていても抜型ステータスで上書きする（ユーザー要望）
 
@@ -90,7 +97,7 @@ async function fetchWithRetry(input, init = {}) {
 }
 
 // --- Airtable: Book+WorkCord で該当レコード（進行フィールドの現在値つき）を取得 ---
-async function fetchRecords(book, wc, progressField) {
+async function fetchRecords(book, wc, progressField, checkField) {
   const esc = (s) => String(s).replace(/'/g, "\\'");
   const n = Number(wc);
   const wcExpr = Number.isFinite(n) ? String(n) : `'${esc(wc)}'`; // WorkCordはnumber型なので数値比較
@@ -104,6 +111,7 @@ async function fetchRecords(book, wc, progressField) {
     url.searchParams.set('filterByFormula', formula);
     url.searchParams.set('pageSize', '100');
     url.searchParams.append('fields[]', progressField);
+    if (checkField) url.searchParams.append('fields[]', checkField);
     if (offset) url.searchParams.set('offset', offset);
 
     const r = await fetchWithRetry(url, {
@@ -173,6 +181,7 @@ export default async function handler(req) {
     const action = String(body?.action || '').trim();
     const status = STATUS_LABELS[action];
     const progressField = ACTION_FIELDS[action];
+    const checkField = ACTION_CHECKBOX[action] || '';
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
     }
@@ -198,7 +207,7 @@ export default async function handler(req) {
     for (const it of items) {
       let records = [];
       try {
-        const r = await fetchRecords(it.book, it.wc, progressField);
+        const r = await fetchRecords(it.book, it.wc, progressField, checkField);
         records = r.records;
         if (records.length === 0) {
           skippedDetails.push(`{${it.book}/${it.wc}}: 0 matches`);
@@ -212,6 +221,7 @@ export default async function handler(req) {
 
       // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
       const fields = { [progressField]: status };
+      if (checkField) fields[checkField] = true; // 照合済みチェック（進行が後で変わっても残る）
       if (it.loc) {
         fields[FIELD_LOCATION] = it.loc;
         fields[FIELD_LASTSEEN] = todayJST();
@@ -220,8 +230,9 @@ export default async function handler(req) {
       const targets = [];
       for (const rec of records) {
         const cur = String(rec.fields?.[progressField] || '').trim();
+        const checked = checkField ? rec.fields?.[checkField] === true : true;
         // 既に同じ値でも、棚番号の付け替えがあり得るため loc 付きは更新する
-        if (cur === status && !it.loc) continue;
+        if (cur === status && checked && !it.loc) continue;
         targets.push(rec.id);
       }
       if (!targets.length) continue;
