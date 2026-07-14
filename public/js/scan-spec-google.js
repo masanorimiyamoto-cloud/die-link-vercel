@@ -94,9 +94,9 @@
     measTouched:false, // 作業者が黄色枠を手で合わせたら true。AI枠検出より優先する
     tolMm:10,      // 合否の許容差(±mm)
     boxTarget:'die', // 照合対象 'die'=抜型半製品（形状＋寸法）/ 'fabric'=生地（色柄＋縦横比・CAL不要）
-    aiModel:'claude-opus-4-8', // 照合に使うAIモデル（claude-opus-4-8 / gpt-5.5）
+    aiModel:'claude-opus-4-8', // 照合に使うAIモデル（claude-opus-4-8 / gpt-5.6-sol）
   };
-  const AI_MODELS = { 'claude-opus-4-8':'Claude Opus 4.8', 'gpt-5.5':'GPT-5.5' };
+  const AI_MODELS = { 'claude-opus-4-8':'Claude Opus 4.8', 'gpt-5.6-sol':'GPT-5.6 Sol' };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
   try{ const _bt = localStorage.getItem('boxTarget'); if(_bt==='die'||_bt==='fabric') S.boxTarget = _bt; }catch{}
   try{ const _am = localStorage.getItem('aiModel'); if(_am && AI_MODELS[_am]) S.aiModel = _am; }catch{}

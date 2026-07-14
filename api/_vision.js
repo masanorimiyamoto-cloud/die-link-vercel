@@ -5,11 +5,12 @@
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
 // ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが異なる場合は
-//   'gpt-5.5' の id を実際のID（例: 'gpt-5.5-2025-xx-xx' 等）に直すだけでよい。
+//   'gpt-5.6-sol' の id を実際のIDに直すだけでよい。
+//   （'gpt-5.6' エイリアスも Sol にルーティングされるが、明示IDで固定する）
 
 export const MODELS = {
   'claude-opus-4-8': { provider: 'anthropic', id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-  'gpt-5.5':         { provider: 'openai',    id: 'gpt-5.5',         label: 'GPT-5.5' },
+  'gpt-5.6-sol':     { provider: 'openai',    id: 'gpt-5.6-sol',     label: 'GPT-5.6 Sol' },
 };
 export const DEFAULT_MODEL = 'claude-opus-4-8';
 
