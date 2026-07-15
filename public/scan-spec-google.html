@@ -369,6 +369,10 @@
   #boxBar #boxRecalib{ flex:0 0 auto; padding:6px 10px; font-size:12px; background:rgba(255,255,255,.85); }
   /* アクションボタン（AI照合）を大きく押しやすく */
   #boxBar .bbactions button{ min-height:72px; font-size:19px; border-radius:12px; line-height:1.25; }
+  #boxBar #boxNext{
+    display:none; min-height:58px; font-size:18px; border-radius:12px;
+    background:var(--ok); color:#fff;
+  }
   /* 対象切替（抜型／生地） */
   #boxBar .bbtargets{ gap:6px; }
   #boxBar .bbseg{ min-height:0; padding:7px 4px; font-size:14px; background:rgba(255,255,255,.22); color:#fff; border:1px solid rgba(255,255,255,.4); }
@@ -443,6 +447,9 @@
             </div>
             <div class="bbrow bbactions">
               <button id="boxAiAll" class="bbprimary" disabled>🤖 AI照合</button>
+            </div>
+            <div class="bbrow">
+              <button id="boxNext" type="button">➡ 次の半製品を照合</button>
             </div>
             <div class="bbrow bboverlay">
               <button id="boxOvToggle" type="button">🖼 図面を重ねる</button>

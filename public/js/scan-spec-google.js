@@ -19,7 +19,7 @@
     boxRecalib: q('#boxRecalib'), boxResult: q('#boxResult'),
     boxRefMm: q('#boxRefMm'), boxCalibrate: q('#boxCalibrate'), boxCalInfo: q('#boxCalInfo'), boxTol: q('#boxTol'),
     measRect: q('#measRect'), measLabel: q('#measLabel'), boxVerdict: q('#boxVerdict'),
-    boxBar: q('#boxBar'), boxAiAll: q('#boxAiAll'),
+    boxBar: q('#boxBar'), boxAiAll: q('#boxAiAll'), boxNext: q('#boxNext'),
     boxTgtDie: q('#boxTgtDie'), boxTgtFab: q('#boxTgtFab'), boxModel: q('#boxModel'),
     // 図面オーバーレイ（人の目で重ねる目視確認）
     boxOvToggle: q('#boxOvToggle'),
@@ -1071,6 +1071,7 @@
     S.boxAiBusy = true;
     S._dbg = '';
     D.boxResult.style.display = 'none';
+    D.boxNext.style.display = 'none';
     hideVerdict();
     try{
       const frame = captureAiFrame();
@@ -1104,6 +1105,7 @@
       S.boxAiBusy = false;
       D.freeze.style.display = 'none';
       D.video.style.visibility = 'visible';
+      D.boxNext.style.display = 'block';
     }
   }
 
@@ -1202,6 +1204,7 @@
     D.boxCalibrate.disabled = true;
     D.boxRecalib.style.display = 'none';
     D.boxResult.style.display = 'none';
+    D.boxNext.style.display = 'none';
     if(S.calFactor && Math.abs(S.calFactor-1) > 0.001){
       D.boxCalInfo.textContent = `校正済（係数 ${S.calFactor.toFixed(3)}）。再校正は正しい現物で再度ボタン`;
     }
@@ -1229,6 +1232,35 @@
     if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
     // カメラが生きていれば本番スキャンを再開
     if(S.stream && D.video.srcObject && !S.rafId){ S.lastScanAt = 0; setStatus('スキャン中', true); tick(); }
+  }
+
+  // 照合結果からトップページへ戻らず、次の品番のQR読取へ直接進む。
+  async function startNextBoxMatch(){
+    if(S.boxAiBusy) return;
+    await setMode('spec');
+    S.current = { book:'', wc:'' };
+    S.lastQueryKey = '';
+    S.progressSentKey = '';
+    S.cutW = null; S.cutH = null;
+    S.drawingId = null; S.drawingName = null; S.drawingReady = false;
+    if(S._boxUrl){ URL.revokeObjectURL(S._boxUrl); S._boxUrl = null; }
+    D.boxOverlay.removeAttribute('src');
+    S.calSet = false; S.pxPerMm = 0; S.pxPerMmVideo = 0; S.calPts = null;
+    D.nowTarget.textContent = 'ターゲット: 次の品番のQRをスキャンしてください';
+    D.inpBook.value = '';
+    D.inpWc.value = '';
+    D.boxResult.style.display = 'none';
+    D.boxNext.style.display = 'none';
+    D.gsBox.innerHTML = '<div class="msg-empty">次の品番をスキャンしてください</div>';
+    D.specStatus.className = 'spec-status';
+    D.specStatus.textContent = '';
+    D.driveActions.innerHTML = '';
+    D.driveView.innerHTML = '<div class="msg-empty">次の品番をスキャンすると図面が表示されます</div>';
+    D.driveStatus.textContent = '次のQRを待機中';
+    D.errApi.textContent = '';
+    await ensureLiveCam();
+    if(!S.rafId){ S.lastScanAt = 0; setStatus('次のQRをスキャン', true); tick(); }
+    else setStatus('次のQRをスキャン', true);
   }
 
   /* ===========================================================
@@ -1472,6 +1504,7 @@
     D.boxModel.onchange = () => { if(AI_MODELS[D.boxModel.value]) S.aiModel = D.boxModel.value; try{ localStorage.setItem('aiModel', S.aiModel); }catch{} };
   }
   D.boxAiAll.onclick     = () => aiAllInOne();
+  D.boxNext.onclick      = () => startNextBoxMatch();
   D.boxTol.onchange = () => { const v = parseFloat(D.boxTol.value); if(v>0) S.tolMm = v; };
   D.boxCalibrate.onclick = () => calibrateWithBox();
   D.boxRecalib.onclick   = () => clearCalibration();
