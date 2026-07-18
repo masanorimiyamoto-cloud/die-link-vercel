@@ -23,6 +23,9 @@
     boxTgtDie: q('#boxTgtDie'), boxTgtFab: q('#boxTgtFab'), boxModel: q('#boxModel'),
     // 図面オーバーレイ（人の目で重ねる目視確認）
     boxOvToggle: q('#boxOvToggle'),
+    // 伝票照合（受領伝票QR → Airtable照合）
+    modeSlip: q('#modeSlip'), slipPanel: q('#slipPanel'), slipList: q('#slipList'),
+    slipInfo: q('#slipInfo'), slipAllOk: q('#slipAllOk'), slipRescan: q('#slipRescan'),
   };
   function q(s){ return document.querySelector(s); }
 
@@ -95,6 +98,9 @@
     tolMm:10,      // 合否の許容差(±mm)
     boxTarget:'die', // 照合対象 'die'=抜型半製品（形状＋寸法）/ 'fabric'=生地（色柄＋縦横比・CAL不要）
     aiModel:'claude-opus-4-8', // 照合に使うAIモデル（claude-opus-4-8 / gpt-5.6-sol）
+    // 伝票照合
+    slipMode:false, slipRaf:null, slipLastAt:0, slipFrozen:false,
+    slipKey:'', slipRecords:[], slipBusy:false, slipDoneSpoken:false,
   };
   const AI_MODELS = { 'claude-opus-4-8':'Claude Opus 4.8', 'gpt-5.6-sol':'GPT-5.6 Sol' };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
@@ -424,7 +430,7 @@
 
   async function tick(){
     if(!S.stream) return;
-    if(S.boxMode) return;
+    if(S.boxMode || S.slipMode) return;
 
     const now = performance.now();
     if(now - S.lastScanAt < CFG.SCAN_EVERY_MS){
@@ -1402,16 +1408,318 @@
     setMeasStatus('ライブに戻りました。現物をガイド枠内に入れて📸自動計測', S.calSet);
   }
 
+  /* ===========================================================
+     伝票照合（受領伝票QR → Airtable照合・複合機レス）
+     - 伝票QR = Airtable RecordID（最大10明細分）を1つのQRに格納
+     - Excel=発行時点の真実／Airtable=最新の真実（手書き訂正反映後）
+     - 照合は「紙伝票（手書き込み最終状態） vs Airtable（最新）」
+       OK            … 一致
+       UpdatedBySlip … 手書き訂正をこの場でAirtableへ反映して一致させた
+       Mismatch      … 不一致のまま記録（値は書き換えない）
+       CancelledLine … 二重線で取り消された行
+     =========================================================== */
+  function extractRecordIds(raw){
+    const m = String(raw||'').match(/rec[A-Za-z0-9]{14}/g);
+    if(!m) return null;
+    const ids = Array.from(new Set(m));
+    return ids.length ? ids : null;
+  }
+  function todayJst(){ return new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10); }
+
+  async function postSlipApi(body){
+    await ensureCsrf();
+    const r = await fetch('/api/slip-verify', {
+      method:'POST', credentials:'same-origin', cache:'no-store', signal: abortAfter(30000),
+      headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || j.ok !== true) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+
+  const SLIP_BADGES = {
+    OK:            ['ok',  '✅ OK'],
+    UpdatedBySlip: ['upd', '💾 訂正反映'],
+    Mismatch:      ['ng',  '⚠ 不一致'],
+    CancelledLine: ['cxl', '🚫 取消行'],
+  };
+  const SLIP_LINE_CLS = { OK:'done-ok', UpdatedBySlip:'done-upd', Mismatch:'done-ng', CancelledLine:'done-cxl' };
+
+  function renderSlipLines(){
+    if(!S.slipRecords.length){
+      D.slipList.innerHTML = '<div class="msg-empty">明細が見つかりませんでした</div>';
+      return;
+    }
+    let html = '';
+    S.slipRecords.forEach((r, i) => {
+      if(r.missing){
+        html += `<div class="slip-line done-ng" data-i="${i}"><div class="slip-head"><b>${esc(r.id)}</b>`
+              + `<span class="slip-badge ng">Airtableにレコードなし</span></div></div>`;
+        return;
+      }
+      const b = SLIP_BADGES[r.VerificationStatus];
+      const badgeHtml = b
+        ? `<span class="slip-badge ${b[0]}">${b[1]}（前回）</span>`
+        : `<span class="slip-badge">未照合</span>`;
+      html += `
+      <div class="slip-line" data-i="${i}">
+        <div class="slip-head">
+          <b>${esc(r.Book||'?')} / ${esc(r.WorkCord ?? '?')}</b>
+          <span class="slip-item-name">${esc(r.ItemName||'')}</span>
+          ${badgeHtml}
+        </div>
+        <div class="slip-fields">
+          <div class="inp-group">
+            <label>数量（Airtable: ${esc(r.NAmount ?? '—')}）</label>
+            <input type="number" inputmode="numeric" class="inp-control sl-amount" value="${esc(r.NAmount ?? '')}">
+          </div>
+          <div class="inp-group">
+            <label>納品日（Airtable: ${esc(r.Ndate || '—')}）</label>
+            <input type="date" class="inp-control sl-date" value="${esc(r.Ndate || '')}">
+          </div>
+        </div>
+        <div class="slip-actions">
+          <button class="btn btn-slip-ok" data-act="OK" title="紙伝票とAirtableが一致">✅ OK</button>
+          <button class="btn btn-primary" data-act="UpdatedBySlip" title="手書き訂正を上の入力欄に反映してから押す">💾 訂正反映</button>
+          <button class="btn btn-slip-ng" data-act="Mismatch" title="不一致のまま記録（値は変更しない）">⚠ 不一致</button>
+          <button class="btn btn-slip-cxl" data-act="CancelledLine" title="二重線で取り消された行">🚫 取消行</button>
+        </div>
+        ${r.ProgressOut ? `<div class="slip-item-name" style="margin-top:6px;">進行社外: ${esc(r.ProgressOut)}</div>` : ''}
+      </div>`;
+    });
+    D.slipList.innerHTML = html;
+  }
+
+  function markSlipLine(i, status){
+    const r = S.slipRecords[i];
+    if(r){ r._done = true; r.VerificationStatus = status; }
+    const line = D.slipList.querySelector(`.slip-line[data-i="${i}"]`);
+    if(!line) return;
+    line.classList.remove('done-ok','done-upd','done-ng','done-cxl');
+    line.classList.add(SLIP_LINE_CLS[status] || 'done-ok');
+    const b = SLIP_BADGES[status];
+    const badge = line.querySelector('.slip-badge');
+    if(badge && b){ badge.className = 'slip-badge ' + b[0]; badge.textContent = b[1]; }
+  }
+
+  function updateSlipSummary(){
+    const total = S.slipRecords.filter(r => !r.missing).length;
+    const done  = S.slipRecords.filter(r => r._done).length;
+    D.slipInfo.style.display = 'block';
+    D.slipInfo.textContent = `🧾 伝票照合: ${done}/${total} 明細 記録済み` + (done >= total && total > 0 ? ' ✅ 完了' : '');
+    if(done >= total && total > 0 && !S.slipDoneSpoken){
+      S.slipDoneSpoken = true;
+      speakBox('伝票照合が完了しました。');
+    }
+  }
+
+  // 行の入力値とAirtable現在値の差分（手書き訂正の検出）
+  function slipLineDiff(i){
+    const r = S.slipRecords[i];
+    const line = D.slipList.querySelector(`.slip-line[data-i="${i}"]`);
+    const amtRaw  = line ? (line.querySelector('.sl-amount')?.value ?? '').trim() : '';
+    const dateRaw = line ? (line.querySelector('.sl-date')?.value ?? '').trim() : '';
+    const newAmt = amtRaw === '' ? null : Number(amtRaw);
+    const curAmt = (r.NAmount == null || r.NAmount === '') ? null : Number(r.NAmount);
+    const curDate = r.Ndate || '';
+    return {
+      newAmt, dateRaw, curAmt, curDate,
+      amtChanged:  newAmt != null && Number.isFinite(newAmt) && newAmt !== curAmt,
+      dateChanged: !!dateRaw && dateRaw !== curDate,
+    };
+  }
+
+  async function slipVerifyLine(i, status){
+    if(S.slipBusy) return;
+    const r = S.slipRecords[i];
+    if(!r || r.missing) return;
+    const d = slipLineDiff(i);
+    const today = todayJst();
+    const item = { id: r.id, status };
+
+    if(status === 'UpdatedBySlip'){
+      if(!d.amtChanged && !d.dateChanged){
+        alert('数量・納品日を紙伝票の手書き値に直してから「💾 訂正反映」を押してください。\n（訂正が無い行は「✅ OK」）');
+        return;
+      }
+      const parts = [];
+      if(d.amtChanged){ item.namount = d.newAmt; parts.push(`NAmount ${d.curAmt ?? '—'} → ${d.newAmt}`); }
+      if(d.dateChanged){ item.ndate = d.dateRaw; parts.push(`Ndate ${d.curDate || '—'} → ${d.dateRaw}`); }
+      item.details = `Slip correction ${parts.join(', ')} applied to Airtable (${today})`;
+    }else if(status === 'OK'){
+      item.details = `Verified: slip matches Airtable (${today})`;
+    }else if(status === 'Mismatch'){
+      const parts = [];
+      if(d.amtChanged) parts.push(`slip NAmount ${d.newAmt} / Airtable ${d.curAmt ?? '—'}`);
+      if(d.dateChanged) parts.push(`slip Ndate ${d.dateRaw} / Airtable ${d.curDate || '—'}`);
+      item.details = parts.length
+        ? `Mismatch: ${parts.join(', ')} (not applied) (${today})`
+        : `Mismatch between slip and Airtable (${today})`;
+    }else if(status === 'CancelledLine'){
+      item.details = `Line cancelled (double strikethrough) on slip (${today})`;
+    }else{
+      return;
+    }
+
+    S.slipBusy = true;
+    try{
+      await postSlipApi({ action:'verify', items:[item] });
+      if(status === 'UpdatedBySlip'){
+        if(item.namount != null) r.NAmount = item.namount;
+        if(item.ndate) r.Ndate = item.ndate;
+        const line = D.slipList.querySelector(`.slip-line[data-i="${i}"]`);
+        if(line){
+          const labels = line.querySelectorAll('.inp-group label');
+          if(labels[0]) labels[0].textContent = `数量（Airtable: ${r.NAmount ?? '—'}）`;
+          if(labels[1]) labels[1].textContent = `納品日（Airtable: ${r.Ndate || '—'}）`;
+        }
+      }
+      markSlipLine(i, status);
+      updateSlipSummary();
+      if(navigator.vibrate) try{ navigator.vibrate(60); }catch{}
+    }catch(e){
+      alert('Airtable更新エラー: ' + (e.message || e));
+    }finally{
+      S.slipBusy = false;
+    }
+  }
+
+  // 訂正が1行も無い伝票用：未記録の全行にOKを一括記録
+  async function slipAllOkRun(){
+    if(S.slipBusy) return;
+    const targets = S.slipRecords.map((r,i)=>({r,i})).filter(x => !x.r.missing && !x.r._done);
+    if(!targets.length){ alert('未記録の明細がありません'); return; }
+    if(!confirm(`未記録の ${targets.length} 明細すべてに「OK（紙伝票と一致）」を記録します。よろしいですか？`)) return;
+    const today = todayJst();
+    const items = targets.map(x => ({ id:x.r.id, status:'OK', details:`Verified: slip matches Airtable (${today})` }));
+    S.slipBusy = true;
+    try{
+      await postSlipApi({ action:'verify', items });
+      targets.forEach(x => markSlipLine(x.i, 'OK'));
+      updateSlipSummary();
+      if(navigator.vibrate) try{ navigator.vibrate(80); }catch{}
+    }catch(e){
+      alert('Airtable更新エラー: ' + (e.message || e));
+    }finally{
+      S.slipBusy = false;
+    }
+  }
+
+  async function loadSlip(ids){
+    S.slipBusy = true;
+    if(navigator.vibrate) try{ navigator.vibrate(80); }catch{}
+    freezeAndLock(); // 読み取った伝票QRの静止画を残してカメラ停止
+    setStatus('伝票照会中…', true);
+    S.slipDoneSpoken = false;
+    D.slipInfo.style.display = 'block';
+    D.slipInfo.textContent = `🧾 伝票QR読取: ${ids.length}明細`;
+    D.slipList.innerHTML = '<div class="msg-empty">Airtableから明細を取得中...</div>';
+    D.slipAllOk.disabled = true;
+    try{
+      const j = await postSlipApi({ action:'fetch', ids });
+      S.slipRecords = j.records || [];
+      renderSlipLines();
+      updateSlipSummary();
+      const total = S.slipRecords.filter(r => !r.missing).length;
+      D.slipAllOk.disabled = total === 0;
+      setStatus(`伝票明細 ${total}件`, true);
+      speakBox(`明細${total}件を読み込みました。`);
+    }catch(e){
+      D.slipList.innerHTML = `<div class="msg-empty" style="color:var(--ng)">取得エラー: ${esc(e.message||e)}<br>「🧾 次の伝票を読む」で再スキャンしてください</div>`;
+      setStatus('伝票照会エラー');
+      S.slipKey = '';
+    }finally{
+      S.slipBusy = false;
+    }
+  }
+
+  async function slipTick(){
+    if(!S.slipMode) return;
+    if(S.slipFrozen){ S.slipRaf = null; return; } // 明細処理中はスキャン停止（再開は「次の伝票を読む」）
+    if(!S.slipBusy){
+      const now = performance.now();
+      if(now - (S.slipLastAt||0) >= 120 && D.video.readyState === D.video.HAVE_ENOUGH_DATA){
+        S.slipLastAt = now;
+        fitAll();
+        if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+        try{
+          const dets = await detectCombined();
+          for(const d of dets){
+            const ids = extractRecordIds(d.raw);
+            if(!ids) continue;
+            if(d.pts && d.pts.length >= 4) drawPoly(d.pts, '#12b886', 4, null, 0.9);
+            const key = ids.join(',');
+            if(key !== S.slipKey){
+              S.slipKey = key;
+              S.slipFrozen = true;
+              loadSlip(ids);
+            }
+            break;
+          }
+        }catch{}
+      }
+    }
+    if(S.slipFrozen){ S.slipRaf = null; return; }
+    S.slipRaf = requestAnimationFrame(slipTick);
+  }
+
+  async function enterSlipMode(){
+    S.slipMode = true;
+    if(S.rafId){ cancelAnimationFrame(S.rafId); S.rafId = null; }
+    D.slipPanel.style.display = 'block';
+    D.boxPanel.style.display = 'none';
+    hideVerdict();
+    S.slipKey = ''; S.slipRecords = []; S.slipFrozen = false;
+    D.slipList.innerHTML = '<div class="msg-empty">受領伝票のQRをスキャンしてください</div>';
+    D.slipInfo.style.display = 'none';
+    D.slipAllOk.disabled = true;
+    await ensureLiveCam();
+    setStatus('伝票QRスキャン中', true);
+    if(!S.slipRaf) slipTick();
+  }
+
+  function exitSlipMode(){
+    S.slipMode = false;
+    S.slipFrozen = false;
+    if(S.slipRaf){ cancelAnimationFrame(S.slipRaf); S.slipRaf = null; }
+    D.slipPanel.style.display = 'none';
+    D.freeze.style.display = 'none';
+    D.video.style.visibility = 'visible';
+    D.lockEmoji.style.display = 'none';
+    if(D.overlay.width) ctx.clearRect(0,0,D.overlay.width,D.overlay.height);
+    // カメラが生きていれば本番スキャンを再開
+    if(S.stream && D.video.srcObject && !S.rafId){ S.lastScanAt = 0; setStatus('スキャン中', true); tick(); }
+  }
+
+  // 次の伝票へ（同じ伝票の読み直しも可）
+  async function slipRescanStart(){
+    if(S.slipBusy) return;
+    S.slipKey = ''; S.slipRecords = []; S.slipFrozen = false; S.slipDoneSpoken = false;
+    D.slipList.innerHTML = '<div class="msg-empty">受領伝票のQRをスキャンしてください</div>';
+    D.slipInfo.style.display = 'none';
+    D.slipAllOk.disabled = true;
+    D.freeze.style.display = 'none';
+    D.video.style.visibility = 'visible';
+    D.lockEmoji.style.display = 'none';
+    await ensureLiveCam();
+    setStatus('伝票QRスキャン中', true);
+    if(!S.slipRaf) slipTick();
+  }
+
   async function setMode(mode){
     D.modeSpec.classList.toggle('active', mode==='spec');
     D.modeBox.classList.toggle('active', mode==='box');
     if(D.modeMeasure) D.modeMeasure.classList.toggle('active', mode==='measure');
+    if(D.modeSlip) D.modeSlip.classList.toggle('active', mode==='slip');
     // 現在のモードを抜ける
     if(mode!=='box' && S.boxMode) exitBoxMode();
     if(mode!=='measure' && S.measureMode) exitMeasureMode();
+    if(mode!=='slip' && S.slipMode) exitSlipMode();
     // 目的のモードへ入る（spec は入る処理なし＝各exitがスキャンを再開）
     if(mode==='box') await enterBoxMode();
     else if(mode==='measure') await enterMeasureMode();
+    else if(mode==='slip') await enterSlipMode();
   }
 
   /* ===========================================================
@@ -1494,6 +1802,16 @@
   D.modeSpec.onclick = () => setMode('spec');
   D.modeBox.onclick  = () => setMode('box');
   if(D.modeMeasure) D.modeMeasure.onclick = () => setMode('measure');
+  if(D.modeSlip) D.modeSlip.onclick = () => setMode('slip');
+  if(D.slipRescan) D.slipRescan.onclick = () => slipRescanStart();
+  if(D.slipAllOk) D.slipAllOk.onclick = () => slipAllOkRun();
+  if(D.slipList) D.slipList.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('button[data-act]');
+    if(!btn) return;
+    const line = btn.closest('.slip-line');
+    if(!line) return;
+    slipVerifyLine(parseInt(line.dataset.i, 10), btn.dataset.act);
+  });
   if(D.measCapture) D.measCapture.onclick = () => measureCapture();
   if(D.measRetake)  D.measRetake.onclick  = () => measureRetake();
   D.boxOvToggle.onclick = () => showOverlay(!S.ovOn);
