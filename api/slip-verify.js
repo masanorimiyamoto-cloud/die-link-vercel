@@ -19,10 +19,10 @@
 //
 // POST {action:'verify', items:[{id, status, details?, namount?, ndate?}]}
 //   status: OK | UpdatedBySlip | Mismatch | CancelledLine
-//     OK            … 紙伝票とAirtableが一致 → 進行社外を完納済に
-//     UpdatedBySlip … 手書き訂正をAirtableへ反映して一致させた（namount/ndate で NAmount/Ndate も更新）→ 完納済に
-//     Mismatch      … 不一致のまま（値は更新しない・完納にしない）
-//     CancelledLine … 二重線で取り消された行（完納にしない）
+//     OK            … 紙伝票とAirtableが一致 → 進行社外を「完納済」に
+//     UpdatedBySlip … 手書き訂正をAirtableへ反映して一致させた（namount/ndate で NAmount/Ndate も更新）→ 進行社外を「完納（数量訂正）」に
+//     Mismatch      … 不一致のまま（値は更新しない・進行社外は触らない）
+//     CancelledLine … 二重線で取り消された行 → 進行社外を「伝票取消」に
 //   ※ 完納済への更新は従来「複合機で受領書スキャン→watcherの*AI照合」が担っていた役割。
 //     この伝票照合はそのフローの置き換えなので、照合成立(OK/UpdatedBySlip)を完納とみなす。
 //   結果は VerificationStatus(singleSelect) に記録する。
@@ -48,7 +48,9 @@ const FIELD_NDATE_ISSUED   = process.env.FIELD_NDATE_ISSUED   || 'Ndate_Issued';
 const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS || '進行社外';
 const FIELD_VSTATUS      = process.env.FIELD_VSTATUS  || 'VerificationStatus';
 const FIELD_VDETAILS     = process.env.FIELD_VDETAILS || 'VerificationDetails';
-const PROGRESS_DONE      = process.env.PROGRESS_DONE  || '完納済'; // OK/UpdatedBySlip時に進行社外へ書く
+const PROGRESS_DONE      = process.env.PROGRESS_DONE  || '完納済';           // OK時に進行社外へ書く
+const PROGRESS_DONE_CORR = process.env.PROGRESS_DONE_CORR || '完納（数量訂正）'; // UpdatedBySlip時
+const PROGRESS_CANCELLED = process.env.PROGRESS_CANCELLED  || '伝票取消';     // CancelledLine時
 
 const STATUSES = new Set(['OK', 'UpdatedBySlip', 'Mismatch', 'CancelledLine']);
 const REC_RE = /^rec[A-Za-z0-9]{14}$/;
@@ -218,10 +220,15 @@ export default async function handler(req) {
             [FIELD_VSTATUS]: status,
             [FIELD_VDETAILS]: status === 'Mismatch' ? String(it?.details || '').slice(0, 2000) : '',
           };
-          // 照合成立(OK/UpdatedBySlip)＝納品完了の確認なので進行社外を完納済へ。
-          // Mismatch/CancelledLineは完了とみなせないため進行社外は触らない。
-          if (status === 'OK' || status === 'UpdatedBySlip') {
+          // 進行社外を状況が分かる値にする:
+          //   OK=完納済 / UpdatedBySlip=完納（数量訂正） / CancelledLine=伝票取消。
+          //   Mismatch は完了・取消のどちらとも言えないため進行社外は触らない。
+          if (status === 'OK') {
             fields[FIELD_PROGRESS_OUT] = PROGRESS_DONE;
+          } else if (status === 'UpdatedBySlip') {
+            fields[FIELD_PROGRESS_OUT] = PROGRESS_DONE_CORR;
+          } else if (status === 'CancelledLine') {
+            fields[FIELD_PROGRESS_OUT] = PROGRESS_CANCELLED;
           }
           // 手書き訂正の反映は UpdatedBySlip のときだけ受け付ける（他statusで値は書き換えない）
           if (status === 'UpdatedBySlip') {
