@@ -100,7 +100,7 @@
     aiModel:'claude-opus-4-8', // 照合に使うAIモデル（claude-opus-4-8 / gpt-5.6-sol）
     // 伝票照合
     slipMode:false, slipRaf:null, slipLastAt:0, slipFrozen:false,
-    slipKey:'', slipRecords:[], slipBusy:false, slipDoneSpoken:false,
+    slipKey:'', slipRecords:[], slipBusy:false, slipDoneSpoken:false, slipDocId:'',
   };
   const AI_MODELS = { 'claude-opus-4-8':'Claude Opus 4.8', 'gpt-5.6-sol':'GPT-5.6 Sol' };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
@@ -1410,19 +1410,42 @@
 
   /* ===========================================================
      伝票照合（受領伝票QR → Airtable照合・複合機レス）
-     - 伝票QR = Airtable RecordID（最大10明細分）を1つのQRに格納
-     - Excel=発行時点の真実／Airtable=最新の真実（手書き訂正反映後）
+     - 伝票QR = "v1|<伝票ID>|<行番号>:<RecordID14桁(recなし)>,..."
+       （Maprint.xls Module伝票2 → create_airtable_record_qr.py が生成。
+         最大10明細分を1つのQRに格納。recプレフィックスを削った14桁で軽量化）
+       ※ QR自体にはNAmount/Ndateを入れない。QRを最小限（RecordIDのみ）に
+         留めることで印字・読取の頑健性を優先し、発行時の値は
+         「実際に印刷しますか?」OK後にExcel側が --sync-only でAirtableの
+         スナップショット専用フィールド(NAmount_Issued/Ndate_Issued)へ書き込む
+         （このWebアプリはAirtableにしか到達できず、Excelを直接読めないため、
+          結局スナップショットの置き場はAirtable側にする必要がある）。
+     - スナップショット=伝票に印字されている値／Airtable=最新の真実
      - 照合は「紙伝票（手書き込み最終状態） vs Airtable（最新）」
-       OK            … 一致
-       UpdatedBySlip … 手書き訂正をこの場でAirtableへ反映して一致させた
-       Mismatch      … 不一致のまま記録（値は書き換えない）
-       CancelledLine … 二重線で取り消された行
+       OK            … 一致 → 進行社外を完納済に
+       UpdatedBySlip … 手書き訂正をこの場でAirtableへ反映して一致させた → 完納済に
+       Mismatch      … 不一致のまま記録（値は書き換えない・完納にしない）
+       CancelledLine … 二重線で取り消された行（完納にしない）
      =========================================================== */
-  function extractRecordIds(raw){
-    const m = String(raw||'').match(/rec[A-Za-z0-9]{14}/g);
+  // 伝票QRのパース。戻り値 {docId, ids} / 伝票QRでなければ null。
+  // 印刷QR形式(v1|伝票ID|1:14桁,2:14桁,...)を第一に、
+  // 旧形式・手貼りQR等でフルRecordID(rec+14桁)が並ぶ場合もフォールバックで受ける。
+  function parseSlipQr(raw){
+    const s = String(raw||'').trim();
+    if(/^v\d+\|/.test(s)){
+      const parts = s.split('|');
+      if(parts.length < 3 || !parts[1]) return null;
+      const ids = [];
+      for(const tok of parts[2].split(',')){
+        const m = tok.match(/^\d+:([A-Za-z0-9]{14})$/);   // "3:"（未同期行）はスキップ
+        if(m) ids.push('rec' + m[1]);
+      }
+      const uniq = Array.from(new Set(ids));
+      return uniq.length ? { docId: parts[1], ids: uniq } : null;
+    }
+    const m = s.match(/rec[A-Za-z0-9]{14}/g);
     if(!m) return null;
     const ids = Array.from(new Set(m));
-    return ids.length ? ids : null;
+    return ids.length ? { docId: '', ids } : null;
   }
   function todayJst(){ return new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10); }
 
@@ -1462,6 +1485,19 @@
       const badgeHtml = b
         ? `<span class="slip-badge ${b[0]}">${b[1]}（前回）</span>`
         : `<span class="slip-badge">未照合</span>`;
+      // 起点は発行時スナップショット(NAmount_Issued/Ndate_Issued)＝紙伝票に印字されている値。
+      // まずこれを大きく表示し、現在値との自動比較で「発行後に（この照合以外の経路で）
+      // 何かが変わった」ことを機械的に検知する（RecordIDが見つかった＝OK、で終わらせない）。
+      const hasSnap = r.issuedNAmount != null || !!r.issuedNdate;
+      const snapHtml = hasSnap
+        ? `<div class="slip-item-name" style="font-size:15px; font-weight:700;">🖨 伝票印字（発行時）: 数量 ${esc(r.issuedNAmount ?? '—')} ／ 納品日 ${esc(r.issuedNdate || '—')}</div>`
+        : `<div class="slip-item-name" style="color:var(--ng); font-weight:700;">⚠ 発行時スナップショット未設定（旧伝票 or 同期失敗）。Airtable現在値と直接見比べてください</div>`;
+      const diffParts = [];
+      if(r.amountAlreadyDiffers === true) diffParts.push(`数量: 発行時${esc(r.issuedNAmount)} → 現在${esc(r.NAmount ?? '—')}`);
+      if(r.dateAlreadyDiffers === true) diffParts.push(`納品日: 発行時${esc(r.issuedNdate)} → 現在${esc(r.Ndate || '—')}`);
+      const diffHtml = diffParts.length
+        ? `<div class="slip-item-name" style="color:var(--info); font-weight:700;">⚠ Airtableは発行時と異なります（${diffParts.join(' / ')}）。既に訂正済みの可能性</div>`
+        : (hasSnap ? `<div class="slip-item-name">Airtableは発行時どおり（発行後の変更なし）</div>` : '');
       html += `
       <div class="slip-line" data-i="${i}">
         <div class="slip-head">
@@ -1469,13 +1505,15 @@
           <span class="slip-item-name">${esc(r.ItemName||'')}</span>
           ${badgeHtml}
         </div>
+        ${snapHtml}
+        ${diffHtml}
         <div class="slip-fields">
           <div class="inp-group">
-            <label>数量（Airtable: ${esc(r.NAmount ?? '—')}）</label>
+            <label>数量（Airtable現在: ${esc(r.NAmount ?? '—')}）手書き訂正があればその値に直す</label>
             <input type="number" inputmode="numeric" class="inp-control sl-amount" value="${esc(r.NAmount ?? '')}">
           </div>
           <div class="inp-group">
-            <label>納品日（Airtable: ${esc(r.Ndate || '—')}）</label>
+            <label>納品日（Airtable現在: ${esc(r.Ndate || '—')}）</label>
             <input type="date" class="inp-control sl-date" value="${esc(r.Ndate || '')}">
           </div>
         </div>
@@ -1507,7 +1545,7 @@
     const total = S.slipRecords.filter(r => !r.missing).length;
     const done  = S.slipRecords.filter(r => r._done).length;
     D.slipInfo.style.display = 'block';
-    D.slipInfo.textContent = `🧾 伝票照合: ${done}/${total} 明細 記録済み` + (done >= total && total > 0 ? ' ✅ 完了' : '');
+    D.slipInfo.textContent = `🧾 ${S.slipDocId ? S.slipDocId + ' ' : ''}伝票照合: ${done}/${total} 明細 記録済み` + (done >= total && total > 0 ? ' ✅ 完了' : '');
     if(done >= total && total > 0 && !S.slipDoneSpoken){
       S.slipDoneSpoken = true;
       speakBox('伝票照合が完了しました。');
@@ -1538,17 +1576,20 @@
     const today = todayJst();
     const item = { id: r.id, status };
 
+    // VerificationDetailsは情報価値のあるMismatchのときだけ書く（api/slip-verify.js側でも強制）。
+    // OK/UpdatedBySlipは発行時スナップショット比較で説明が付くため自由記述は残さない。
     if(status === 'UpdatedBySlip'){
       if(!d.amtChanged && !d.dateChanged){
         alert('数量・納品日を紙伝票の手書き値に直してから「💾 訂正反映」を押してください。\n（訂正が無い行は「✅ OK」）');
         return;
       }
-      const parts = [];
-      if(d.amtChanged){ item.namount = d.newAmt; parts.push(`NAmount ${d.curAmt ?? '—'} → ${d.newAmt}`); }
-      if(d.dateChanged){ item.ndate = d.dateRaw; parts.push(`Ndate ${d.curDate || '—'} → ${d.dateRaw}`); }
-      item.details = `Slip correction ${parts.join(', ')} applied to Airtable (${today})`;
+      if(d.amtChanged) item.namount = d.newAmt;
+      if(d.dateChanged) item.ndate = d.dateRaw;
     }else if(status === 'OK'){
-      item.details = `Verified: slip matches Airtable (${today})`;
+      if(d.amtChanged || d.dateChanged){
+        alert('数量・納品日の入力欄がAirtableの値と異なります。\n手書き訂正がある場合は「💾 訂正反映」を、無い場合は入力欄をAirtableの値に戻してから「✅ OK」を押してください。');
+        return;
+      }
     }else if(status === 'Mismatch'){
       const parts = [];
       if(d.amtChanged) parts.push(`slip NAmount ${d.newAmt} / Airtable ${d.curAmt ?? '—'}`);
@@ -1556,9 +1597,7 @@
       item.details = parts.length
         ? `Mismatch: ${parts.join(', ')} (not applied) (${today})`
         : `Mismatch between slip and Airtable (${today})`;
-    }else if(status === 'CancelledLine'){
-      item.details = `Line cancelled (double strikethrough) on slip (${today})`;
-    }else{
+    }else if(status !== 'CancelledLine'){
       return;
     }
 
@@ -1590,9 +1629,13 @@
     if(S.slipBusy) return;
     const targets = S.slipRecords.map((r,i)=>({r,i})).filter(x => !x.r.missing && !x.r._done);
     if(!targets.length){ alert('未記録の明細がありません'); return; }
+    const edited = targets.filter(x => { const d = slipLineDiff(x.i); return d.amtChanged || d.dateChanged; });
+    if(edited.length){
+      alert(`入力欄がAirtableの値と異なる行が ${edited.length} 件あります。\nその行は個別に「💾 訂正反映」または「⚠ 不一致」で記録してから、残りを一括OKしてください。`);
+      return;
+    }
     if(!confirm(`未記録の ${targets.length} 明細すべてに「OK（紙伝票と一致）」を記録します。よろしいですか？`)) return;
-    const today = todayJst();
-    const items = targets.map(x => ({ id:x.r.id, status:'OK', details:`Verified: slip matches Airtable (${today})` }));
+    const items = targets.map(x => ({ id:x.r.id, status:'OK' }));
     S.slipBusy = true;
     try{
       await postSlipApi({ action:'verify', items });
@@ -1613,7 +1656,8 @@
     setStatus('伝票照会中…', true);
     S.slipDoneSpoken = false;
     D.slipInfo.style.display = 'block';
-    D.slipInfo.textContent = `🧾 伝票QR読取: ${ids.length}明細`;
+    D.slipInfo.style.color = '';
+    D.slipInfo.textContent = `🧾 伝票QR読取: ${ids.length}明細` + (S.slipDocId ? `（${S.slipDocId}）` : '');
     D.slipList.innerHTML = '<div class="msg-empty">Airtableから明細を取得中...</div>';
     D.slipAllOk.disabled = true;
     try{
@@ -1646,14 +1690,15 @@
         try{
           const dets = await detectCombined();
           for(const d of dets){
-            const ids = extractRecordIds(d.raw);
-            if(!ids) continue;
+            const parsed = parseSlipQr(d.raw);
+            if(!parsed) continue;
             if(d.pts && d.pts.length >= 4) drawPoly(d.pts, '#12b886', 4, null, 0.9);
-            const key = ids.join(',');
+            const key = parsed.ids.join(',');
             if(key !== S.slipKey){
               S.slipKey = key;
+              S.slipDocId = parsed.docId;
               S.slipFrozen = true;
-              loadSlip(ids);
+              loadSlip(parsed.ids);
             }
             break;
           }
@@ -1670,9 +1715,10 @@
     D.slipPanel.style.display = 'block';
     D.boxPanel.style.display = 'none';
     hideVerdict();
-    S.slipKey = ''; S.slipRecords = []; S.slipFrozen = false;
+    S.slipKey = ''; S.slipRecords = []; S.slipFrozen = false; S.slipDocId = '';
     D.slipList.innerHTML = '<div class="msg-empty">受領伝票のQRをスキャンしてください</div>';
     D.slipInfo.style.display = 'none';
+    D.slipInfo.style.color = '';
     D.slipAllOk.disabled = true;
     await ensureLiveCam();
     setStatus('伝票QRスキャン中', true);
@@ -1695,9 +1741,10 @@
   // 次の伝票へ（同じ伝票の読み直しも可）
   async function slipRescanStart(){
     if(S.slipBusy) return;
-    S.slipKey = ''; S.slipRecords = []; S.slipFrozen = false; S.slipDoneSpoken = false;
+    S.slipKey = ''; S.slipRecords = []; S.slipFrozen = false; S.slipDoneSpoken = false; S.slipDocId = '';
     D.slipList.innerHTML = '<div class="msg-empty">受領伝票のQRをスキャンしてください</div>';
     D.slipInfo.style.display = 'none';
+    D.slipInfo.style.color = '';
     D.slipAllOk.disabled = true;
     D.freeze.style.display = 'none';
     D.video.style.visibility = 'visible';

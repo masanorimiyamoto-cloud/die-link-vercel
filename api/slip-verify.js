@@ -1,18 +1,34 @@
 // api/slip-verify.js  Edge Runtime 版
 // 受領伝票の照合（複合機を使わない伝票照合）
-//   伝票QR = Airtable RecordID（最大10明細分）を1つのQRに格納（伝票発行時にExcel→Airtable同期済み）
+//   伝票QR = "SLIP1|<RecordID>|<RecordID>|..." （最大10明細分）を1つのQRに格納。
+//   QR自体にはNAmount/Ndateを入れない。代わりに、伝票発行の瞬間に
+//   Excel側スクリプト(stamp_slip_issued_snapshot)がAirtableの
+//   NAmount_Issued / Ndate_Issued（発行時スナップショット・以後の差分プルでは
+//   上書きされない専用フィールド）へ書き込み、これを「発行時の真実」として保持する。
+//   スキャン側はAirtable現在値(NAmount/Ndate) vs このスナップショットを
+//   自動突合し、「発行後に何かが変わっていないか」を検知する（alreadyDiffers）。
+//   QRをRecordIDのみに留めたのは、印字・読取の頑健性を優先し、
+//   スキャンWebアプリがそもそもAirtableしか読めない（Excelには到達できない）ため、
+//   スナップショットの置き場は結局Airtable側にする必要があるという判断による。
+//   Excel=発行時点の真実／Airtable=最新の真実（手書き訂正反映後）。
 //   照合は「紙伝票（手書き訂正込みの最終状態） vs Airtable（最新の真実）」
 //
 // POST {action:'fetch', ids:['rec...', ...]}
-//   → 各明細の現在値（Book/WorkCord/ItemName/NAmount/Ndate/進行社外/照合状態）をQRの行順で返す
+//   → 各明細の現在値（Book/WorkCord/ItemName/NAmount/Ndate/進行社外/照合状態）と
+//     発行時スナップショット・自動差分フラグ(alreadyDiffers)をQRの行順で返す
 //
-// POST {action:'verify', items:[{id, status, details, namount?, ndate?}]}
+// POST {action:'verify', items:[{id, status, details?, namount?, ndate?}]}
 //   status: OK | UpdatedBySlip | Mismatch | CancelledLine
-//     OK            … 紙伝票とAirtableが一致
-//     UpdatedBySlip … 手書き訂正をAirtableへ反映して一致させた（namount/ndate で NAmount/Ndate も更新）
-//     Mismatch      … 不一致のまま（値は更新しない）
-//     CancelledLine … 二重線で取り消された行
-//   結果は VerificationStatus(singleSelect) / VerificationDetails(longText) に記録する。
+//     OK            … 紙伝票とAirtableが一致 → 進行社外を完納済に
+//     UpdatedBySlip … 手書き訂正をAirtableへ反映して一致させた（namount/ndate で NAmount/Ndate も更新）→ 完納済に
+//     Mismatch      … 不一致のまま（値は更新しない・完納にしない）
+//     CancelledLine … 二重線で取り消された行（完納にしない）
+//   ※ 完納済への更新は従来「複合機で受領書スキャン→watcherの*AI照合」が担っていた役割。
+//     この伝票照合はそのフローの置き換えなので、照合成立(OK/UpdatedBySlip)を完納とみなす。
+//   結果は VerificationStatus(singleSelect) に記録する。
+//   VerificationDetails(longText) は Mismatch のときだけ書く（紙に書かれていた値は
+//   NAmountを更新しないため他に残らない）。他の3状態はスナップショット比較で説明が
+//   付くため自由記述の情報価値が薄く、毎回空文字でクリアする（details は無視）。
 export const config = { runtime: 'edge' };
 
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
@@ -27,9 +43,12 @@ const FIELD_WC           = process.env.FIELD_WC       || 'WorkCord';
 const FIELD_ITEMNAME     = process.env.FIELD_ITEMNAME || 'ItemName';
 const FIELD_NAMOUNT      = process.env.FIELD_NAMOUNT  || 'NAmount';
 const FIELD_NDATE        = process.env.FIELD_NDATE    || 'Ndate';
+const FIELD_NAMOUNT_ISSUED = process.env.FIELD_NAMOUNT_ISSUED || 'NAmount_Issued'; // 発行時スナップショット
+const FIELD_NDATE_ISSUED   = process.env.FIELD_NDATE_ISSUED   || 'Ndate_Issued';   // 発行時スナップショット
 const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS || '進行社外';
 const FIELD_VSTATUS      = process.env.FIELD_VSTATUS  || 'VerificationStatus';
 const FIELD_VDETAILS     = process.env.FIELD_VDETAILS || 'VerificationDetails';
+const PROGRESS_DONE      = process.env.PROGRESS_DONE  || '完納済'; // OK/UpdatedBySlip時に進行社外へ書く
 
 const STATUSES = new Set(['OK', 'UpdatedBySlip', 'Mismatch', 'CancelledLine']);
 const REC_RE = /^rec[A-Za-z0-9]{14}$/;
@@ -77,13 +96,14 @@ async function fetchWithRetry(input, init = {}) {
   return fetchWithRetry(input, { ...init, _attempt: attempt });
 }
 
-// --- RecordID群 → 現在値（QRの並び＝伝票の行順を保つ） ---
+// --- RecordID群 → 現在値＋発行時スナップショット（QRの並び＝伝票の行順を保つ） ---
 async function fetchByIds(ids) {
   const formula = 'OR(' + ids.map(id => `RECORD_ID()='${id}'`).join(',') + ')';
   const url = new URL(API);
   url.searchParams.set('filterByFormula', formula);
   url.searchParams.set('pageSize', '100');
   [FIELD_BOOK, FIELD_WC, FIELD_ITEMNAME, FIELD_NAMOUNT, FIELD_NDATE,
+   FIELD_NAMOUNT_ISSUED, FIELD_NDATE_ISSUED,
    FIELD_PROGRESS_OUT, FIELD_VSTATUS, FIELD_VDETAILS]
     .forEach(f => url.searchParams.append('fields[]', f));
 
@@ -96,16 +116,27 @@ async function fetchByIds(ids) {
   return ids.map(id => {
     const f = byId.get(id);
     if (!f) return { id, missing: true };
+    const curAmount = f[FIELD_NAMOUNT] ?? null;
+    const curDate = f[FIELD_NDATE] ?? '';
+    const issuedAmount = f[FIELD_NAMOUNT_ISSUED] ?? null;
+    const issuedDate = f[FIELD_NDATE_ISSUED] ?? '';
     return {
       id,
       Book: f[FIELD_BOOK] ?? '',
       WorkCord: f[FIELD_WC] ?? '',
       ItemName: f[FIELD_ITEMNAME] ?? '',
-      NAmount: f[FIELD_NAMOUNT] ?? null,
-      Ndate: f[FIELD_NDATE] ?? '',
+      NAmount: curAmount,
+      Ndate: curDate,
       ProgressOut: f[FIELD_PROGRESS_OUT] ?? '',
       VerificationStatus: f[FIELD_VSTATUS] ?? '',
       VerificationDetails: f[FIELD_VDETAILS] ?? '',
+      // 発行時スナップショット（stamp_slip_issued_snapshotがExcel同期時に書込）。
+      // 現在値と異なれば「発行後に（この照合以外の経路で）既に変わっている」ことを
+      // スキャン時点で自動検知できる。スナップショット未設定(null)なら判定不能=null。
+      issuedNAmount: issuedAmount,
+      issuedNdate: issuedDate || null,
+      amountAlreadyDiffers: (curAmount != null && issuedAmount != null) ? (Number(curAmount) !== Number(issuedAmount)) : null,
+      dateAlreadyDiffers: (curDate && issuedDate) ? (curDate !== issuedDate) : null,
     };
   });
 }
@@ -180,10 +211,18 @@ export default async function handler(req) {
           const id = String(it?.id || '').trim();
           const status = String(it?.status || '').trim();
           if (!REC_RE.test(id) || !STATUSES.has(status)) return null;
+          // VerificationDetailsは情報価値のあるMismatchのときだけ記録する。
+          // OK/UpdatedBySlipは発行時スナップショット(NAmount_Issued等)との比較で
+          // 十分説明でき、自由記述を残す意味が薄いため空にして毎回クリアする。
           const fields = {
             [FIELD_VSTATUS]: status,
-            [FIELD_VDETAILS]: String(it?.details || '').slice(0, 2000),
+            [FIELD_VDETAILS]: status === 'Mismatch' ? String(it?.details || '').slice(0, 2000) : '',
           };
+          // 照合成立(OK/UpdatedBySlip)＝納品完了の確認なので進行社外を完納済へ。
+          // Mismatch/CancelledLineは完了とみなせないため進行社外は触らない。
+          if (status === 'OK' || status === 'UpdatedBySlip') {
+            fields[FIELD_PROGRESS_OUT] = PROGRESS_DONE;
+          }
           // 手書き訂正の反映は UpdatedBySlip のときだけ受け付ける（他statusで値は書き換えない）
           if (status === 'UpdatedBySlip') {
             const n = Number(it?.namount);
