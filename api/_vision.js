@@ -5,14 +5,14 @@
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
 // ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが異なる場合は
-//   'gpt-5.6-sol' の id を実際のIDに直すだけでよい。
-//   （'gpt-5.6' エイリアスも Sol にルーティングされるが、明示IDで固定する）
+//   'gpt-5.6-runa' の id を実際のIDに直すだけでよい。
+//   （'gpt-5.6' エイリアスも runa にルーティングされるが、明示IDで固定する）
 
 export const MODELS = {
-  'claude-opus-4-8': { provider: 'anthropic', id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-  'gpt-5.6-sol':     { provider: 'openai',    id: 'gpt-5.6-sol',     label: 'GPT-5.6 Sol' },
+  'claude-sonnet-5': { provider: 'anthropic', id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+  'gpt-5.6-runa':    { provider: 'openai',    id: 'gpt-5.6-runa',    label: 'GPT-5.6 runa' },
 };
-export const DEFAULT_MODEL = 'claude-opus-4-8';
+export const DEFAULT_MODEL = 'claude-sonnet-5';
 
 export function resolveModel(key) {
   return MODELS[key] || MODELS[DEFAULT_MODEL];
@@ -36,7 +36,15 @@ async function callAnthropic(modelId, system, parts, maxTokens) {
       ? { type: 'image', source: { type: 'base64', media_type: p.image.mime, data: p.image.data } }
       : { type: 'text', text: p.text }
   );
-  const body = { model: modelId, max_tokens: maxTokens, messages: [{ role: 'user', content }] };
+  const body = {
+    model: modelId,
+    // Sonnet 5 は thinking 省略時に adaptive が既定で走り、max_tokens は
+    // 思考＋本文の合計上限になる。JSON が途中で切れないよう余裕を持たせる。
+    max_tokens: Math.max(maxTokens, 4096),
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'low' }, // 意味照合のみなので低effortで十分
+    messages: [{ role: 'user', content }],
+  };
   if (system) body.system = system;
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
