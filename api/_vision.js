@@ -42,7 +42,9 @@ async function callAnthropic(modelId, system, parts, maxTokens) {
     // 思考＋本文の合計上限になる。JSON が途中で切れないよう余裕を持たせる。
     max_tokens: Math.max(maxTokens, 4096),
     thinking: { type: 'adaptive' },
-    output_config: { effort: 'low' }, // 意味照合のみなので低effortで十分
+    // 生地の織り目など微妙な差で low だと見が浅くなるため medium。
+    // 速度・コスト優先なら 'low' に戻してよい。
+    output_config: { effort: 'medium' },
     messages: [{ role: 'user', content }],
   };
   if (system) body.system = system;

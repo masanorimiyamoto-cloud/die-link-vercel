@@ -904,12 +904,16 @@
     D.freeze.style.display = 'block';
     D.video.style.visibility = 'hidden';
 
-    const MAXW = 1024; // 送信画像は長辺1024に縮小したJPEG
+    // 送信画像の長辺上限。Claude Sonnet 5 は長辺2576pxまで受け取れるので、
+    // 織り目・編み目など「拡大しないと差が出ない」判定のために余裕を持たせる。
+    // 通信量・コストを戻したいときはここを 1024 に下げるだけでよい。
+    const MAXW = 2560;
+    const JPEG_Q = 0.92; // 解像度を上げても圧縮ノイズが織り目に乗らないよう高めに
     const cs = Math.min(1, MAXW / Math.max(vw, vh));
     const cw = Math.round(vw*cs), ch = Math.round(vh*cs);
     const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
     cv.getContext('2d').drawImage(D.video, 0, 0, cw, ch);
-    return { dataUrl: cv.toDataURL('image/jpeg', 0.85), vw, vh, cw, ch };
+    return { dataUrl: cv.toDataURL('image/jpeg', JPEG_Q), vw, vh, cw, ch };
   }
 
   // fetch のタイムアウト用 AbortSignal（非対応ブラウザは undefined を返す）
