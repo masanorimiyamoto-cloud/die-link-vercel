@@ -666,7 +666,7 @@
       }
     }
 
-    /* ==== Airtable 進行社内 自動更新（照合一致 → 抜型照合済） ==== */
+    /* ==== Airtable 抜型状況 自動更新（照合一致 → 抜型照合済を追加） ==== */
     async function notifyProgress(action){
       const {book,wc}=state.currentTarget; if(!book||!wc) return;
       const key = `${action}@${dieKey(book,wc)}`;
@@ -681,7 +681,7 @@
         const j=await r.json().catch(()=>({}));
         if(r.ok && j.ok===true){
           if(j.updated>0){
-            showBigMessage('進行を更新しました', `進行社内 →「${j.status}」（${j.updated}件）`);
+            showBigMessage('抜型状況を更新しました', `抜型状況 に「${j.status}」（${j.updated}件）`);
             speakLineOnce(`進行を、${j.status}、に更新しました`,{cooldown:2500});
           }
           // updated=0（該当受注なし・既に同値・別の進行状態）は静かに何もしない

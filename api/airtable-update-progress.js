@@ -7,11 +7,19 @@
 //          loc がある item は Location（棚番号）と LastSeen（当日）も併せて更新する }
 //
 //  action → 更新フィールドと値:
-//    found  = 進行社内 → 抜型照合済　＋ 抜型照合(checkbox) → ON
-//    stored = 進行社外 → 抜型を棚に仕舞い完了　＋ 抜型仕舞済(checkbox) → ON
+//    found  = 抜型状況(複数選択) に 抜型照合済 を追加　＋ 抜型照合(checkbox) → ON
+//    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加　＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
 //
+//  2026-08-07: found/stored の書き込み先を 進行社内/進行社外 から 抜型状況 へ移した。
+//  進行社外に入れていたころは、受領伝票発行可能になった後で「仕舞う」を実行すると
+//  進行社外を上書きし、伝票が発行対象から永久に外れていた（Automation 5 は設定しか
+//  しないので戻らない）。Airtable 側でも 進行社内/進行社外 から該当の選択肢を削除済み。
+//  抜型状況は複数選択なので、照合済と仕舞い完了は同時に持てる。上書きせず追加する。
+//
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
+//  裏を返すと、書く値を間違えると選択肢が勝手に増える。ラベルは Airtable の
+//  抜型状況(fldQBOQKnKS2TIx3s)の選択肢名と一致させること。
 export const config = { runtime: 'edge' };
 
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
@@ -23,8 +31,9 @@ const API              = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${TABL
 
 const FIELD_BOOK     = process.env.FIELD_BOOK     || 'Book';
 const FIELD_WC       = process.env.FIELD_WC       || 'WorkCord';   // number型
-const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // stored（仕舞う）用
-const FIELD_PROGRESS_IN  = process.env.FIELD_PROGRESS_IN || '進行社内'; // found / fabric 用
+const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // 現在この API では使わない
+const FIELD_PROGRESS_IN  = process.env.FIELD_PROGRESS_IN || '進行社内'; // fabric（生地照合）用
+const FIELD_DIE_STATUS   = process.env.FIELD_DIE_STATUS  || '抜型状況'; // found / stored 用（複数選択）
 const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
 const FIELD_LOCATION = process.env.FIELD_LOCATION || 'Location';
 const FIELD_LASTSEEN = process.env.FIELD_LASTSEEN || 'LastSeen';
@@ -42,12 +51,14 @@ const STATUS_LABELS = {
   stored: process.env.PROGRESS_LABEL_STORED || '抜型を棚に仕舞い完了',
   fabric: process.env.PROGRESS_LABEL_FABRIC || '生地照合済',
 };
-// action ごとの更新先フィールド（found/fabric は進行社内、stored は進行社外）
+// action ごとの更新先フィールド（found/stored は抜型状況、fabric は進行社内）
 const ACTION_FIELDS = {
-  found:  FIELD_PROGRESS_IN,
-  stored: FIELD_PROGRESS_OUT,
+  found:  FIELD_DIE_STATUS,
+  stored: FIELD_DIE_STATUS,
   fabric: FIELD_PROGRESS_IN,
 };
+// 複数選択フィールドへ書く action。既存の選択を消さないよう「追加」で更新する。
+const MULTI_ACTIONS = new Set(['found', 'stored']);
 // action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）
 const ACTION_CHECKBOX = {
   found:  FIELD_CHECK_DIE,
@@ -130,11 +141,12 @@ async function fetchRecords(book, wc, progressField, checkField) {
 }
 
 // --- Airtable: batch patch (10件ずつ・typecastで選択肢を自動作成) ---
-async function batchUpdate(ids, fields) {
+// 複数選択の追加はレコードごとに現在値へ足すため、fields はレコード単位で渡す。
+async function batchUpdate(updates) {
   let updated = 0;
-  for (let i = 0; i < ids.length; i += 10) {
-    const slice = ids.slice(i, i + 10);
-    const payload = { records: slice.map(id => ({ id, fields })), typecast: true };
+  for (let i = 0; i < updates.length; i += 10) {
+    const slice = updates.slice(i, i + 10);
+    const payload = { records: slice.map(u => ({ id: u.id, fields: u.fields })), typecast: true };
 
     await new Promise(res => setTimeout(res, 180));
 
@@ -184,6 +196,7 @@ export default async function handler(req) {
     const status = STATUS_LABELS[action];
     const progressField = ACTION_FIELDS[action];
     const checkField = ACTION_CHECKBOX[action] || '';
+    const isMulti = MULTI_ACTIONS.has(action);
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
     }
@@ -222,24 +235,35 @@ export default async function handler(req) {
       totalMatched += records.length;
 
       // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
-      const fields = { [progressField]: status };
-      if (checkField) fields[checkField] = true; // 照合済みチェック（進行が後で変わっても残る）
+      const common = {};
+      if (checkField) common[checkField] = true; // 照合済みチェック（進行が後で変わっても残る）
       if (it.loc) {
-        fields[FIELD_LOCATION] = it.loc;
-        fields[FIELD_LASTSEEN] = todayJST();
+        common[FIELD_LOCATION] = it.loc;
+        common[FIELD_LASTSEEN] = todayJST();
       }
 
-      const targets = [];
+      const updates = [];
       for (const rec of records) {
-        const cur = String(rec.fields?.[progressField] || '').trim();
+        const raw = rec.fields?.[progressField];
         const checked = checkField ? rec.fields?.[checkField] === true : true;
-        // 既に同じ値でも、棚番号の付け替えがあり得るため loc 付きは更新する
-        if (cur === status && checked && !it.loc) continue;
-        targets.push(rec.id);
-      }
-      if (!targets.length) continue;
 
-      totalUpdated += await batchUpdate(targets, fields);
+        if (isMulti) {
+          // 複数選択。PATCH は配列ごと置き換わるので、現在値に足してから書く。
+          const cur = Array.isArray(raw) ? raw.map(v => String(v).trim()).filter(Boolean) : [];
+          const has = cur.includes(status);
+          // 既に入っていても、棚番号の付け替えがあり得るため loc 付きは更新する
+          if (has && checked && !it.loc) continue;
+          const merged = has ? cur : [...cur, status];
+          updates.push({ id: rec.id, fields: { ...common, [progressField]: merged } });
+        } else {
+          const cur = String(raw || '').trim();
+          if (cur === status && checked && !it.loc) continue;
+          updates.push({ id: rec.id, fields: { ...common, [progressField]: status } });
+        }
+      }
+      if (!updates.length) continue;
+
+      totalUpdated += await batchUpdate(updates);
       await new Promise(r => setTimeout(r, 140));
     }
 

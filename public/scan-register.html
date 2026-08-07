@@ -207,7 +207,7 @@
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
 const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"
 const AIRTABLE_ENABLED = false;
-const PROGRESS_ENDPOINT = "/api/airtable-update-progress"; // 進行社外 →「抜型を棚に仕舞い完了」＋ Location / LastSeen
+const PROGRESS_ENDPOINT = "/api/airtable-update-progress"; // 抜型状況 に「抜型を棚に仕舞い完了」を追加 ＋ Location / LastSeen
 const PROGRESS_ENABLED = true;
 const SCAN_RESOLUTION = 960; // 抜型QR（18mm角）は小さいため解像度を確保（600→960）
 const DETECT_INTERVAL_MS = 110; // QRは静止物なので間引いてCPU負荷を相殺（解像度アップ分の埋め合わせ）
@@ -570,7 +570,7 @@ async function submitUpdate() {
         } catch(e) { console.warn("Airtable skip", e); }
     }
 
-    // 3) Airtable 進行社外 →「抜型を棚に仕舞い完了」＋ Location（棚番号）/ LastSeen（当日）
+    // 3) Airtable 抜型状況 に「抜型を棚に仕舞い完了」を追加 ＋ Location（棚番号）/ LastSeen（当日）
     if (PROGRESS_ENABLED) {
         try {
             const csrf = await ensureCsrf();
@@ -582,11 +582,11 @@ async function submitUpdate() {
             });
             const jP = await rP.json().catch(() => ({}));
             if (rP.ok && jP.ok === true && jP.updated > 0) {
-                toast("進行社外を更新", `「${jP.status}」 ${jP.updated}件`);
+                toast("抜型状況を更新", `「${jP.status}」 ${jP.updated}件`);
             } else if (!rP.ok || jP.ok !== true) {
-                console.warn("進行社外 更新NG", jP);
+                console.warn("抜型状況 更新NG", jP);
             }
-        } catch(e) { console.warn("進行社外 skip", e); }
+        } catch(e) { console.warn("抜型状況 skip", e); }
     }
 
     toast("登録完了！", `${items.length}件を保存しました`);
