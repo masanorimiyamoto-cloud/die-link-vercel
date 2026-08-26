@@ -8,7 +8,8 @@
 //
 //  action → 更新フィールドと値:
 //    found  = 抜型状況(複数選択) に 抜型照合済 を追加　＋ 抜型照合(checkbox) → ON
-//    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加　＋ 抜型仕舞済(checkbox) → ON
+//    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加（「型まだ仕舞済でない」は除去）
+//             ＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
 //
 //  2026-08-07: found/stored の書き込み先を 進行社内/進行社外 から 抜型状況 へ移した。
@@ -59,6 +60,11 @@ const ACTION_FIELDS = {
 };
 // 複数選択フィールドへ書く action。既存の選択を消さないよう「追加」で更新する。
 const MULTI_ACTIONS = new Set(['found', 'stored']);
+// 追加する値と同時に持つと矛盾する選択肢。追加時にこれらは取り除く。
+// 「抜型を棚に仕舞い完了」と「型まだ仕舞済でない」の共存はあり得ないため。
+const STATUS_CONFLICTS = {
+  stored: [process.env.PROGRESS_LABEL_NOT_STORED || '型まだ仕舞済でない'],
+};
 // action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）
 const ACTION_CHECKBOX = {
   found:  FIELD_CHECK_DIE,
@@ -197,6 +203,7 @@ export default async function handler(req) {
     const progressField = ACTION_FIELDS[action];
     const checkField = ACTION_CHECKBOX[action] || '';
     const isMulti = MULTI_ACTIONS.has(action);
+    const conflicts = STATUS_CONFLICTS[action] || [];
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
     }
@@ -250,10 +257,12 @@ export default async function handler(req) {
         if (isMulti) {
           // 複数選択。PATCH は配列ごと置き換わるので、現在値に足してから書く。
           const cur = Array.isArray(raw) ? raw.map(v => String(v).trim()).filter(Boolean) : [];
-          const has = cur.includes(status);
-          // 既に入っていても、棚番号の付け替えがあり得るため loc 付きは更新する
-          if (has && checked && !it.loc) continue;
-          const merged = has ? cur : [...cur, status];
+          const kept = conflicts.length ? cur.filter(v => !conflicts.includes(v)) : cur;
+          const hasConflict = kept.length !== cur.length;
+          const has = kept.includes(status);
+          // 既に入っていても、棚番号の付け替え／矛盾する選択肢の除去があれば更新する
+          if (has && checked && !it.loc && !hasConflict) continue;
+          const merged = has ? kept : [...kept, status];
           updates.push({ id: rec.id, fields: { ...common, [progressField]: merged } });
         } else {
           const cur = String(raw || '').trim();
