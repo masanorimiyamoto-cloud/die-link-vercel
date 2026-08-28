@@ -8,6 +8,7 @@
 //
 //  action → 更新フィールドと値:
 //    found  = 抜型状況(複数選択) に 抜型照合済 を追加　＋ 抜型照合(checkbox) → ON
+//             ＋ 進行社内 → 抜き作業中（照合した＝これから抜く、の合図）
 //    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加（「型まだ仕舞済でない」は除去）
 //             ＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
@@ -65,6 +66,12 @@ const MULTI_ACTIONS = new Set(['found', 'stored']);
 const STATUS_CONFLICTS = {
   stored: [process.env.PROGRESS_LABEL_NOT_STORED || '型まだ仕舞済でない'],
 };
+// action ごとに併せて 進行社内(singleSelect) へ入れる値。抜型を照合した＝これから抜く、
+// という現場の合図なので found のときだけ「抜き作業中」を立てる。
+// 進行社内は「今どの工程か」の目安フィールドなので上書きしてよい（設計方針）。
+const ACTION_PROGRESS_IN = {
+  found: process.env.PROGRESS_IN_LABEL_FOUND || '抜き作業中',
+};
 // action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）
 const ACTION_CHECKBOX = {
   found:  FIELD_CHECK_DIE,
@@ -116,7 +123,7 @@ async function fetchWithRetry(input, init = {}) {
 }
 
 // --- Airtable: Book+WorkCord で該当レコード（進行フィールドの現在値つき）を取得 ---
-async function fetchRecords(book, wc, progressField, checkField) {
+async function fetchRecords(book, wc, fields) {
   const esc = (s) => String(s).replace(/'/g, "\\'");
   const n = Number(wc);
   const wcExpr = Number.isFinite(n) ? String(n) : `'${esc(wc)}'`; // WorkCordはnumber型なので数値比較
@@ -129,8 +136,7 @@ async function fetchRecords(book, wc, progressField, checkField) {
     const url = new URL(API);
     url.searchParams.set('filterByFormula', formula);
     url.searchParams.set('pageSize', '100');
-    url.searchParams.append('fields[]', progressField);
-    if (checkField) url.searchParams.append('fields[]', checkField);
+    for (const f of fields) url.searchParams.append('fields[]', f);
     if (offset) url.searchParams.set('offset', offset);
 
     const r = await fetchWithRetry(url, {
@@ -204,6 +210,11 @@ export default async function handler(req) {
     const checkField = ACTION_CHECKBOX[action] || '';
     const isMulti = MULTI_ACTIONS.has(action);
     const conflicts = STATUS_CONFLICTS[action] || [];
+    const progressInLabel = ACTION_PROGRESS_IN[action] || '';
+    // 現在値の比較に使うので、書き込むフィールドは全部取っておく（重複は除く）
+    const wantFields = Array.from(new Set(
+      [progressField, checkField, progressInLabel ? FIELD_PROGRESS_IN : ''].filter(Boolean)
+    ));
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
     }
@@ -229,7 +240,7 @@ export default async function handler(req) {
     for (const it of items) {
       let records = [];
       try {
-        const r = await fetchRecords(it.book, it.wc, progressField, checkField);
+        const r = await fetchRecords(it.book, it.wc, wantFields);
         records = r.records;
         if (records.length === 0) {
           skippedDetails.push(`{${it.book}/${it.wc}}: 0 matches`);
@@ -244,6 +255,7 @@ export default async function handler(req) {
       // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
       const common = {};
       if (checkField) common[checkField] = true; // 照合済みチェック（進行が後で変わっても残る）
+      if (progressInLabel) common[FIELD_PROGRESS_IN] = progressInLabel; // 例: found → 抜き作業中
       if (it.loc) {
         common[FIELD_LOCATION] = it.loc;
         common[FIELD_LASTSEEN] = todayJST();
@@ -253,6 +265,8 @@ export default async function handler(req) {
       for (const rec of records) {
         const raw = rec.fields?.[progressField];
         const checked = checkField ? rec.fields?.[checkField] === true : true;
+        const progInOk = !progressInLabel
+          || String(rec.fields?.[FIELD_PROGRESS_IN] || '').trim() === progressInLabel;
 
         if (isMulti) {
           // 複数選択。PATCH は配列ごと置き換わるので、現在値に足してから書く。
@@ -261,12 +275,12 @@ export default async function handler(req) {
           const hasConflict = kept.length !== cur.length;
           const has = kept.includes(status);
           // 既に入っていても、棚番号の付け替え／矛盾する選択肢の除去があれば更新する
-          if (has && checked && !it.loc && !hasConflict) continue;
+          if (has && checked && !it.loc && !hasConflict && progInOk) continue;
           const merged = has ? kept : [...kept, status];
           updates.push({ id: rec.id, fields: { ...common, [progressField]: merged } });
         } else {
           const cur = String(raw || '').trim();
-          if (cur === status && checked && !it.loc) continue;
+          if (cur === status && checked && !it.loc && progInOk) continue;
           updates.push({ id: rec.id, fields: { ...common, [progressField]: status } });
         }
       }
@@ -280,6 +294,7 @@ export default async function handler(req) {
       ok: true,
       action,
       status,
+      progressIn: progressInLabel || null,   // 併せて入れた 進行社内 の値（無ければ null）
       matched: totalMatched,
       updated: totalUpdated,
       skippedDetails,

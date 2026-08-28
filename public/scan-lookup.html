@@ -681,7 +681,8 @@
         const j=await r.json().catch(()=>({}));
         if(r.ok && j.ok===true){
           if(j.updated>0){
-            showBigMessage('抜型状況を更新しました', `抜型状況 に「${j.status}」（${j.updated}件）`);
+            const inLine = j.progressIn ? ` ／ 進行社内「${j.progressIn}」` : '';
+            showBigMessage('抜型状況を更新しました', `抜型状況 に「${j.status}」${inLine}（${j.updated}件）`);
             speakLineOnce(`進行を、${j.status}、に更新しました`,{cooldown:2500});
           }
           // updated=0（該当受注なし・既に同値・別の進行状態）は静かに何もしない
