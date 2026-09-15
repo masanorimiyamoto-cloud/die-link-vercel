@@ -4,13 +4,13 @@
 // parts: 順序付き配列。各要素は { text } または { image:{ mime, data(base64) } }。
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
-// ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが異なる場合は
-//   'gpt-5.6-runa' の id を実際のIDに直すだけでよい。
-//   （'gpt-5.6' エイリアスも runa にルーティングされるが、明示IDで固定する）
+// ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが変わった場合は
+//   'gpt-5.5' の id を実際のIDに直すだけでよい。
+//   （gpt-5.5 は2026年4月時点で Chat Completions API から利用可能な正式モデル）
 
 export const MODELS = {
   'claude-sonnet-5': { provider: 'anthropic', id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-  'gpt-5.6-runa':    { provider: 'openai',    id: 'gpt-5.6-runa',    label: 'GPT-5.6 runa' },
+  'gpt-5.5':         { provider: 'openai',    id: 'gpt-5.5',         label: 'GPT-5.5' },
 };
 export const DEFAULT_MODEL = 'claude-sonnet-5';
 

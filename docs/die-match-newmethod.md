@@ -70,7 +70,7 @@ OpenCV.js は同期WASMで重く、メインスレッドで動かすと**UIが�
 
 `api/_vision.js` の `MODELS` を流用：
 - `claude-sonnet-5`（既定・推奨）
-- `gpt-5.6-runa`
+- `gpt-5.5`
 
 新方式ではAIは**意味照合のみ**なので、既定の Claude Sonnet 5 で十分。
 クライアントから `model` を渡せばユーザー選択を引き継げる。

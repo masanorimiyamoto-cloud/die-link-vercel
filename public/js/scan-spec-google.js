@@ -97,12 +97,12 @@
     measTouched:false, // 作業者が黄色枠を手で合わせたら true。AI枠検出より優先する
     tolMm:10,      // 合否の許容差(±mm)
     boxTarget:'die', // 照合対象 'die'=抜型半製品（形状＋寸法）/ 'fabric'=生地（色柄＋縦横比・CAL不要）
-    aiModel:'claude-sonnet-5', // 照合に使うAIモデル（claude-sonnet-5 / gpt-5.6-runa）
+    aiModel:'claude-sonnet-5', // 照合に使うAIモデル（claude-sonnet-5 / gpt-5.5）
     // 伝票照合
     slipMode:false, slipRaf:null, slipLastAt:0, slipFrozen:false,
     slipKey:'', slipRecords:[], slipBusy:false, slipDoneSpoken:false, slipDocId:'',
   };
-  const AI_MODELS = { 'claude-sonnet-5':'Claude Sonnet 5', 'gpt-5.6-runa':'GPT-5.6 runa' };
+  const AI_MODELS = { 'claude-sonnet-5':'Claude Sonnet 5', 'gpt-5.5':'GPT-5.5' };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
   try{ const _bt = localStorage.getItem('boxTarget'); if(_bt==='die'||_bt==='fabric') S.boxTarget = _bt; }catch{}
   try{ const _am = localStorage.getItem('aiModel'); if(_am && AI_MODELS[_am]) S.aiModel = _am; }catch{}
