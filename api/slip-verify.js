@@ -21,6 +21,8 @@
 //   status: OK | UpdatedBySlip | Mismatch | CancelledLine
 //     OK            … 紙伝票とAirtableが一致 → 進行社外を「完納済」に
 //     UpdatedBySlip … 手書き訂正をAirtableへ反映して一致させた（namount/ndate で NAmount/Ndate も更新）→ 進行社外を「完納（数量訂正）」に
+//                     NAmountを書くときは NAmount_Prev（数量異常判定の基準値）も同じ値にする。
+//                     正規の書き手が基準値を置いていかないと、次の桁違い判定が誤検知するため。
 //     Mismatch      … 不一致のまま（値は更新しない・進行社外は触らない）
 //     CancelledLine … 二重線で取り消された行 → 進行社外を「伝票取消」に
 //   ※ 完納済への更新は従来「複合機で受領書スキャン→watcherの*AI照合」が担っていた役割。
@@ -44,6 +46,7 @@ const FIELD_ITEMNAME     = process.env.FIELD_ITEMNAME || 'ItemName';
 const FIELD_NAMOUNT      = process.env.FIELD_NAMOUNT  || 'NAmount';
 const FIELD_NDATE        = process.env.FIELD_NDATE    || 'Ndate';
 const FIELD_NAMOUNT_ISSUED = process.env.FIELD_NAMOUNT_ISSUED || 'NAmount_Issued'; // 発行時スナップショット
+const FIELD_NAMOUNT_PREV   = process.env.FIELD_NAMOUNT_PREV   || 'NAmount_Prev';   // 数量異常判定の基準値
 const FIELD_NDATE_ISSUED   = process.env.FIELD_NDATE_ISSUED   || 'Ndate_Issued';   // 発行時スナップショット
 const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS || '進行社外';
 const FIELD_VSTATUS      = process.env.FIELD_VSTATUS  || 'VerificationStatus';
@@ -208,6 +211,8 @@ export default async function handler(req) {
     }
 
     if (action === 'verify') {
+      // 小数の数量が来た行。1件でもあれば全体を弾く（黙って握りつぶさない）
+      const badAmounts = [];
       const items = (Array.isArray(body?.items) ? body.items : [])
         .map(it => {
           const id = String(it?.id || '').trim();
@@ -232,8 +237,19 @@ export default async function handler(req) {
           }
           // 手書き訂正の反映は UpdatedBySlip のときだけ受け付ける（他statusで値は書き換えない）
           if (status === 'UpdatedBySlip') {
-            const n = Number(it?.namount);
-            if (it?.namount != null && Number.isFinite(n)) fields[FIELD_NAMOUNT] = n;
+            const rawAmt = it?.namount;
+            const hasAmt = rawAmt !== null && rawAmt !== undefined && String(rawAmt).trim() !== '';
+            if (hasAmt) {
+              const n = Number(rawAmt);
+              // 数量は0以上の整数のみ。小数を通すと 1504 → 1.504 のような桁化けが
+              // そのまま入り、NAmountは精度0表示なので画面では「2」に見えて誰も
+              // 気づけない（2026-09-01の事故）。入口で弾く。
+              if (!Number.isInteger(n) || n < 0) { badAmounts.push(`${id} → ${rawAmt}`); return null; }
+              fields[FIELD_NAMOUNT] = n;
+              // 伝票の手書き訂正は正規の書き手なので、数量異常判定の基準値も同時に更新する。
+              // ここを更新しないと NAmount_Prev が古いまま残り、次の桁違い判定が誤検知する。
+              fields[FIELD_NAMOUNT_PREV] = n;
+            }
             const d = String(it?.ndate || '').trim();
             if (/^\d{4}-\d{2}-\d{2}$/.test(d)) fields[FIELD_NDATE] = d;
           }
@@ -241,6 +257,9 @@ export default async function handler(req) {
         })
         .filter(Boolean)
         .slice(0, MAX_IDS);
+      if (badAmounts.length) {
+        return json({ ok: false, error: `数量は整数で入力してください（小数が入っています: ${badAmounts.join(' , ')}）` }, 400);
+      }
       if (!items.length) return json({ ok: false, error: 'items がありません' }, 400);
 
       const ids = await patchItems(items);
