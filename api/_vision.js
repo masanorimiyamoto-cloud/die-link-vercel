@@ -5,14 +5,14 @@
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
 // ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが変わった場合は
-//   'gpt-5.5' の id を実際のIDに直すだけでよい。
-//   （gpt-5.5 は2026年4月時点で Chat Completions API から利用可能な正式モデル）
+//   'gpt-6-astra' の id を実際のIDに直すだけでよい。
+//   （gpt-6-astra = GPT-6 Astra。公開IDが異なる場合はここだけ直す）
 
 export const MODELS = {
+  'gpt-6-astra':     { provider: 'openai',    id: 'gpt-6-astra',     label: 'GPT-6 Astra' },
   'claude-sonnet-5': { provider: 'anthropic', id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-  'gpt-5.5':         { provider: 'openai',    id: 'gpt-5.5',         label: 'GPT-5.5' },
 };
-export const DEFAULT_MODEL = 'claude-sonnet-5';
+export const DEFAULT_MODEL = 'gpt-6-astra';
 
 export function resolveModel(key) {
   return MODELS[key] || MODELS[DEFAULT_MODEL];
@@ -90,7 +90,7 @@ async function callOpenAI(modelId, system, parts, maxTokens) {
   return msg;
 }
 
-// modelKey: クライアントから渡されたモデルキー（未知/未指定なら既定=Claude）
+// modelKey: クライアントから渡されたモデルキー（未知/未指定なら既定=GPT-6 Astra）
 export async function callVisionJSON({ modelKey, system = '', parts = [], maxTokens = 1024 }) {
   const m = resolveModel(modelKey);
   const raw = m.provider === 'openai'
