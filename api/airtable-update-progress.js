@@ -12,6 +12,7 @@
 //    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加（「型まだ仕舞済でない」は除去）
 //             ＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
+//             ＋ 進行社外が空白のときだけ → シート材料入荷済（値があれば触らない）
 //
 //  2026-08-07: found/stored の書き込み先を 進行社内/進行社外 から 抜型状況 へ移した。
 //  進行社外に入れていたころは、受領伝票発行可能になった後で「仕舞う」を実行すると
@@ -33,7 +34,7 @@ const API              = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${TABL
 
 const FIELD_BOOK     = process.env.FIELD_BOOK     || 'Book';
 const FIELD_WC       = process.env.FIELD_WC       || 'WorkCord';   // number型
-const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // 現在この API では使わない
+const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // fabric で空白時のみ書く
 const FIELD_PROGRESS_IN  = process.env.FIELD_PROGRESS_IN || '進行社内'; // fabric（生地照合）用
 const FIELD_DIE_STATUS   = process.env.FIELD_DIE_STATUS  || '抜型状況'; // found / stored 用（複数選択）
 const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
@@ -71,6 +72,11 @@ const STATUS_CONFLICTS = {
 // 進行社内は「今どの工程か」の目安フィールドなので上書きしてよい（設計方針）。
 const ACTION_PROGRESS_IN = {
   found: process.env.PROGRESS_IN_LABEL_FOUND || '抜き作業中',
+};
+// action ごとに 進行社外(singleSelect) が「空白のときだけ」入れる値。
+// 進行社外は伝票発行の判定に使うので、既に値があれば絶対に上書きしない（8/7 の事故の再発防止）。
+const ACTION_PROGRESS_OUT_IF_EMPTY = {
+  fabric: process.env.PROGRESS_OUT_LABEL_FABRIC || 'シート材料入荷済',
 };
 // action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）
 const ACTION_CHECKBOX = {
@@ -211,9 +217,12 @@ export default async function handler(req) {
     const isMulti = MULTI_ACTIONS.has(action);
     const conflicts = STATUS_CONFLICTS[action] || [];
     const progressInLabel = ACTION_PROGRESS_IN[action] || '';
+    const progressOutLabel = ACTION_PROGRESS_OUT_IF_EMPTY[action] || '';
     // 現在値の比較に使うので、書き込むフィールドは全部取っておく（重複は除く）
     const wantFields = Array.from(new Set(
-      [progressField, checkField, progressInLabel ? FIELD_PROGRESS_IN : ''].filter(Boolean)
+      [progressField, checkField,
+       progressInLabel ? FIELD_PROGRESS_IN : '',
+       progressOutLabel ? FIELD_PROGRESS_OUT : ''].filter(Boolean)
     ));
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
@@ -267,6 +276,9 @@ export default async function handler(req) {
         const checked = checkField ? rec.fields?.[checkField] === true : true;
         const progInOk = !progressInLabel
           || String(rec.fields?.[FIELD_PROGRESS_IN] || '').trim() === progressInLabel;
+        // 進行社外は空白のときだけ埋める（レコードごとに判定）
+        const fillOut = !!progressOutLabel && !String(rec.fields?.[FIELD_PROGRESS_OUT] || '').trim();
+        const extra = fillOut ? { [FIELD_PROGRESS_OUT]: progressOutLabel } : {};
 
         if (isMulti) {
           // 複数選択。PATCH は配列ごと置き換わるので、現在値に足してから書く。
@@ -275,13 +287,13 @@ export default async function handler(req) {
           const hasConflict = kept.length !== cur.length;
           const has = kept.includes(status);
           // 既に入っていても、棚番号の付け替え／矛盾する選択肢の除去があれば更新する
-          if (has && checked && !it.loc && !hasConflict && progInOk) continue;
+          if (has && checked && !it.loc && !hasConflict && progInOk && !fillOut) continue;
           const merged = has ? kept : [...kept, status];
-          updates.push({ id: rec.id, fields: { ...common, [progressField]: merged } });
+          updates.push({ id: rec.id, fields: { ...common, ...extra, [progressField]: merged } });
         } else {
           const cur = String(raw || '').trim();
-          if (cur === status && checked && !it.loc && progInOk) continue;
-          updates.push({ id: rec.id, fields: { ...common, [progressField]: status } });
+          if (cur === status && checked && !it.loc && progInOk && !fillOut) continue;
+          updates.push({ id: rec.id, fields: { ...common, ...extra, [progressField]: status } });
         }
       }
       if (!updates.length) continue;
@@ -295,6 +307,7 @@ export default async function handler(req) {
       action,
       status,
       progressIn: progressInLabel || null,   // 併せて入れた 進行社内 の値（無ければ null）
+      progressOutIfEmpty: progressOutLabel || null, // 進行社外が空白の行にだけ入れた値
       matched: totalMatched,
       updated: totalUpdated,
       skippedDetails,
