@@ -97,12 +97,12 @@
     measTouched:false, // 作業者が黄色枠を手で合わせたら true。AI枠検出より優先する
     tolMm:10,      // 合否の許容差(±mm)
     boxTarget:'die', // 照合対象 'die'=抜型半製品（形状＋寸法）/ 'fabric'=生地（色柄＋縦横比・CAL不要）
-    aiModel:'gpt-6-astra', // 照合に使うAIモデル（gpt-6-astra / claude-sonnet-5）
+    aiModel:'gpt-6-sol', // 照合に使うAIモデル（gpt-6-sol / claude-sonnet-5）
     // 伝票照合
     slipMode:false, slipRaf:null, slipLastAt:0, slipFrozen:false,
     slipKey:'', slipRecords:[], slipBusy:false, slipDoneSpoken:false, slipDocId:'',
   };
-  const AI_MODELS = { 'gpt-6-astra':'GPT-6 Astra', 'claude-sonnet-5':'Claude Sonnet 5' };
+  const AI_MODELS = { 'gpt-6-sol':'GPT-6 Sol', 'claude-sonnet-5':'Claude Sonnet 5' };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
   try{ const _bt = localStorage.getItem('boxTarget'); if(_bt==='die'||_bt==='fabric') S.boxTarget = _bt; }catch{}
   try{ const _am = localStorage.getItem('aiModel'); if(_am && AI_MODELS[_am]) S.aiModel = _am; }catch{}
@@ -128,7 +128,7 @@
     const book = S.current.book, wc = S.current.wc;
     if(!book || !wc) return null;
     const key = action + '@' + dieKey(book, wc);
-    if(key === S.progressSentKey) return null;   // 同一品番への重複送信を抑止
+    if(key === S.progressSentKey) return { dup:true };   // 同一品番への重複送信を抑止
     S.progressSentKey = key;
     try{
       await ensureCsrf();
@@ -146,6 +146,29 @@
       console.warn('進行社内 更新エラー', e);
     }
     return null;
+  }
+
+  // 生地照合一致後の Airtable 更新結果を表示する。
+  // どの受注（品名・数量・納期）を照合済にしたかを出し、作業者がその場で取り違えに気づけるようにする。
+  function showFabricProgress(j){
+    if(j && j.dup) return;                       // 同じ品番の再撮影。表示はそのまま
+    const tgt = `${S.current.book} / ${S.current.wc}`;
+    if(!j){
+      showVerdict('warn', '生地は一致 ／ Airtable更新失敗', '通信を確認して再照合してください');
+      setBoxStatus(`⚠ 生地照合 一致（${tgt}）ですが、Airtableの更新に失敗しました`, false);
+      return;
+    }
+    const t = (j.targets || [])[0];
+    if(!t){
+      showVerdict('warn', '生地は一致 ／ Airtableに受注なし', '進行は更新していません');
+      setBoxStatus(`⚠ ${tgt} の未完了の受注がAirtableにありません（進行は更新していません）。事務所に確認してください`, false);
+      return;
+    }
+    const amt = (t.namount != null && t.namount !== '') ? `${Number(t.namount).toLocaleString()}枚` : '数量なし';
+    const nd  = t.ndate ? `納期${t.ndate.slice(5).replace('-','/')}` : '納期なし';
+    const multi = j.candidates > 1 ? `／同品番の受注${j.candidates}件のうち1件` : '';
+    const head = t.alreadyDone ? '✅ 生地照合 完了（この受注は照合済）' : `✅ 生地照合 完了（進行社内 →「${j.status}」）`;
+    setBoxStatus(`${head}　${t.itemName}　${amt}　${nd}${multi}`, true);
   }
 
   // --- Helpers ---
@@ -1098,9 +1121,7 @@
         // ★ 一致なら Airtable 進行社内 →「生地照合済」（同一品番は1回だけ）
         const mv = a.v;
         if(mv && mv.ok !== false && mv.found !== false && mv.verdict === 'match'){
-          notifyProgress('fabric').then(j => {
-            if(j && j.updated > 0) setBoxStatus(`✅ 生地照合 完了（進行社内 →「${j.status}」）`, true);
-          });
+          notifyProgress('fabric').then(j => showFabricProgress(j));
         }
         return;
       }

@@ -13,6 +13,11 @@
 //             ＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
 //             ＋ 進行社外が空白のときだけ → シート材料入荷済（値があれば触らない）
+//             同一 Book/WorkCord の受注が複数あっても1行だけ更新する（pickOne）。
+//             伝票済の行は除き、未照合 → 納期が近い → 作成が古い の順で選ぶ。
+//             選んだ行は targets で返す（画面で品名・数量・納期を表示するため）。
+//
+//  matched=0 は「Airtable に（未完了の）受注が無い」。画面側で警告を出す。
 //
 //  2026-08-07: found/stored の書き込み先を 進行社内/進行社外 から 抜型状況 へ移した。
 //  進行社外に入れていたころは、受領伝票発行可能になった後で「仕舞う」を実行すると
@@ -43,6 +48,9 @@ const FIELD_LASTSEEN = process.env.FIELD_LASTSEEN || 'LastSeen';
 const FIELD_CHECK_DIE    = process.env.FIELD_CHECK_DIE    || '抜型照合'; // checkbox
 const FIELD_CHECK_FABRIC = process.env.FIELD_CHECK_FABRIC || '生地照合'; // checkbox
 const FIELD_CHECK_STORED = process.env.FIELD_CHECK_STORED || '抜型仕舞済'; // checkbox
+const FIELD_ITEMNAME = process.env.FIELD_ITEMNAME || 'ItemName';
+const FIELD_NAMOUNT  = process.env.FIELD_NAMOUNT  || 'NAmount';
+const FIELD_NDATE    = process.env.FIELD_NDATE    || 'Ndate';
 
 // Edge Runtime は UTC のため JST の「今日」を自前で算出
 function todayJST() {
@@ -84,6 +92,44 @@ const ACTION_CHECKBOX = {
   fabric: FIELD_CHECK_FABRIC,
   stored: FIELD_CHECK_STORED,
 };
+// 同一 Book/WorkCord の受注が複数あるとき、全行ではなく1行だけ更新する action。
+// 生地は受注（ロット）ごとの現物なので、1回の照合で別受注まで照合済にしない（2026-09-24 Ta/3693 の件）。
+// 抜型（found/stored）は受注間で共通の型なので従来どおり全行を更新する。
+const PICK_ONE_ACTIONS = new Set(['fabric']);
+// 伝票まで済んだ受注は生地照合の対象外（進行社外がこれらの行は候補から外す）
+const DONE_PROGRESS_OUT = new Set(
+  (process.env.PROGRESS_OUT_DONE_LABELS || '完納済,完納（数量訂正）,伝票取消,伝票出力済')
+    .split(',').map(s => s.trim()).filter(Boolean)
+);
+
+// PICK_ONE の選び方: 未照合を優先 → 納期が近い順（空は最後）→ 作成が古い順
+function pickOne(records, checkField) {
+  const cands = records.filter(r =>
+    !DONE_PROGRESS_OUT.has(String(r.fields?.[FIELD_PROGRESS_OUT] || '').trim()));
+  if (!cands.length) return { picked: null, candidates: 0 };
+  cands.sort((a, b) => {
+    const ca = checkField && a.fields?.[checkField] === true ? 1 : 0;
+    const cb = checkField && b.fields?.[checkField] === true ? 1 : 0;
+    if (ca !== cb) return ca - cb;
+    const da = a.fields?.[FIELD_NDATE] || '9999-12-31';
+    const db = b.fields?.[FIELD_NDATE] || '9999-12-31';
+    if (da !== db) return da < db ? -1 : 1;
+    return String(a.createdTime || '').localeCompare(String(b.createdTime || ''));
+  });
+  return { picked: cands[0], candidates: cands.length };
+}
+
+// 画面で「どの受注を更新したか」を確かめられるよう返す要約
+function describe(rec) {
+  const f = rec.fields || {};
+  return {
+    id: rec.id,
+    itemName: f[FIELD_ITEMNAME] || '',
+    namount: f[FIELD_NAMOUNT] ?? null,
+    ndate: f[FIELD_NDATE] || '',
+  };
+}
+
 // フィールドに何が入っていても抜型ステータスで上書きする（ユーザー要望）
 
 function corsHeaders() {
@@ -218,11 +264,14 @@ export default async function handler(req) {
     const conflicts = STATUS_CONFLICTS[action] || [];
     const progressInLabel = ACTION_PROGRESS_IN[action] || '';
     const progressOutLabel = ACTION_PROGRESS_OUT_IF_EMPTY[action] || '';
+    const pickOneMode = PICK_ONE_ACTIONS.has(action);
     // 現在値の比較に使うので、書き込むフィールドは全部取っておく（重複は除く）
+    // pickOne では選定と画面表示用に 進行社外/品名/数量/納期 も取る
     const wantFields = Array.from(new Set(
       [progressField, checkField,
        progressInLabel ? FIELD_PROGRESS_IN : '',
-       progressOutLabel ? FIELD_PROGRESS_OUT : ''].filter(Boolean)
+       (progressOutLabel || pickOneMode) ? FIELD_PROGRESS_OUT : '',
+       ...(pickOneMode ? [FIELD_ITEMNAME, FIELD_NAMOUNT, FIELD_NDATE] : [])].filter(Boolean)
     ));
     if (!status) {
       return json({ ok: false, error: `action は ${Object.keys(STATUS_LABELS).join(' / ')} を指定してください` }, 400);
@@ -245,6 +294,8 @@ export default async function handler(req) {
     let totalMatched = 0;
     let totalUpdated = 0;
     const skippedDetails = [];
+    const targets = [];      // pickOne で選んだ行（画面表示用）
+    let candidates = 0;      // pickOne の候補（未完了の受注）件数
 
     for (const it of items) {
       let records = [];
@@ -258,6 +309,18 @@ export default async function handler(req) {
       } catch (err) {
         skippedDetails.push(`{${it.book}/${it.wc}}: ERROR (${String(err?.message || err).slice(0, 200)})`);
         continue;
+      }
+      if (pickOneMode) {
+        const p = pickOne(records, checkField);
+        candidates += p.candidates;
+        if (!p.picked) {
+          skippedDetails.push(`{${it.book}/${it.wc}}: no open order (${records.length} done)`);
+          continue;
+        }
+        const d = describe(p.picked);
+        d.alreadyDone = checkField ? p.picked.fields?.[checkField] === true : false;
+        targets.push(d);
+        records = [p.picked];
       }
       totalMatched += records.length;
 
@@ -308,6 +371,8 @@ export default async function handler(req) {
       status,
       progressIn: progressInLabel || null,   // 併せて入れた 進行社内 の値（無ければ null）
       progressOutIfEmpty: progressOutLabel || null, // 進行社外が空白の行にだけ入れた値
+      targets,      // pickOne で選んだ受注（品名・数量・納期・既に照合済か）
+      candidates,   // pickOne の候補数（2以上なら同品番の未完了受注が複数あった）
       matched: totalMatched,
       updated: totalUpdated,
       skippedDetails,
