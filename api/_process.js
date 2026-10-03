@@ -24,7 +24,7 @@ const WORKLOG_API      = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${proc
 const F = {
   book: 'Book', wc: 'WorkCord', item: 'ItemName', amount: 'NAmount', ndate: 'Ndate',
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
-  memo: '連絡事項', image: '画像',
+  memo: '連絡事項', image: '画像', paper: '紙入荷日',
 };
 
 // 工程ボタン＝進行社内の選択肢。名前は Airtable の選択肢名と完全一致させる（2026-10-03 統一）。
@@ -119,6 +119,7 @@ function describe(rec) {
     progIn: f[F.progIn] || '', progOut: f[F.progOut] || '', group: f[F.group] || '',
     kotei: f[F.kotei] || '',
     memo: f[F.memo] || '',
+    paper: f[F.paper] || '',
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
     images: (Array.isArray(f[F.image]) ? f[F.image] : []).map(a => ({
       thumb: a.thumbnails?.large?.url || a.url,
@@ -152,7 +153,7 @@ export async function handleProcess(action, body, who) {
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, ...RECORD_FIELDS];
 
 async function readView(viewId) {
   const rows = [];
