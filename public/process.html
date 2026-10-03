@@ -30,8 +30,13 @@
   .chips .sp{ flex:1 }
   .lrow{ display:flex; gap:8px; align-items:stretch }
   .lrow .order{ flex:1; min-width:0 }
-  .lrow .quick{ flex:0 0 5.6em; font-size:15px; padding:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
-  .lrow .quick.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
+  .qbar{ display:flex; flex:0 0 5.6em }
+  .quick{ flex:1; font-size:15px; padding:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
+  .quick.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
+  /* ボタンが複数のビューは、品名の下に横並びで出す */
+  .lrow.many{ flex-direction:column; gap:6px; padding-bottom:8px; border-bottom:1px solid var(--line) }
+  .lrow.many .qbar{ flex:none; display:grid; grid-template-columns:repeat(3,1fr); gap:6px }
+  .lrow.many .quick{ padding:12px 4px }
   .order .item{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
   .wrap > *, .card > *{ min-width:0 }
   .late{ color:#fca5a5 }
@@ -278,12 +283,17 @@
   function renderList() {
     const box = $('list'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
-    const step = v && S.steps.find(s => s.key === v.step);
-    // ビューに種類の指定があれば（たおしM判 → 抜きの tm）、その種類で直接記録する
-    const fixed = step && v.variant ? step.variants.find(x => x.key === v.variant) : null;
-    const quickLabel = fixed ? fixed.label + '完了' : step ? step.label + '完了' : '';
+    // 行に並べる完了ボタン。種類の指定があれば（たおしM判 → 抜きの tm）その種類で直接記録する
+    const quick = ((v && v.quick) || []).map(q => {
+      const step = S.steps.find(s => s.key === q.step);
+      if (!step) return null;
+      const fixed = q.variant ? step.variants.find(x => x.key === q.variant) : (step.variants.length === 1 ? step.variants[0] : null);
+      const base = (q.variant && fixed) ? fixed.label : step.label;
+      return { step, fixed, label: q.label || (/(完了|終了)$/.test(base) ? base : base + '完了') };
+    }).filter(Boolean);
+    const many = quick.length > 1;
     for (const o of S.orders) {
-      const row = document.createElement('div'); row.className = 'lrow';
+      const row = document.createElement('div'); row.className = 'lrow' + (many ? ' many' : '');
       const el = document.createElement('button'); el.type = 'button';
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
@@ -294,13 +304,17 @@
       el.append(it, mt);
       el.onclick = () => selectOrder(o.id);
       row.append(el);
-      if (step) {
-        const q = document.createElement('button'); q.type = 'button'; q.className = 'quick';
-        const done = o.done[step.key];
-        q.textContent = done ? '済' : quickLabel;
-        if (done) q.classList.add('done');
-        q.onclick = () => { S.sel = o.id; fixed ? doComplete(step, fixed) : chooseStep(step); };
-        row.append(q);
+      if (quick.length) {
+        const bar = document.createElement('div'); bar.className = 'qbar';
+        for (const k of quick) {
+          const q = document.createElement('button'); q.type = 'button'; q.className = 'quick';
+          const done = o.done[k.step.key];
+          q.textContent = done ? k.label.replace(/(完了|終了)$/, '') + ' 済' : k.label;
+          if (done) q.classList.add('done');
+          q.onclick = () => { S.sel = o.id; k.fixed ? doComplete(k.step, k.fixed) : chooseStep(k.step); };
+          bar.append(q);
+        }
+        row.append(bar);
       }
       box.append(row);
     }
@@ -399,6 +413,8 @@
 
   // URLで品番を渡されたら（?book=Ta&wc=230）すぐ探す
   const q = new URLSearchParams(location.search);
+  // ?view=omamori のように作業リストを直接開ける（ホーム画面のショートカット用）
+  if (q.get('view')) { store.set('process.view', q.get('view')); store.set('process.mode', 'list'); }
   if (q.get('book') && q.get('wc')) { setBook(q.get('book')); $('wc').value = q.get('wc'); setMode('find'); search(); }
   else setMode(store.get('process.mode') === 'find' ? 'find' : 'list');
 })();

@@ -28,6 +28,8 @@ const F = {
 // key は画面とAPIの間の識別子。variants[].value は 進行社内 の既存の選択肢名と完全一致させること。
 // tag は 工程(自動) に含まれていればおすすめとして画面で目立たせる。
 export const STEPS = {
+  // 生地カット終了 は 進行社内 にまだ無い選択肢。create:true の値だけ typecast で初回に自動作成させる。
+  kiji:   { label: '生地カット', field: '生地カット完了記録', variants: [{ key: '-', label: '生地カット', value: '生地カット終了', create: true }] },
   nuki:   { label: '抜き',       field: '抜き完了記録', variants: [
             { key: 'o',  label: 'オートン',  value: 'オートン抜き完了',      tag: 'オートン' },
             { key: 'tk', label: 'たおしK判', value: '(K判)たおし抜き完了',   tag: 'たおしK判' },
@@ -46,15 +48,15 @@ const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取�
 
 export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
 
-// 作業リストに出すビュー。key は画面との識別子、step は一覧の行に出す「完了」ボタンの工程（空なら出さない）。
-// variant は STEPS の種類の key（抜きの o / tk / tm など）。
-// 増やすときはここに足すだけ（ビューIDは Airtable の URL の viw... の部分）。
+// 作業リストに出すビュー。key は画面との識別子。増やすときはここに足すだけ（ビューIDは Airtable の URL の viw... の部分）。
+// quick は一覧の各行に並べる完了ボタン。step は STEPS の key、variant は種類の key（抜きの o / tk / tm など）。
+// variant を省いた種類のある工程（抜き）は、押すと種類を選ぶ画面になる。label を省くと「工程名＋完了」。
 export const VIEWS = {
-  cad:     { id: 'viwIPW4eEsp6mo271', label: 'CAD',        step: 'cad' },
-  // お守箔焼印は「仕上がりました」で最終工程とみなす運用（2026-10-03 ユーザー確認）
-  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', step: 'finish' },
-  // variant を指定すると、種類のある工程（抜き）でも一覧のボタン1回で記録できる
-  tm:      { id: 'viwdwd47psKdZPYAN', label: 'たおしM判',  step: 'nuki', variant: 'tm' },
+  cad:     { id: 'viwIPW4eEsp6mo271', label: 'CAD',        quick: [{ step: 'cad' }] },
+  // お守箔焼印は 生地カット → 抜き → 仕上がり。「仕上がりました」で最終工程とみなす（2026-10-03 ユーザー確認）
+  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', quick: [
+             { step: 'kiji', label: '生地カット終了' }, { step: 'nuki' }, { step: 'finish' }] },
+  tm:      { id: 'viwdwd47psKdZPYAN', label: 'たおしM判',  quick: [{ step: 'nuki', variant: 'tm' }] },
 };
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
 const viewCache = new Map();     // key -> { at, rows }
@@ -148,7 +150,10 @@ async function view(body) {
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, step: v.step, variant: v.variant || '' }));
+  return Object.entries(VIEWS).map(([key, v]) => ({
+    key, label: v.label,
+    quick: (v.quick || []).map(q => ({ step: q.step, variant: q.variant || '', label: q.label || '' })),
+  }));
 }
 
 async function orders(body) {
@@ -190,7 +195,10 @@ async function complete(body, user) {
   viewCache.clear();
   await airtable(API, {
     method: 'PATCH',
-    body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.progIn]: r.variant.value, [r.step.field]: stamp } }] }),
+    body: JSON.stringify({
+      records: [{ id: rec.id, fields: { [F.progIn]: r.variant.value, [r.step.field]: stamp } }],
+      ...(r.variant.create ? { typecast: true } : {}),
+    }),
   });
   await writeWorkLog(user, {
     action: '工程完了', recordIds: [rec.id], book: before.book, wc: before.wc,
