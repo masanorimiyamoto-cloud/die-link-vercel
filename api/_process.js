@@ -57,15 +57,22 @@ const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取�
 
 export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
 
-// 作業リストに出すビュー。key は画面との識別子。増やすときはここに足すだけ（ビューIDは Airtable の URL の viw... の部分）。
-// quick は一覧の各行に並べる完了ボタン。step は STEPS の key、variant は種類の key（抜きの o / tk / tm など）。
-// variant を省いた種類のある工程（抜き）は、押すと種類を選ぶ画面になる。label を省くと「工程名＋完了」。
+// 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
+// sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる（たおし M判+K判 など）。
+// steps はそのビューの行で必ず進行札に出す工程（品名タグに無い工程を補う。例: 神 はタグが無い）。
 export const VIEWS = {
-  cad:     { id: 'viwIPW4eEsp6mo271', label: 'CAD',        quick: [{ step: 'cad' }] },
+  cad:     { label: 'CAD',        sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
   // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る（2026-10-03 ユーザー確認）
-  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', quick: [{ step: 'kiji' }, { step: 'finish' }] },
-  tm:      { id: 'viwdwd47psKdZPYAN', label: 'たおしM判',  quick: [{ step: 'tm' }] },
+  omamori: { label: 'お守箔焼印', sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
+  auton:   { label: 'オートン抜き', sources: [{ id: 'viwTUvEMgm7ArK9ZW', steps: ['o'] }] },           // Grid オートン未完了
+  kikai:   { label: '機械貼',     sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },
+  taoshi:  { label: 'たおし抜き', sources: [{ id: 'viwdwd47psKdZPYAN', steps: ['tm'] },                // Grid たおしM判
+                                           { id: 'viwqUVTtgLs4dsVIC', steps: ['tk'] }] },             // Grid たおしK判
+  tebari:  { label: '手貼り',     sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: ['hana'] },              // Grid 花
+                                           { id: 'viwM280YB8WgVvEeK', steps: ['kami'] }] },           // Grid 神
+  f2:      { label: '2F 小',      sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },                 // Grid 2F_小
 };
+const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
 const viewCache = new Map();     // key -> { at, rows }
 
@@ -133,19 +140,12 @@ export async function handleProcess(action, body, who) {
 
 const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, ...RECORD_FIELDS];
 
-async function view(body) {
-  const key = String(body?.view || '');
-  const v = VIEWS[key];
-  if (!v) return json({ ok: false, error: '作業リストの指定が正しくありません' }, 400);
-  const c = viewCache.get(key);
-  if (c && Date.now() - c.at < VIEW_CACHE_MS && !body?.refresh) {
-    return json({ ok: true, rows: c.rows, steps: publicSteps(), views: publicViews(), cachedAt: c.at });
-  }
+async function readView(viewId) {
   const rows = [];
   let offset;
   do {
     const url = new URL(API);
-    url.searchParams.set('view', v.id);
+    url.searchParams.set('view', viewId);
     url.searchParams.set('pageSize', '100');
     for (const f of LIST_FIELDS) url.searchParams.append('fields[]', f);
     if (offset) url.searchParams.set('offset', offset);
@@ -153,16 +153,35 @@ async function view(body) {
     (j.records || []).forEach(r => rows.push(describe(r)));
     offset = j.offset;
   } while (offset && rows.length < 500);
+  return rows;
+}
+
+async function view(body) {
+  // 古い画面が覚えているキー（以前の tm など）でも止めずに既定の一覧を返す
+  const key = VIEWS[String(body?.view || '')] ? String(body.view) : DEFAULT_VIEW;
+  const v = VIEWS[key];
+  const c = viewCache.get(key);
+  if (c && Date.now() - c.at < VIEW_CACHE_MS && !body?.refresh) {
+    return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), cachedAt: c.at });
+  }
+  const byId = new Map();
+  for (const src of v.sources) {
+    for (const r of await readView(src.id)) {
+      const cur = byId.get(r.id);
+      if (cur) cur.extra = [...new Set([...cur.extra, ...src.steps])];
+      else byId.set(r.id, { ...r, extra: [...src.steps] });
+    }
+  }
+  let rows = [...byId.values()];
+  // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）
+  if (v.sources.length > 1) rows.sort((a, b) => String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
   const at = Date.now();
   viewCache.set(key, { at, rows });
-  return json({ ok: true, rows, steps: publicSteps(), views: publicViews(), cachedAt: at });
+  return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), cachedAt: at });
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({
-    key, label: v.label,
-    quick: (v.quick || []).map(q => ({ step: q.step, variant: q.variant || '', label: q.label || '' })),
-  }));
+  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label }));
 }
 
 async function orders(body) {

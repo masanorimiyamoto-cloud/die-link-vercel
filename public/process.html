@@ -323,7 +323,7 @@
     say($('listMsg'), '読み込み中…');
     const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh });
     if (!j.ok) return say($('listMsg'), j.error || '読み込めませんでした', 'err');
-    S.views = j.views; S.steps = j.steps; S.view = key && j.views.some(v => v.key === key) ? key : j.views[0].key;
+    S.views = j.views; S.steps = j.steps; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     if (S.mode !== 'list') return;
     S.orders = j.rows;
@@ -349,8 +349,6 @@
   function renderList() {
     const box = $('list'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
-    // ビューの quick に挙げた工程は、品名タグに無くても進行札に出す（完了は行を押して工程カードから）
-    const extraSteps = ((v && v.quick) || []).map(q => q.step);
     for (const o of S.orders) {
       const row = document.createElement('div'); row.className = 'lrow';
       const el = document.createElement('button'); el.type = 'button';
@@ -358,7 +356,7 @@
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
-      el.append(it, facts(o), mt, progressStrip(o, extraSteps));
+      el.append(it, facts(o), mt, progressStrip(o, o.extra));
       const mm = memoLine(o); if (mm) el.append(mm);
       el.onclick = () => selectOrder(o.id);
       row.append(el);
