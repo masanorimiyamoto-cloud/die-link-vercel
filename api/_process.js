@@ -284,8 +284,10 @@ async function cancel(body, user) {
   if (!cur && progIn !== r.variant.value) {
     return json({ ok: false, error: 'この工程はもう記録されていません（誰かが先に取り消した可能性があります）', stale: true }, 409);
   }
-  // 他人の記録は本人か管理者だけが取り消せる。記録者が無い（Airtable で直接入れた）ものは誰でも可
-  if (cur && user.role !== ROLE_ADMIN && !String(cur).startsWith(`${user.name} `)) {
+  // 他人の記録は本人か管理者だけが取り消せる。記録者が無いもの（Airtable で直接入れた進行社内、
+  // またはオートメーションが「Airtable 日時」と書いたもの）は誰でも可
+  const unowned = !cur || String(cur).startsWith('Airtable ');
+  if (!unowned && user.role !== ROLE_ADMIN && !String(cur).startsWith(`${user.name} `)) {
     return json({ ok: false, error: `${cur.split(' ')[0]} さんの記録なので取り消せません。本人か管理者に頼んでください` }, 403);
   }
   const fields = { [r.step.field]: null };
