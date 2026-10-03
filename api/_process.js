@@ -58,19 +58,21 @@ const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取�
 export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
-// sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる（たおし M判+K判 など）。
-// steps はそのビューの行で必ず進行札に出す工程（品名タグに無い工程を補う。例: 神 はタグが無い）。
+// sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
+// steps はそのビューの行で必ず進行札に出す工程。関数にすると行ごとに決められる（タグの無い 神 など）。
+// 2026-10-03 ユーザーが Airtable 側でビューを整理（オートン未完了・神・たおしK判 を削除し統合）。
+const hasTag = (row, tag) => String(row.kotei || '').includes('|' + tag + '|');
 export const VIEWS = {
-  cad:     { label: 'CAD',        sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
-  // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る（2026-10-03 ユーザー確認）
-  omamori: { label: 'お守箔焼印', sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
-  auton:   { label: 'オートン抜き', sources: [{ id: 'viwTUvEMgm7ArK9ZW', steps: ['o'] }] },           // Grid オートン未完了
-  kikai:   { label: '機械貼',     sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },
-  taoshi:  { label: 'たおし抜き', sources: [{ id: 'viwdwd47psKdZPYAN', steps: ['tm'] },                // Grid たおしM判
-                                           { id: 'viwqUVTtgLs4dsVIC', steps: ['tk'] }] },             // Grid たおしK判
-  tebari:  { label: '手貼り',     sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: ['hana'] },              // Grid 花
-                                           { id: 'viwM280YB8WgVvEeK', steps: ['kami'] }] },           // Grid 神
-  f2:      { label: '2F 小',      sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },                 // Grid 2F_小
+  cad:     { label: 'CAD',          sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
+  // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る
+  omamori: { label: 'お守箔焼印',   sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
+  auton:   { label: 'オートン抜き', sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
+  kikai:   { label: '機械貼',       sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },   // Grid 機械貼
+  // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
+  taoshi:  { label: 'たおし抜き',   sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
+  // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
+  tebari:  { label: '手貼り',       sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: (row) => [hasTag(row, '花') ? 'hana' : 'kami'] }] }, // Grid 手貼り（花 神)
+  f2:      { label: '2F 小',        sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },          // Grid 2F_小
 };
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
@@ -166,10 +168,20 @@ async function view(body) {
   }
   const byId = new Map();
   for (const src of v.sources) {
-    for (const r of await readView(src.id)) {
+    let got;
+    try { got = await readView(src.id); }
+    catch (e) {
+      // Airtable でビューを消したり作り直したりすると ID が変わる。何が起きたか画面で分かるようにする
+      const gone = /airtable (404|422)/.test(String(e?.message || ''));
+      return json({ ok: false, error: gone
+        ? `「${v.label}」の Airtable ビューが見つかりません。ビューを削除・作り直した場合は管理者に連絡してください。`
+        : `「${v.label}」を読み込めませんでした（${String(e?.message || e).slice(0, 80)}）` }, gone ? 404 : 502);
+    }
+    for (const r of got) {
+      const steps = typeof src.steps === 'function' ? src.steps(r) : src.steps;
       const cur = byId.get(r.id);
-      if (cur) cur.extra = [...new Set([...cur.extra, ...src.steps])];
-      else byId.set(r.id, { ...r, extra: [...src.steps] });
+      if (cur) cur.extra = [...new Set([...cur.extra, ...steps])];
+      else byId.set(r.id, { ...r, extra: [...steps] });
     }
   }
   let rows = [...byId.values()];
