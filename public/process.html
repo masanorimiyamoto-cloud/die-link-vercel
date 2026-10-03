@@ -31,7 +31,7 @@
   .lrow{ display:flex; gap:8px; align-items:stretch }
   .lrow .order{ flex:1; min-width:0 }
   .qbar{ display:flex; flex:0 0 5.6em }
-  .quick{ flex:1; font-size:15px; padding:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
+  .quick{ white-space:pre-line; flex:1; font-size:15px; padding:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
   .quick.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
   /* ボタンが複数のビューは、品名の下に横並びで出す */
   .lrow.many{ flex-direction:column; gap:6px; padding-bottom:8px; border-bottom:1px solid var(--line) }
@@ -40,6 +40,13 @@
   .order .item{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
   .wrap > *, .card > *{ min-width:0 }
   .late{ color:#fca5a5 }
+  /* 一覧で進行が見えるよう、工程ごとの小さな札を並べる */
+  .prog{ display:flex; flex-wrap:wrap; gap:4px; margin-top:4px }
+  .pc{ font-size:12px; font-weight:700; padding:3px 7px; border-radius:7px; line-height:1.3;
+    background:rgba(255,255,255,.07); color:rgba(230,240,255,.55); border:1px dashed rgba(255,255,255,.18) }
+  .pc.ok{ background:rgba(34,197,94,.20); color:#bbf7d0; border:1px solid rgba(34,197,94,.45) }
+  .pc.out{ background:rgba(245,158,11,.16); color:#fde68a; border:1px solid rgba(245,158,11,.35) }
+  .memo{ font-size:13px; color:#fde68a; font-weight:600 }
   button{ font:inherit; font-weight:800; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
   button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
   .btn{ padding:12px 14px; background:var(--a); white-space:nowrap }
@@ -224,6 +231,35 @@
 
   function fmtDate(d) { return d ? d.slice(5).replace('-', '/') : '-'; }
 
+  // その受注に関係する工程: 品名タグから分かる工程 + 記録済みの工程 + 一覧のボタンの工程 + 仕上がり
+  const TAG_STEP = { 'オートン': 'nuki', 'たおしK判': 'nuki', 'たおしM判': 'nuki', '機械貼': 'kikai', '花': 'tebari', 'CAD': 'cad' };
+  function relevantSteps(o, extra) {
+    const want = new Set(extra || []);
+    for (const [tag, key] of Object.entries(TAG_STEP)) if (hasTag(o, tag)) want.add(key);
+    Object.keys(o.done || {}).forEach(k => want.add(k));
+    want.add('finish');
+    return S.steps.filter(s => want.has(s.key));
+  }
+  // 「佐藤 2026-10-03 14:20」→「佐藤 10/03」
+  const shortStamp = (t) => { const m = /^(.*?)\s+\d{4}-(\d\d)-(\d\d)/.exec(t || ''); return m ? `${m[1]} ${m[2]}/${m[3]}` : (t || ''); };
+
+  function progressStrip(o, extra) {
+    const box = document.createElement('div'); box.className = 'prog';
+    for (const s of relevantSteps(o, extra)) {
+      const c = document.createElement('span');
+      const d = o.done[s.key];
+      c.className = 'pc' + (d ? ' ok' : '');
+      c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : s.label;
+      box.append(c);
+    }
+    if (o.progOut) { const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut; box.append(c); }
+    return box;
+  }
+  function memoLine(o) {
+    if (!o.memo) return null;
+    const m = document.createElement('div'); m.className = 'memo'; m.textContent = '連絡: ' + o.memo; return m;
+  }
+
   function renderOrders() {
     if (S.mode === 'list') return renderList();
     const box = $('orders'); box.textContent = '';
@@ -232,8 +268,9 @@
       el.className = 'order' + (o.closed ? ' closed' : '') + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
-      mt.textContent = `数量 ${o.amount ?? '-'} ・ 納期 ${fmtDate(o.ndate)} ・ ${o.progIn || '進行なし'}${o.closed ? ' ・ ' + o.progOut : ''}`;
-      el.append(it, mt);
+      mt.textContent = `数量 ${o.amount ?? '-'} ・ 納期 ${fmtDate(o.ndate)} ・ ${o.progIn || '進行なし'}`;
+      el.append(it, mt, progressStrip(o));
+      const mm = memoLine(o); if (mm) el.append(mm);
       el.onclick = () => selectOrder(o.id);
       box.append(el);
     }
@@ -301,7 +338,8 @@
       const nd = document.createElement('span'); nd.textContent = '納期 ' + fmtDate(o.ndate);
       if (o.ndate && o.ndate < today()) nd.className = 'late';
       mt.append(`${o.book} / ${o.wc} ・ 数量 ${o.amount ?? '-'} ・ `, nd, ` ・ ${o.progIn || '進行なし'}`);
-      el.append(it, mt);
+      el.append(it, mt, progressStrip(o, quick.map(k => k.step.key)));
+      const mm = memoLine(o); if (mm) el.append(mm);
       el.onclick = () => selectOrder(o.id);
       row.append(el);
       if (quick.length) {
@@ -309,7 +347,9 @@
         for (const k of quick) {
           const q = document.createElement('button'); q.type = 'button'; q.className = 'quick';
           const done = o.done[k.step.key];
-          q.textContent = done ? k.label.replace(/(完了|終了)$/, '') + ' 済' : k.label;
+          const lb = done ? k.label.replace(/(完了|終了)$/, '') + ' 済' : k.label;
+          // ボタン1つの細い列では「CADカット / 完了」のように語の切れ目で改行させる
+          q.textContent = many ? lb : lb.replace(/\s*(完了|終了|済)$/, '\n$1');
           if (done) q.classList.add('done');
           q.onclick = () => { S.sel = o.id; k.fixed ? doComplete(k.step, k.fixed) : chooseStep(k.step); };
           bar.append(q);

@@ -23,6 +23,7 @@ const API              = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${enco
 const F = {
   book: 'Book', wc: 'WorkCord', item: 'ItemName', amount: 'NAmount', ndate: 'Ndate',
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
+  memo: '連絡事項',
 };
 
 // key は画面とAPIの間の識別子。variants[].value は 進行社内 の既存の選択肢名と完全一致させること。
@@ -96,6 +97,7 @@ function describe(rec) {
     item: f[F.item] || '', amount: f[F.amount] ?? null, ndate: f[F.ndate] || '',
     progIn: f[F.progIn] || '', progOut: f[F.progOut] || '', group: f[F.group] || '',
     kotei: f[F.kotei] || '',
+    memo: f[F.memo] || '',
     closed: CLOSED_OUT.has(String(f[F.progOut] || '')),
     done,
   };
@@ -122,7 +124,7 @@ export async function handleProcess(action, body, who) {
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, ...RECORD_FIELDS];
 
 async function view(body) {
   const key = String(body?.view || '');
