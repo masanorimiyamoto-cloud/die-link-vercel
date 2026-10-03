@@ -29,7 +29,7 @@
 //  裏を返すと、書く値を間違えると選択肢が勝手に増える。ラベルは Airtable の
 //  抜型状況(fldQBOQKnKS2TIx3s)の選択肢名と一致させること。
 //
-//  2026-10-03: 個人ログイン（api/auth.js）に対応。ログイン中なら操作者を TableWorkLog に残し、
+//  2026-10-03: 個人ログイン（api/session.js?action= / _auth-api.js）に対応。ログイン中なら操作者を TableWorkLog に残し、
 //  応答の operator に名前を返す。未ログインでも従来どおり動く（並行運用のため）。
 import { getSessionUser, writeWorkLog } from './_auth.js';
 export const config = { runtime: 'edge' };

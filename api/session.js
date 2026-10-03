@@ -1,4 +1,6 @@
 // pages/api/session.js
+// ?action= が付いていれば個人ログインAPI（api/_auth-api.js）。付いていなければ従来どおり xcsrf を発行する。
+import { handleAuth } from './_auth-api.js';
 export const config = { runtime: 'edge' };
 
 // ランダムトークン
@@ -11,6 +13,7 @@ function genToken(len = 32) {
 
 export default async function handler(req) {
   const url = new URL(req.url);
+  if (url.searchParams.get('action')) return handleAuth(req);
   // dev=1 のときは Secure を外す（http://localhost でテストできるように）
   const dev = url.searchParams.get('dev') === '1';
 

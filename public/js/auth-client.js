@@ -20,7 +20,7 @@
   }
 
   async function post(action, body) {
-    const r = await fetch('/api/auth?action=' + encodeURIComponent(action), {
+    const r = await fetch('/api/session?action=' + encodeURIComponent(action), {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'x-csrf': await csrf() },
@@ -34,7 +34,7 @@
   let mePromise = null;
   function me(force) {
     if (!mePromise || force) {
-      mePromise = fetch('/api/auth?action=me', { credentials: 'same-origin', cache: 'no-store' })
+      mePromise = fetch('/api/session?action=me', { credentials: 'same-origin', cache: 'no-store' })
         .then(r => r.json())
         .then(j => (j && j.user) || null)
         .catch(() => null);
@@ -63,6 +63,6 @@
     login: (no, pin) => post('login', { no, pin }).then(j => { mePromise = null; return j; }),
     logout: () => post('logout').then(j => { mePromise = null; return j; }),
     setPin: (id, pin) => post('set-pin', { id, pin }),
-    staff: () => fetch('/api/auth?action=staff', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json()),
+    staff: () => fetch('/api/session?action=staff', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json()),
   };
 })();

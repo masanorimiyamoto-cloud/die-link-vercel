@@ -1,7 +1,9 @@
-// api/auth.js  Edge Runtime
-// 個人ログインAPI。Vercel Hobby の関数数上限（12）に収めるため1ファイルにまとめ、?action= で分ける。
+// api/_auth-api.js
+// 個人ログインAPIの本体。先頭が _ なので単独の関数にはならず、api/session.js から呼ばれる。
+// 当初は api/auth.js として独立させたが、関数が12個になった時点で本番デプロイが失敗したため
+// （Vercel Hobby の関数数上限の疑い）、既存の session.js に相乗りさせた。2026-10-03
 //
-//   GET  ?action=me        … ログイン中の本人 { ok, user|null }。1日以上たったログインは延長して再発行
+//   GET  /api/session?action=me        … ログイン中の本人 { ok, user|null }。1日以上たったログインは延長して再発行
 //   POST ?action=login     … { no, pin } 社員番号とPIN。5回失敗で15分ロック
 //   POST ?action=logout
 //   GET  ?action=staff     … 管理者のみ。社員一覧（PIN暗号値は返さない）
@@ -15,8 +17,6 @@ import {
   getSessionUser, forgetStaffCache, writeWorkLog,
 } from './_auth.js';
 
-export const config = { runtime: 'edge' };
-
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
@@ -24,7 +24,7 @@ function json(body, status = 200, headers = {}) {
   });
 }
 
-export default async function handler(req) {
+export async function handleAuth(req) {
   const action = new URL(req.url).searchParams.get('action') || '';
   const dev = isLocalReq(req);
   try {
