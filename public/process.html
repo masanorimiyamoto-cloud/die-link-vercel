@@ -79,10 +79,8 @@
   .facts .when{ font-size:13px; font-weight:800; margin-left:6px; padding:2px 7px; border-radius:6px }
   .facts .late .when{ background:rgba(248,113,113,.18); color:#fca5a5 }
   .facts .soon .when{ background:rgba(251,191,36,.18); color:#fde68a }
-  /* 紙入荷日は数量・納期より一段小さく。先の日付は「予定」で、まだ紙が来ていないと分かるように */
-  .facts .paper b{ font-size:19px }
-  .facts .paper.wait b{ color:#fdba74 }
-  .facts .paper .when{ background:rgba(253,186,116,.16); color:#fdba74 }
+  /* 紙入荷日は 進行社外（シート手配済み／シート材料入荷済）の札の中に小さく添える */
+  .pc.out .pd{ font-weight:600; opacity:.8; margin-left:5px }
   .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
   .stephead{ grid-column:1/-1; font-size:14px; color:var(--mut); font-weight:700; margin-top:6px }
   /* 工程ボタン: 未記録は暗く（OFF）、記録済みは明るく（ON）。明るい紫だと押されているように見えたため（2026-10-03） */
@@ -284,17 +282,6 @@
       else if (diff === 1) { n.className = 'soon'; w.textContent = '明日'; n.append(w); }
     } else nb.textContent = '-';
     f.append(q, n);
-    if (o.paper) {
-      const [py, pm, pd] = o.paper.split('-').map(Number);
-      const pp = document.createElement('span'); pp.className = 'paper'; const pb = document.createElement('b');
-      pb.textContent = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})`;
-      pp.append('紙入荷', pb);
-      if (daysFromToday(o.paper) > 0) {
-        pp.classList.add('wait');
-        const w = document.createElement('span'); w.className = 'when'; w.textContent = '予定'; pp.append(w);
-      }
-      f.append(pp);
-    }
     return f;
   }
 
@@ -331,7 +318,17 @@
       c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : `${s.label} ✓`;
       box.append(c);
     }
-    if (o.progOut) { const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut; box.append(c); }
+    if (o.progOut) {
+      const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut;
+      // シートの手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
+      if (o.paper && /^シート(手配済み|材料入荷済)$/.test(o.progOut)) {
+        const [py, pm, pd] = o.paper.split('-').map(Number);
+        const d = document.createElement('span'); d.className = 'pd';
+        d.textContent = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
+        c.append(d);
+      }
+      box.append(c);
+    }
     return box;
   }
   /* ---------- 画像 ---------- */
