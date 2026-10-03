@@ -7,7 +7,7 @@
     "dev": "vercel dev"
   },
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "dependencies": {
     "googleapis": "^166.0.0"
