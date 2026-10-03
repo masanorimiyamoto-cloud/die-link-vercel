@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>社員とPINの管理</title>
+<style>
+  :root{ --bg:#0b0f14; --txt:#e6f0ff; --mut:rgba(230,240,255,.65); --a:#4f8cff; --err:#f87171; --ok:#22c55e; --warn:#f59e0b; }
+  *{ box-sizing:border-box } [hidden]{ display:none !important }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
+  .wrap{ padding:18px; max-width:720px; margin:0 auto; display:flex; flex-direction:column; gap:14px }
+  h1{ margin:0; font-size:22px; letter-spacing:.06em }
+  .lead{ margin:0; color:var(--mut); font-size:14px; line-height:1.6 }
+  .card{ padding:14px; border-radius:14px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.10);
+    display:flex; flex-direction:column; gap:10px }
+  .top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px }
+  .name{ font-size:18px; font-weight:800 }
+  .meta{ color:var(--mut); font-size:13px }
+  .tags{ display:flex; gap:6px; flex-wrap:wrap }
+  .tag{ font-size:12px; padding:3px 8px; border-radius:999px; background:rgba(255,255,255,.10) }
+  .tag.ok{ background:rgba(34,197,94,.20); color:#86efac }
+  .tag.warn{ background:rgba(245,158,11,.20); color:#fcd34d }
+  .tag.err{ background:rgba(248,113,113,.20); color:#fca5a5 }
+  .row{ display:flex; gap:8px }
+  input{ flex:1; min-width:0; font-size:20px; letter-spacing:.2em; padding:10px 12px; border-radius:12px;
+    border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.06); color:var(--txt) }
+  button{ font-size:15px; font-weight:800; padding:10px 14px; border-radius:12px; border:0; color:#fff;
+    background:var(--a); cursor:pointer; white-space:nowrap }
+  button:disabled{ opacity:.55 }
+  .msg{ font-size:14px; min-height:1.2em } .msg.err{ color:var(--err) } .msg.ok{ color:var(--ok) }
+  a{ color:#93c5fd }
+  #list{ display:flex; flex-direction:column; gap:10px }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>社員とPINの管理</h1>
+  <p class="lead">
+    社員の追加・氏名・番号・有効/無効・権限は、Airtable の TableStaff で直接変えてください。
+    ここではPINの設定とロック解除ができます。PINを設定すると、ロックと失敗回数も解除されます。
+    スマホを紛失したときは、TableStaff の「ログイン世代」を1増やすと、その人のログインが1分以内に無効になります。
+  </p>
+  <div class="msg" id="msg" role="alert"></div>
+  <section id="list" aria-live="polite"></section>
+  <p class="lead"><a href="/">トップへ戻る</a></p>
+</main>
+<script src="/js/auth-client.js"></script>
+<script>
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const msg = (t, cls) => { $('msg').textContent = t || ''; $('msg').className = 'msg ' + (cls || ''); };
+
+  const me = await DLAuth.requireLogin();
+  if (!me) return;
+  if (me.role !== '管理者') { msg('この画面は管理者だけが使えます。', 'err'); return; }
+
+  function tag(text, cls) {
+    const s = document.createElement('span');
+    s.className = 'tag ' + (cls || ''); s.textContent = text; return s;
+  }
+
+  async function load() {
+    msg('読み込み中…');
+    const j = await DLAuth.staff();
+    if (!j.ok) return msg(j.error || '読み込めませんでした', 'err');
+    msg('');
+    const list = $('list'); list.textContent = '';
+    for (const s of j.staff) {
+      const card = document.createElement('div'); card.className = 'card';
+
+      const top = document.createElement('div'); top.className = 'top';
+      const name = document.createElement('div'); name.className = 'name'; name.textContent = s.name || '(氏名なし)';
+      const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = '社員番号 ' + (s.no ?? '未設定');
+      top.append(name, meta);
+
+      const tags = document.createElement('div'); tags.className = 'tags';
+      tags.append(tag(s.role));
+      tags.append(s.active ? tag('有効', 'ok') : tag('無効', 'err'));
+      tags.append(s.hasPin ? tag('PIN設定済', 'ok') : tag('PIN未設定', 'warn'));
+      if (s.locked) tags.append(tag('ロック中', 'err'));
+      if (s.no == null) tags.append(tag('番号なし: ログイン不可', 'err'));
+
+      const row = document.createElement('div'); row.className = 'row';
+      const input = document.createElement('input');
+      input.type = 'password'; input.inputMode = 'numeric'; input.maxLength = 8; input.autocomplete = 'new-password';
+      input.placeholder = '新しいPIN';
+      input.setAttribute('aria-label', (s.name || '') + ' の新しいPIN');
+      const btn = document.createElement('button'); btn.type = 'button';
+      btn.textContent = s.hasPin ? 'PIN変更' : 'PIN設定';
+      btn.onclick = async () => {
+        const pin = input.value.trim();
+        if (!/^\d{4,8}$/.test(pin)) return msg('PINは4〜8桁の数字にしてください', 'err');
+        btn.disabled = true;
+        const r = await DLAuth.setPin(s.id, pin);
+        btn.disabled = false;
+        if (!r.ok) return msg(r.error || '設定できませんでした', 'err');
+        input.value = '';
+        await load();
+        msg((s.name || '') + ' さんのPINを設定しました。本人に口頭で伝えてください。', 'ok');
+      };
+      row.append(input, btn);
+
+      card.append(top, tags, row);
+      list.append(card);
+    }
+    if (!j.staff.length) msg('TableStaff に社員がいません。Airtable で追加してください。', 'err');
+  }
+  await load();
+})();
+</script>
+</body>
+</html>

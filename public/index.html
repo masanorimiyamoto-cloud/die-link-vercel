@@ -6,7 +6,7 @@
 <title>できること三つ</title>
 <style>
   :root{ --bg:#0b0f14; --txt:#e6f0ff; --a:#4f8cff; --b:#22c55e; --c:#f59e0b; }
-  *{ box-sizing:border-box }
+  *{ box-sizing:border-box } [hidden]{ display:none !important }
   html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
 
@@ -53,6 +53,14 @@
   .c{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
                 linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
   @media (min-width:520px){ .btn{ min-height:20vh } }
+
+  /* ログイン帯：誰の操作として記録されるかを常に見せる */
+  .who{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px;
+    border-radius:14px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); font-size:15px }
+  .who .nm{ font-weight:800 }
+  .who.out{ border-color:rgba(245,158,11,.45); background:rgba(245,158,11,.10) }
+  .who a{ color:#fff; text-decoration:none; font-weight:800; padding:8px 12px; border-radius:10px; background:rgba(79,140,255,.92); white-space:nowrap }
+  .who .links{ display:flex; gap:8px }
 </style>
 
 <!-- フォールバック: 事前プリフェッチ（全ブラウザ） -->
@@ -85,6 +93,9 @@
         <button id="btnChrome" class="btn-mini" type="button">Chromeで開く</button>
       </div>
     </section>
+
+    <!-- ログイン状態（auth-client.js が中身を入れる） -->
+    <section id="who" class="who" hidden aria-live="polite"></section>
 
     <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る<span class="sub">図面仕様・半製品・お守生地</span></a>
     <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す<span class="sub">型の場所</span></a>
@@ -133,6 +144,30 @@ function openInChrome(){
     if(hint) hint.style.display = 'block';
     if(btn) btn.addEventListener('click', openInChrome);
   }
+})();
+</script>
+<script src="/js/auth-client.js"></script>
+<script>
+/* ===== ログイン帯 ===== */
+(async function showWho(){
+  const box = document.getElementById('who');
+  const u = await DLAuth.me();
+  box.textContent = '';
+  const left = document.createElement('div');
+  const links = document.createElement('div'); links.className = 'links';
+  const link = (href, text) => { const a = document.createElement('a'); a.href = href; a.textContent = text; return a; };
+  if (u) {
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = u.name;
+    left.append(nm, document.createTextNode(' さんの操作として記録'));
+    if (u.role === '管理者') links.append(link('/staff-admin.html', '管理'));
+    links.append(link('/login.html?next=/', '切替'));
+  } else {
+    box.classList.add('out');
+    left.textContent = 'ログインしていません';
+    links.append(link('/login.html?next=/', 'ログイン'));
+  }
+  box.append(left, links);
+  box.hidden = false;
 })();
 </script>
 </body>

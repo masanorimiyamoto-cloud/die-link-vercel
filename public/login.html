@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>ログイン</title>
+<style>
+  :root{ --bg:#0b0f14; --txt:#e6f0ff; --mut:rgba(230,240,255,.65); --a:#4f8cff; --err:#f87171; --ok:#22c55e; }
+  *{ box-sizing:border-box } [hidden]{ display:none !important }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
+  .wrap{ min-height:100dvh; display:flex; flex-direction:column; justify-content:center; gap:18px;
+    padding:24px 18px; max-width:420px; margin:0 auto }
+  h1{ margin:0; font-size:26px; letter-spacing:.08em }
+  p.lead{ margin:0; color:var(--mut); font-size:14px; line-height:1.5 }
+  form{ display:flex; flex-direction:column; gap:14px }
+  label{ display:flex; flex-direction:column; gap:6px; font-weight:700; font-size:15px }
+  input{ font-size:28px; letter-spacing:.2em; padding:14px 16px; border-radius:14px;
+    border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.06); color:var(--txt); width:100% }
+  input:focus{ outline:2px solid var(--a); outline-offset:1px }
+  button{ font-size:22px; font-weight:800; letter-spacing:.12em; padding:16px; border-radius:16px; border:0;
+    color:#fff; background:linear-gradient(135deg,#1b3bff 0%,var(--a) 55%,#38bdf8 110%); cursor:pointer;
+    -webkit-tap-highlight-color:transparent }
+  button:disabled{ opacity:.55 }
+  button:active{ transform:scale(.985) }
+  .msg{ min-height:1.5em; font-size:15px; line-height:1.5 }
+  .msg.err{ color:var(--err) } .msg.ok{ color:var(--ok) }
+  .already{ display:none; flex-direction:column; gap:12px; padding:16px; border-radius:14px;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10) }
+  .already .name{ font-size:22px; font-weight:800 }
+  .row{ display:flex; gap:10px } .row button{ flex:1; font-size:17px; padding:12px }
+  .ghost{ background:rgba(255,255,255,.10) }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>ログイン</h1>
+  <p class="lead">社員番号とPINを入れてください。このスマホでは30日間ログインしたままになります。</p>
+
+  <section class="already" id="already" aria-live="polite">
+    <div>ログイン中</div>
+    <div class="name" id="alreadyName"></div>
+    <div class="row">
+      <button type="button" id="goBtn">続ける</button>
+      <button type="button" class="ghost" id="logoutBtn">ログアウト</button>
+    </div>
+  </section>
+
+  <form id="form" autocomplete="off" novalidate>
+    <label>社員番号
+      <input id="no" inputmode="numeric" pattern="\d*" maxlength="6" autocomplete="username" required />
+    </label>
+    <label>PIN
+      <input id="pin" type="password" inputmode="numeric" pattern="\d*" maxlength="8" autocomplete="current-password" required />
+    </label>
+    <button id="submit" type="submit">ログイン</button>
+    <div class="msg" id="msg" role="alert"></div>
+  </form>
+</main>
+<script src="/js/auth-client.js"></script>
+<script>
+(async function () {
+  const next = DLAuth.safeNext(new URLSearchParams(location.search).get('next'));
+  const $ = (id) => document.getElementById(id);
+  const msg = (t, cls) => { $('msg').textContent = t || ''; $('msg').className = 'msg ' + (cls || ''); };
+
+  const u = await DLAuth.me();
+  if (u) {
+    $('already').style.display = 'flex';
+    $('alreadyName').textContent = u.name + ' さん';
+    $('form').hidden = true;
+  } else {
+    $('no').focus();
+  }
+  $('goBtn').onclick = () => location.replace(next);
+  $('logoutBtn').onclick = async () => {
+    await DLAuth.logout();
+    $('already').style.display = 'none';
+    $('form').hidden = false;
+    $('no').focus();
+  };
+
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const no = $('no').value.trim(), pin = $('pin').value.trim();
+    if (!/^\d+$/.test(no)) return msg('社員番号を数字で入れてください', 'err');
+    if (!/^\d{4,8}$/.test(pin)) return msg('PINは4〜8桁の数字です', 'err');
+    $('submit').disabled = true; msg('確認中…');
+    const j = await DLAuth.login(no, pin);
+    $('submit').disabled = false;
+    if (j.ok) {
+      msg(j.user.name + ' さん、ログインしました', 'ok');
+      setTimeout(() => location.replace(next), 400);
+    } else {
+      $('pin').value = ''; $('pin').focus();
+      msg(j.error || 'ログインできませんでした', 'err');
+    }
+  });
+})();
+</script>
+</body>
+</html>

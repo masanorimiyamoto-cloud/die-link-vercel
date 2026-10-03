@@ -28,6 +28,10 @@
 //  選択肢が Airtable 側に無くても typecast:true で自動作成される。
 //  裏を返すと、書く値を間違えると選択肢が勝手に増える。ラベルは Airtable の
 //  抜型状況(fldQBOQKnKS2TIx3s)の選択肢名と一致させること。
+//
+//  2026-10-03: 個人ログイン（api/auth.js）に対応。ログイン中なら操作者を TableWorkLog に残し、
+//  応答の operator に名前を返す。未ログインでも従来どおり動く（並行運用のため）。
+import { getSessionUser, writeWorkLog } from './_auth.js';
 export const config = { runtime: 'edge' };
 
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
@@ -255,6 +259,9 @@ export default async function handler(req) {
   try {
     let body = {};
     try { body = await req.json(); } catch {}
+    // ログイン中の本人（未ログインなら null。記録できないだけで処理は続ける）
+    const who = await getSessionUser(req).catch(() => null);
+    const logEntries = [];
 
     const action = String(body?.action || '').trim();
     const status = STATUS_LABELS[action];
@@ -323,6 +330,10 @@ export default async function handler(req) {
         records = [p.picked];
       }
       totalMatched += records.length;
+      logEntries.push({
+        action, book: it.book, wc: it.wc, recordIds: records.map(r => r.id),
+        detail: `${status}${it.loc ? ` 棚:${it.loc}` : ''}`,
+      });
 
       // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
       const common = {};
@@ -365,10 +376,13 @@ export default async function handler(req) {
       await new Promise(r => setTimeout(r, 140));
     }
 
+    if (who) await writeWorkLog(who.user, logEntries);
+
     return json({
       ok: true,
       action,
       status,
+      operator: who ? who.user.name : null, // 誰の操作として記録したか（未ログインは null）
       progressIn: progressInLabel || null,   // 併せて入れた 進行社内 の値（無ければ null）
       progressOutIfEmpty: progressOutLabel || null, // 進行社外が空白の行にだけ入れた値
       targets,      // pickOne で選んだ受注（品名・数量・納期・既に照合済か）
