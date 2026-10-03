@@ -40,7 +40,7 @@
 
   .btn{ display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; color:#fff;
     border-radius:18px; padding:22px 20px; font-weight:800; letter-spacing:.08em;
-    font-size:clamp(28px,8vw,44px); line-height:1; min-height:22vh; -webkit-tap-highlight-color:transparent;
+    font-size:clamp(28px,8vw,44px); line-height:1; min-height:17vh; -webkit-tap-highlight-color:transparent;
     box-shadow:0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.06) }
   .btn .sub{ margin-top:12px; font-size:clamp(13px,3.4vw,18px); font-weight:600;
@@ -52,7 +52,9 @@
                 linear-gradient(135deg,#059669 0%,var(--b) 55%,#86efac 110%) }
   .c{ background:radial-gradient(120% 120% at 80% 0%, rgba(255,255,255,.08), transparent 60%),
                 linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
-  @media (min-width:520px){ .btn{ min-height:20vh } }
+  .d{ background:radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
+                linear-gradient(135deg,#6d28d9 0%,#a855f7 55%,#c084fc 110%) }
+  @media (min-width:520px){ .btn{ min-height:17vh } }
 
   /* ログイン帯：誰の操作として記録されるかを常に見せる */
   .who{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px;
@@ -100,6 +102,7 @@
     <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る<span class="sub">図面仕様・半製品・お守生地</span></a>
     <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す<span class="sub">型の場所</span></a>
     <a class="btn c" href="./scan-register.html"    aria-label="登録する">仕舞う<span class="sub">しまう棚を登録</span></a>
+    <a class="btn d" href="./process.html"          aria-label="工程の完了を記録">記録<span class="sub">抜き・貼り・仕上がりの完了</span></a>
   </main>
 
 <script>

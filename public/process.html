@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>工程の完了を記録</title>
+<style>
+  :root{ --bg:#0b0f14; --txt:#e6f0ff; --mut:rgba(230,240,255,.62); --line:rgba(255,255,255,.12);
+    --card:rgba(255,255,255,.05); --a:#4f8cff; --p:#a855f7; --ok:#22c55e; --err:#f87171; --warn:#f59e0b; }
+  *{ box-sizing:border-box } [hidden]{ display:none !important }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
+  .wrap{ max-width:640px; margin:0 auto; padding:12px 14px 40px; display:flex; flex-direction:column; gap:12px }
+  .bar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:14px; color:var(--mut) }
+  .bar b{ color:var(--txt) } .bar a{ color:#93c5fd; text-decoration:none }
+  h1{ margin:0; font-size:22px; letter-spacing:.06em }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
+  .row{ display:flex; gap:8px; align-items:center }
+  input{ min-width:0; font-size:20px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06); color:var(--txt) }
+  #book{ width:6.5em } #wc{ flex:1 }
+  button{ font:inherit; font-weight:800; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
+  button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
+  .btn{ padding:12px 14px; background:var(--a); white-space:nowrap }
+  .ghost{ background:rgba(255,255,255,.12) }
+  .camwrap{ position:relative; border-radius:12px; overflow:hidden; background:#000; aspect-ratio:4/3 }
+  video{ width:100%; height:100%; object-fit:cover; display:block }
+  .camhint{ position:absolute; left:0; right:0; bottom:0; padding:8px; font-size:13px; text-align:center; background:rgba(0,0,0,.55) }
+  .order{ text-align:left; padding:12px; border-radius:12px; border:2px solid transparent; background:rgba(255,255,255,.06); color:var(--txt); display:flex; flex-direction:column; gap:4px }
+  .order.sel{ border-color:var(--a); background:rgba(79,140,255,.16) }
+  .order.closed{ opacity:.5 }
+  .order .item{ font-size:17px } .order .meta{ font-size:13px; color:var(--mut); font-weight:600 }
+  .target{ font-size:15px; line-height:1.5 } .target .item{ font-size:19px; font-weight:800 }
+  .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .step{ min-height:86px; padding:10px; font-size:22px; letter-spacing:.06em; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
+  .step.rec{ outline:3px solid #fde68a; outline-offset:-3px }
+  .step.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
+  .step small{ font-size:12px; font-weight:700; letter-spacing:0; opacity:.95 }
+  .variants{ display:flex; flex-wrap:wrap; gap:8px }
+  .variants button{ flex:1 1 30%; padding:16px 8px; font-size:18px; background:var(--p) }
+  .variants button.rec{ outline:3px solid #fde68a; outline-offset:-3px }
+  .msg{ font-size:15px; line-height:1.5; min-height:1.2em } .msg.err{ color:var(--err) } .msg.ok{ color:var(--ok) } .msg.warn{ color:var(--warn) }
+  .toast{ position:fixed; left:12px; right:12px; bottom:14px; max-width:616px; margin:0 auto; padding:14px; border-radius:14px;
+    background:#14532d; border:1px solid #22c55e; display:flex; gap:10px; align-items:center; justify-content:space-between; box-shadow:0 10px 30px rgba(0,0,0,.5) }
+  .toast .t{ font-weight:800; font-size:16px }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="bar"><a href="/">← トップ</a><span id="who"></span></div>
+  <h1>工程の完了を記録</h1>
+
+  <!-- 1. 受注を探す -->
+  <section class="card" id="findCard">
+    <div class="row">
+      <button class="btn" id="camBtn" type="button">工程表のQRを読む</button>
+      <span class="msg" id="camMsg"></span>
+    </div>
+    <div class="camwrap" id="camWrap" hidden>
+      <video id="video" playsinline muted></video>
+      <div class="camhint">工程表のQRを枠いっぱいに映してください</div>
+    </div>
+    <div class="row">
+      <input id="book" placeholder="Book" autocapitalize="characters" autocomplete="off" aria-label="Book" />
+      <input id="wc" placeholder="WorkCord" inputmode="numeric" autocomplete="off" aria-label="WorkCord" />
+      <button class="btn ghost" id="searchBtn" type="button">検索</button>
+    </div>
+    <div class="msg" id="findMsg" role="status"></div>
+    <div id="orders" style="display:flex;flex-direction:column;gap:8px"></div>
+  </section>
+
+  <!-- 2. 工程を選んで完了 -->
+  <section class="card" id="stepCard" hidden>
+    <div class="target" id="target"></div>
+    <div class="steps" id="steps"></div>
+    <div class="variants" id="variants" hidden></div>
+    <div class="msg" id="stepMsg" role="status"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden role="status">
+  <span class="t" id="toastText"></span>
+  <button class="btn ghost" id="undoBtn" type="button">取り消す</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+<script src="/js/auth-client.js"></script>
+<script>
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const say = (el, t, cls) => { el.textContent = t || ''; el.className = 'msg ' + (cls || ''); };
+
+  const me = await DLAuth.requireLogin();
+  if (!me) return;
+  $('who').innerHTML = ''; const b = document.createElement('b'); b.textContent = me.name; $('who').append(b, ' さん');
+
+  const S = { orders: [], steps: [], sel: null, pendingStep: null, lastUndo: null };
+
+  async function api(body) {
+    const r = await fetch('/api/airtable-update-progress', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-csrf': await DLAuth.csrf() },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({ ok: false, error: '通信に失敗しました' }));
+    j.status = r.status;
+    if (j.needLogin) location.replace(DLAuth.loginUrl());
+    return j;
+  }
+
+  /* ---------- QR ---------- */
+  // 対応する形式: order-Book-WC / die-Book-WC / Ta:230 / URL の ?book=&wc=
+  function parseQr(raw) {
+    const t = String(raw || '').trim().replace(/[‐-―−ー－]/g, '-');
+    let m = /^(?:order|die)-([^-\s]+)-([^-\s]+)/i.exec(t);
+    if (m) return { book: m[1], wc: m[2] };
+    m = /^([A-Za-z]{1,3}):(\d+)$/.exec(t);
+    if (m) return { book: m[1], wc: m[2] };
+    try {
+      const u = new URL(t);
+      const book = u.searchParams.get('book') || u.searchParams.get('Book') || '';
+      const wc = u.searchParams.get('wc') || u.searchParams.get('WorkCord') || '';
+      if (book && wc) return { book, wc };
+    } catch {}
+    m = /order(?:[_-]?plain)?[:\s-]+([^\s/:-]+)[\s/:-]+([^\s/:-]+)/i.exec(t);
+    return m ? { book: m[1], wc: m[2] } : null;
+  }
+
+  let stream = null, scanTimer = null, detector = null;
+  async function startCam() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
+    } catch (e) { say($('camMsg'), 'カメラを使えません。下に品番を入れてください。', 'err'); return; }
+    const v = $('video'); v.srcObject = stream; await v.play().catch(() => {});
+    $('camWrap').hidden = false; $('camBtn').textContent = 'カメラを止める'; say($('camMsg'), '');
+    if ('BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch { detector = null; } }
+    const c = document.createElement('canvas'); const ctx = c.getContext('2d', { willReadFrequently: true });
+    scanTimer = setInterval(async () => {
+      if (!v.videoWidth) return;
+      let raw = '';
+      try {
+        if (detector) { const r = await detector.detect(v); raw = r[0]?.rawValue || ''; }
+        else if (window.jsQR) {
+          const sc = Math.min(1, 960 / v.videoWidth); c.width = v.videoWidth * sc; c.height = v.videoHeight * sc;
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          raw = jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'attemptBoth' })?.data || '';
+        }
+      } catch {}
+      if (!raw) return;
+      const p = parseQr(raw);
+      if (!p) { say($('camMsg'), '工程表のQRではないようです', 'warn'); return; }
+      stopCam(); navigator.vibrate?.(60);
+      $('book').value = p.book; $('wc').value = p.wc; search();
+    }, 160);
+  }
+  function stopCam() {
+    clearInterval(scanTimer); scanTimer = null;
+    stream?.getTracks().forEach(t => t.stop()); stream = null;
+    $('camWrap').hidden = true; $('camBtn').textContent = '工程表のQRを読む';
+  }
+  $('camBtn').onclick = () => (stream ? stopCam() : startCam());
+
+  /* ---------- 受注を探す ---------- */
+  async function search() {
+    const book = $('book').value.trim(), wc = $('wc').value.trim();
+    if (!book || !wc) return say($('findMsg'), 'Book と WorkCord を入れてください', 'err');
+    say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
+    const j = await api({ action: 'orders', book, wc });
+    if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
+    S.orders = j.orders; S.steps = j.steps;
+    if (!j.orders.length) return say($('findMsg'), `${book} / ${wc} の受注は見つかりません`, 'err');
+    const open = j.orders.filter(o => !o.closed);
+    say($('findMsg'), open.length > 1 ? `受注が${open.length}件あります。どれか選んでください` : '');
+    renderOrders();
+    if (open.length === 1) selectOrder(open[0].id);
+  }
+  $('searchBtn').onclick = search;
+  $('wc').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+
+  function fmtDate(d) { return d ? d.slice(5).replace('-', '/') : '-'; }
+
+  function renderOrders() {
+    const box = $('orders'); box.textContent = '';
+    for (const o of S.orders) {
+      const el = document.createElement('button'); el.type = 'button';
+      el.className = 'order' + (o.closed ? ' closed' : '') + (S.sel === o.id ? ' sel' : '');
+      const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
+      const mt = document.createElement('div'); mt.className = 'meta';
+      mt.textContent = `数量 ${o.amount ?? '-'} ・ 納期 ${fmtDate(o.ndate)} ・ ${o.progIn || '進行なし'}${o.closed ? ' ・ ' + o.progOut : ''}`;
+      el.append(it, mt);
+      el.onclick = () => selectOrder(o.id);
+      box.append(el);
+    }
+  }
+
+  /* ---------- 工程を選ぶ ---------- */
+  const current = () => S.orders.find(o => o.id === S.sel);
+  const hasTag = (o, tag) => !!tag && String(o.kotei || '').includes('|' + tag + '|');
+
+  function selectOrder(id) {
+    S.sel = id; S.pendingStep = null; renderOrders(); renderSteps();
+    $('stepCard').hidden = false; say($('stepMsg'), '');
+    $('stepCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderSteps() {
+    const o = current(); if (!o) return;
+    const t = $('target'); t.textContent = '';
+    const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
+    const mt = document.createElement('div');
+    mt.textContent = `${o.book} / ${o.wc} ・ 数量 ${o.amount ?? '-'} ・ 納期 ${fmtDate(o.ndate)} ・ 今の進行: ${o.progIn || 'なし'}`;
+    t.append(it, mt);
+
+    const box = $('steps'); box.textContent = '';
+    for (const s of S.steps) {
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step';
+      if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
+      const done = o.done[s.key];
+      if (done) btn.classList.add('done');
+      btn.append(document.createTextNode(s.label));
+      if (done) { const sm = document.createElement('small'); sm.textContent = '済 ' + done; btn.append(sm); }
+      btn.onclick = () => chooseStep(s);
+      box.append(btn);
+    }
+    $('variants').hidden = true;
+  }
+
+  function chooseStep(s) {
+    const o = current();
+    if (s.variants.length === 1) return doComplete(s, s.variants[0]);
+    // 抜き・手貼りは種類を選ぶ。工程(自動)から分かるものを目立たせる
+    S.pendingStep = s;
+    const box = $('variants'); box.textContent = ''; box.hidden = false;
+    for (const v of s.variants) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
+      if (hasTag(o, v.tag)) b.classList.add('rec');
+      b.onclick = () => doComplete(s, v);
+      box.append(b);
+    }
+    say($('stepMsg'), `${s.label}の種類を選んでください`);
+  }
+
+  async function doComplete(s, v, force) {
+    const o = current(); if (!o) return;
+    if (!force && o.group === '最終' && s.key !== 'finish' &&
+        !confirm(`この受注はもう「${o.progIn}」です。\n${v.value} にしてよいですか？`)) return;
+    say($('stepMsg'), '記録しています…');
+    document.querySelectorAll('.step, .variants button').forEach(b => b.disabled = true);
+    const j = await api({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
+    document.querySelectorAll('.step, .variants button').forEach(b => b.disabled = false);
+    if (j.conflict) {
+      if (confirm(`${j.error}\n上書きしますか？`)) return doComplete(s, v, true);
+      return say($('stepMsg'), '記録しませんでした', 'warn');
+    }
+    if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
+    o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
+    renderSteps(); renderOrders();
+    say($('stepMsg'), `${j.value} を記録しました`, 'ok');
+    navigator.vibrate?.([40, 40, 40]);
+    showUndo({ id: o.id, step: s.key, variant: v.key, prev: j.prev, prevRecord: j.prevRecord, label: j.value });
+  }
+
+  /* ---------- 取り消し ---------- */
+  let toastTimer = null;
+  function showUndo(u) {
+    S.lastUndo = u; $('toastText').textContent = `${u.label} を記録しました`; $('toast').hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; S.lastUndo = null; }, 60000);
+  }
+  $('undoBtn').onclick = async () => {
+    const u = S.lastUndo; if (!u) return;
+    $('undoBtn').disabled = true;
+    const j = await api({ action: 'undo', id: u.id, step: u.step, variant: u.variant, prev: u.prev, prevRecord: u.prevRecord });
+    $('undoBtn').disabled = false; $('toast').hidden = true; S.lastUndo = null;
+    if (!j.ok) return say($('stepMsg'), j.error || '取り消せませんでした', 'err');
+    say($('stepMsg'), `${u.label} を取り消しました`, 'warn');
+    await search(); if (S.orders.some(o => o.id === u.id)) selectOrder(u.id);
+  };
+
+  // URLで品番を渡されたら（?book=Ta&wc=230）すぐ探す
+  const q = new URLSearchParams(location.search);
+  if (q.get('book') && q.get('wc')) { $('book').value = q.get('book'); $('wc').value = q.get('wc'); search(); }
+})();
+</script>
+</body>
+</html>

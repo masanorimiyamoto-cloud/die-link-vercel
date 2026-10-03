@@ -32,6 +32,8 @@
 //  2026-10-03: 個人ログイン（api/session.js?action= / _auth-api.js）に対応。ログイン中なら操作者を TableWorkLog に残し、
 //  応答の operator に名前を返す。未ログインでも従来どおり動く（並行運用のため）。
 import { getSessionUser, writeWorkLog } from './_auth.js';
+// 工程完了画面（orders / complete / undo）も関数数を増やさないためここで受ける。
+import { PROCESS_ACTIONS, handleProcess } from './_process.js';
 export const config = { runtime: 'edge' };
 
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
@@ -264,6 +266,7 @@ export default async function handler(req) {
     const logEntries = [];
 
     const action = String(body?.action || '').trim();
+    if (PROCESS_ACTIONS.has(action)) return await handleProcess(action, body, who);
     const status = STATUS_LABELS[action];
     const progressField = ACTION_FIELDS[action];
     const checkField = ACTION_CHECKBOX[action] || '';
