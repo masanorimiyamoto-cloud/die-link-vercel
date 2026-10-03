@@ -78,9 +78,9 @@
   .variants button{ flex:1 1 30%; padding:16px 8px; font-size:18px; background:var(--p) }
   .variants button.rec{ outline:3px solid #fde68a; outline-offset:-3px }
   .msg{ font-size:15px; line-height:1.5; min-height:1.2em } .msg.err{ color:var(--err) } .msg.ok{ color:var(--ok) } .msg.warn{ color:var(--warn) }
-  .toast{ position:fixed; left:12px; right:12px; bottom:14px; max-width:616px; margin:0 auto; padding:14px; border-radius:14px;
-    background:#14532d; border:1px solid #22c55e; display:flex; gap:10px; align-items:center; justify-content:space-between; box-shadow:0 10px 30px rgba(0,0,0,.5) }
-  .toast .t{ font-weight:800; font-size:16px }
+  /* 記録後に戻った行を一瞬光らせ、どこに戻ったか分かるようにする */
+  .order.flash{ animation:flash 1.8s ease-out }
+  @keyframes flash{ 0%,30%{ box-shadow:0 0 0 4px #fde68a, 0 0 18px rgba(253,230,138,.6) } 100%{ box-shadow:0 0 0 0 transparent } }
 </style>
 </head>
 <body>
@@ -127,11 +127,6 @@
   </section>
 </main>
 
-<div class="toast" id="toast" hidden role="status">
-  <span class="t" id="toastText"></span>
-  <button class="btn ghost" id="undoBtn" type="button">取り消す</button>
-</div>
-
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <script src="/js/auth-client.js"></script>
 <script>
@@ -143,7 +138,7 @@
   if (!me) return;
   $('who').innerHTML = ''; const b = document.createElement('b'); b.textContent = me.name; $('who').append(b, ' さん');
 
-  const S = { orders: [], steps: [], views: [], view: '', mode: 'list', sel: null, pendingStep: null, lastUndo: null };
+  const S = { orders: [], steps: [], views: [], view: '', mode: 'list', sel: null, pendingStep: null };
 
   // Book は Ko / Ta / Yo から選ぶ。QR に別の値が来たときだけ選択肢を足す
   function setBook(v) {
@@ -317,6 +312,7 @@
       mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
       el.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) el.append(mm);
+      el.dataset.id = o.id;
       el.onclick = () => selectOrder(o.id);
       box.append(el);
     }
@@ -374,6 +370,7 @@
       mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
       el.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) el.append(mm);
+      el.dataset.id = o.id;
       el.onclick = () => selectOrder(o.id);
       row.append(el);
       box.append(row);
@@ -457,15 +454,10 @@
     }
     if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
     o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
-    renderSteps(); renderOrders();
-    if (S.mode === 'list') {
-      // ビューの条件で完了した行は消えることがあるので、取り直してから表示をそろえる
-      await loadView(S.view, true);
-      if (!current()) { $('stepCard').hidden = true; S.sel = null; }
-    }
-    say($('stepMsg'), `${j.value} を記録しました`, 'ok');
     navigator.vibrate?.([40, 40, 40]);
-    showUndo({ id: o.id, step: s.key, variant: v.key, prev: j.prev, prevRecord: j.prevRecord, label: j.value });
+    // ビューの条件で行が消えることがあるので、作業リストは取り直してから戻る
+    if (S.mode === 'list') await loadView(S.view, true);
+    backToRow(o.id, `${j.value} を記録しました`, 'ok');
   }
 
   async function cancelStep(s, done) {
@@ -482,9 +474,20 @@
     }
     delete o.done[s.key]; o.progIn = j.progIn || '';
     if (o.group === '最終' && o.progIn !== '仕上がりました') o.group = '';
-    renderSteps(); renderOrders();
-    say($('stepMsg'), `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
-    if (S.mode === 'list') await refreshCurrent();
+    if (S.mode === 'list') await loadView(S.view, true);
+    backToRow(o.id, `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
+  }
+
+  // 工程カードを閉じて、押した受注の行まで戻り、その行を一瞬光らせる
+  function backToRow(id, text, cls) {
+    $('stepCard').hidden = true; $('variants').hidden = true; S.sel = id;
+    renderOrders();
+    const msgEl = S.mode === 'list' ? $('listMsg') : $('findMsg');
+    const row = document.querySelector(`.order[data-id="${id}"]`);
+    if (!row) { say(msgEl, `${text}（この受注は一覧から外れました）`, cls); S.sel = null; return; }
+    say(msgEl, text, cls);
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
   }
 
   // 一覧を取り直し、選んでいた受注がまだあれば選び直す
@@ -493,23 +496,6 @@
     if (S.mode === 'list') await loadView(S.view, true); else await search();
     if (id && S.orders.some(x => x.id === id)) selectOrder(id); else { $('stepCard').hidden = true; S.sel = null; }
   }
-
-  /* ---------- 取り消し ---------- */
-  let toastTimer = null;
-  function showUndo(u) {
-    S.lastUndo = u; $('toastText').textContent = `${u.label} を記録しました`; $('toast').hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; S.lastUndo = null; }, 60000);
-  }
-  $('undoBtn').onclick = async () => {
-    const u = S.lastUndo; if (!u) return;
-    $('undoBtn').disabled = true;
-    const j = await api({ action: 'undo', id: u.id, step: u.step, variant: u.variant, prev: u.prev, prevRecord: u.prevRecord });
-    $('undoBtn').disabled = false; $('toast').hidden = true; S.lastUndo = null;
-    if (!j.ok) return say($('stepMsg'), j.error || '取り消せませんでした', 'err');
-    say($('stepMsg'), `${u.label} を取り消しました`, 'warn');
-    if (S.mode === 'list') await loadView(S.view, true);
-    else { await search(); if (S.orders.some(o => o.id === u.id)) selectOrder(u.id); }
-  };
 
   // URLで品番を渡されたら（?book=Ta&wc=230）すぐ探す
   const q = new URLSearchParams(location.search);
