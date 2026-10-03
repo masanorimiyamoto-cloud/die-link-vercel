@@ -46,10 +46,12 @@ const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取�
 
 export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
 
-// 作業リストに出すビュー。key は画面との識別子、step は一覧の行に出す「完了」ボタンの工程。
+// 作業リストに出すビュー。key は画面との識別子、step は一覧の行に出す「完了」ボタンの工程（空なら出さない）。
 // 増やすときはここに足すだけ（ビューIDは Airtable の URL の viw... の部分）。
 export const VIEWS = {
-  cad: { id: 'viwIPW4eEsp6mo271', label: 'CAD', step: 'cad' },
+  cad:     { id: 'viwIPW4eEsp6mo271', label: 'CAD',        step: 'cad' },
+  // 箔焼印に対応する工程はまだ無いので一覧の完了ボタンは出さない。行を押して工程を選ぶ。
+  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', step: '' },
 };
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
 const viewCache = new Map();     // key -> { at, rows }
