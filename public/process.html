@@ -43,6 +43,12 @@
   .pc.ok.now{ background:#16a34a; color:#fff; border-color:#86efac; box-shadow:0 0 10px rgba(34,197,94,.45) }
   .pc.out{ background:rgba(245,158,11,.16); color:#fde68a; border:1px solid rgba(245,158,11,.35) }
   .memo{ font-size:13px; color:#fde68a; font-weight:600 }
+  /* 仕上がり数量の変更 */
+  .facts .from{ font-size:13px; font-weight:700; color:#93c5fd; margin-left:6px }
+  .amt{ display:flex; flex-wrap:wrap; gap:8px; align-items:center }
+  .amt input{ width:7.5em; font-size:24px; font-weight:800; text-align:right }
+  .amt .note{ font-size:13px; color:var(--mut) }
+  .amtbtn{ padding:8px 12px; font-size:15px; background:rgba(255,255,255,.10) }
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
   .orow{ display:flex; gap:10px; align-items:flex-start; width:100% }
   .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:4px }
@@ -270,6 +276,11 @@
     const q = document.createElement('span'); const qb = document.createElement('b');
     qb.textContent = o.amount == null ? '-' : Number(o.amount).toLocaleString('ja-JP');
     q.append('数量', qb);
+    if (o.amountFrom && o.amountFrom !== String(o.amount)) {
+      const fr = document.createElement('span'); fr.className = 'from';
+      fr.textContent = '元 ' + (o.amountFrom === '空白' ? '空白' : Number(o.amountFrom).toLocaleString('ja-JP'));
+      fr.title = o.amountLog || ''; q.append(fr);
+    }
     const n = document.createElement('span'); const nb = document.createElement('b');
     n.append('納期', nb);
     if (o.ndate) {
@@ -331,6 +342,48 @@
     }
     return box;
   }
+  /* ---------- 仕上がり数量の変更 ---------- */
+  function amountEditor(o) {
+    const box = document.createElement('div'); box.className = 'amt';
+    if (o.amountLocked) {
+      const n = document.createElement('span'); n.className = 'note';
+      n.textContent = '受領伝票の発行後なので、数量はここでは変えられません（伝票の照合で訂正）';
+      box.append(n); return box;
+    }
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn'; open.textContent = '仕上がり数量を変える';
+    box.append(open);
+    if (o.amountLog) { const n = document.createElement('span'); n.className = 'note'; n.textContent = '最後の変更: ' + o.amountLog; box.append(n); }
+    open.onclick = () => {
+      box.textContent = '';
+      const inp = document.createElement('input'); inp.inputMode = 'numeric'; inp.pattern = '\\d*'; inp.value = o.amount ?? '';
+      inp.setAttribute('aria-label', '仕上がり数量');
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
+      box.append(inp, save, cancel);
+      inp.focus(); inp.select();
+      cancel.onclick = () => renderSteps();
+      inp.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
+      save.onclick = async () => {
+        const v = inp.value.trim().replace(/[,，\s]/g, '');
+        if (!/^\d+$/.test(v) || Number(v) <= 0) return say($('stepMsg'), '数量は1以上の整数で入れてください', 'err');
+        const cur = Number(o.amount), next = Number(v);
+        if (cur === next) return renderSteps();
+        // 大きく変わるときは念のため確認（10倍・10分の1はサーバーが弾く）
+        if (cur > 0 && (next > cur * 1.5 || next < cur / 1.5) &&
+            !confirm(`数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} に変えます。よろしいですか？`)) return;
+        save.disabled = true;
+        const j = await api({ action: 'amount', id: o.id, amount: next });
+        save.disabled = false;
+        if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
+        if (!o.amountFrom) o.amountFrom = String(cur);
+        o.amount = j.amount; o.amountLog = j.line || o.amountLog;
+        say($('stepMsg'), `仕上がり数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} にしました`, 'ok');
+        renderSteps(); renderOrders();
+      };
+    };
+    return box;
+  }
+
   /* ---------- 画像 ---------- */
   // Airtable の画像URLは数時間で切れる。切れていたら一覧を取り直すよう案内する
   function imgFail(img) {
@@ -494,7 +547,7 @@
     const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
     const mt = document.createElement('div'); mt.className = 'meta';
     mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, facts(o), mt);
+    t.append(it, facts(o), mt, amountEditor(o));
     renderStepImages(o);
 
     const box = $('steps'); box.textContent = '';

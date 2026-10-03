@@ -25,6 +25,7 @@ const F = {
   book: 'Book', wc: 'WorkCord', item: 'ItemName', amount: 'NAmount', ndate: 'Ndate',
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
+  amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID',
 };
 
 // 工程ボタン＝進行社内の選択肢。名前は Airtable の選択肢名と完全一致させる（2026-10-03 統一）。
@@ -56,7 +57,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel', 'amount']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -120,6 +121,11 @@ function describe(rec) {
     kotei: f[F.kotei] || '',
     memo: f[F.memo] || '',
     paper: f[F.paper] || '',
+    // 数量を画面で変えた履歴の最後の行（「1000→1020 佐藤 …」）から元の数量を出す
+    amountFrom: (() => { const m = /^(\d+|空白)→/.exec(String(f[F.amtLog] || '').trim()); return m ? m[1] : ''; })(),
+    amountLog: String(f[F.amtLog] || '').trim().split('\n').pop() || '',
+    // 伝票を出した後は数量を変えられない（画面でボタンを出さないため）
+    amountLocked: !!f[F.slipId] || ['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消'].includes(String(f[F.progOut] || '')),
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
     images: (Array.isArray(f[F.image]) ? f[F.image] : []).map(a => ({
       thumb: a.thumbnails?.large?.url || a.url,
@@ -150,10 +156,11 @@ export async function handleProcess(action, body, who) {
   if (action === 'complete') return complete(body, who.user);
   if (action === 'undo') return undo(body, who.user);
   if (action === 'cancel') return cancel(body, who.user);
+  if (action === 'amount') return changeAmount(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, ...RECORD_FIELDS];
 
 async function readView(viewId) {
   const rows = [];
@@ -307,6 +314,45 @@ async function cancel(body, user) {
     detail: `${r.variant.value} を取り消し${cur ? `（記録: ${cur}）` : ''}。進行社内は ${restored === null ? 'そのまま' : (restored || '空白') + ' に戻した'}`,
   });
   return json({ ok: true, progIn: restored === null ? progIn : restored });
+}
+
+// ---- 仕上がり数量（NAmount）の変更 ----
+// 作業者が仕上がった実数に直す。受領伝票はこの数量で出るので、伝票を出す前に直す運用。
+// ・NAmount_Prev も同じ値に書く（正規の書き手。書かないと「数量異常」の桁違い判定と
+//   Excel への差分プルの保留に引っかかる。memory/namount-baseline-design.md）
+// ・整数だけ。1504 が 1.504 に化けた事故（2026-09-01）の再発防止
+// ・今の数量の10倍以上/10分の1以下は打ち間違いとして弾く（数量異常の判定と同じ基準）
+// ・伝票発行後は変えない。発行後の訂正は受領伝票の照合（UpdatedBySlip）で行う
+const SLIP_DONE_OUT = new Set(['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消']);
+async function changeAmount(body, user) {
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const f = rec.fields || {};
+  const raw = String(body?.amount ?? '').trim().replace(/[,，\s]/g, '');
+  if (!/^\d+$/.test(raw)) return json({ ok: false, error: '数量は整数で入れてください（小数・記号は不可）' }, 400);
+  const next = Number(raw);
+  if (!Number.isSafeInteger(next) || next <= 0) return json({ ok: false, error: '数量は1以上の整数で入れてください' }, 400);
+  if (f[F.slipId] || SLIP_DONE_OUT.has(String(f[F.progOut] || ''))) {
+    return json({ ok: false, error: '受領伝票を発行した後なので、ここでは数量を変えられません。伝票の照合で訂正してください' }, 409);
+  }
+  const cur = Number(f[F.amount]);
+  if (Number.isFinite(cur) && cur === next) return json({ ok: true, amount: next, unchanged: true });
+  if (Number.isFinite(cur) && cur > 0 && (next >= cur * 10 || next * 10 <= cur)) {
+    return json({ ok: false, error: `今の数量 ${cur.toLocaleString('ja-JP')} と桁が違います。打ち間違いでなければ事務所に頼んでください` }, 400);
+  }
+  const line = `${Number.isFinite(cur) ? cur : '空白'}→${next} ${user.name} ${nowJST()}`;
+  const log = String(f[F.amtLog] || '').trim();
+  await airtable(API, {
+    method: 'PATCH',
+    body: JSON.stringify({ records: [{ id: rec.id, fields: {
+      [F.amount]: next, [F.amountPrev]: next, [F.amtLog]: log ? `${log}\n${line}` : line,
+    } }] }),
+  });
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: '数量変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: line,
+  });
+  return json({ ok: true, amount: next, line });
 }
 
 async function undo(body, user) {
