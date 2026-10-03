@@ -25,7 +25,7 @@ const F = {
   book: 'Book', wc: 'WorkCord', item: 'ItemName', amount: 'NAmount', ndate: 'Ndate',
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
-  amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID',
+  amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況',
 };
 
 // 工程ボタン＝進行社内の選択肢。名前は Airtable の選択肢名と完全一致させる（2026-10-03 統一）。
@@ -121,6 +121,7 @@ function describe(rec) {
     kotei: f[F.kotei] || '',
     memo: f[F.memo] || '',
     paper: f[F.paper] || '',
+    die: Array.isArray(f[F.die]) ? f[F.die].map(String) : [],   // 抜型状況（複数選択）
     // 数量を画面で変えた履歴の最後の行（「1000→1020 佐藤 …」）から元の数量を出す
     amountFrom: (() => { const m = /^(\d+|空白)→/.exec(String(f[F.amtLog] || '').trim()); return m ? m[1] : ''; })(),
     amountLog: String(f[F.amtLog] || '').trim().split('\n').pop() || '',
@@ -160,7 +161,7 @@ export async function handleProcess(action, body, who) {
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, ...RECORD_FIELDS];
 
 async function readView(viewId) {
   const rows = [];
