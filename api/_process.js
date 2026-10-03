@@ -47,11 +47,14 @@ const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取�
 export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
 
 // 作業リストに出すビュー。key は画面との識別子、step は一覧の行に出す「完了」ボタンの工程（空なら出さない）。
+// variant は STEPS の種類の key（抜きの o / tk / tm など）。
 // 増やすときはここに足すだけ（ビューIDは Airtable の URL の viw... の部分）。
 export const VIEWS = {
   cad:     { id: 'viwIPW4eEsp6mo271', label: 'CAD',        step: 'cad' },
-  // 箔焼印に対応する工程はまだ無いので一覧の完了ボタンは出さない。行を押して工程を選ぶ。
-  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', step: '' },
+  // お守箔焼印は「仕上がりました」で最終工程とみなす運用（2026-10-03 ユーザー確認）
+  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', step: 'finish' },
+  // variant を指定すると、種類のある工程（抜き）でも一覧のボタン1回で記録できる
+  tm:      { id: 'viwdwd47psKdZPYAN', label: 'たおしM判',  step: 'nuki', variant: 'tm' },
 };
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
 const viewCache = new Map();     // key -> { at, rows }
@@ -145,7 +148,7 @@ async function view(body) {
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, step: v.step }));
+  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, step: v.step, variant: v.variant || '' }));
 }
 
 async function orders(body) {

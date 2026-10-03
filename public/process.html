@@ -279,6 +279,9 @@
     const box = $('list'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
     const step = v && S.steps.find(s => s.key === v.step);
+    // ビューに種類の指定があれば（たおしM判 → 抜きの tm）、その種類で直接記録する
+    const fixed = step && v.variant ? step.variants.find(x => x.key === v.variant) : null;
+    const quickLabel = fixed ? fixed.label + '完了' : step ? step.label + '完了' : '';
     for (const o of S.orders) {
       const row = document.createElement('div'); row.className = 'lrow';
       const el = document.createElement('button'); el.type = 'button';
@@ -294,9 +297,9 @@
       if (step) {
         const q = document.createElement('button'); q.type = 'button'; q.className = 'quick';
         const done = o.done[step.key];
-        q.textContent = done ? '済' : step.label + '完了';
+        q.textContent = done ? '済' : quickLabel;
         if (done) q.classList.add('done');
-        q.onclick = () => { S.sel = o.id; chooseStep(step); };
+        q.onclick = () => { S.sel = o.id; fixed ? doComplete(step, fixed) : chooseStep(step); };
         row.append(q);
       }
       box.append(row);
