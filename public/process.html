@@ -35,7 +35,7 @@
   .late{ color:#fca5a5 }
   /* 一覧で進行が見えるよう、工程ごとの小さな札を並べる */
   .prog{ display:flex; flex-wrap:wrap; gap:4px; margin-top:4px }
-  .pc{ font-size:12px; font-weight:700; padding:3px 7px; border-radius:7px; line-height:1.3;
+  .pc{ font-size:13px; font-weight:700; padding:3px 7px; border-radius:7px; line-height:1.3;
     background:rgba(255,255,255,.07); color:rgba(230,240,255,.55); border:1px dashed rgba(255,255,255,.18) }
   .pc.ok{ background:rgba(34,197,94,.20); color:#bbf7d0; border:1px solid rgba(34,197,94,.45) }
   .pc.out{ background:rgba(245,158,11,.16); color:#fde68a; border:1px solid rgba(245,158,11,.35) }
@@ -50,8 +50,15 @@
   .order{ text-align:left; padding:12px; border-radius:12px; border:2px solid transparent; background:rgba(255,255,255,.06); color:var(--txt); display:flex; flex-direction:column; gap:4px }
   .order.sel{ border-color:var(--a); background:rgba(79,140,255,.16) }
   .order.closed{ opacity:.5 }
-  .order .item{ font-size:17px } .order .meta{ font-size:13px; color:var(--mut); font-weight:600 }
-  .target{ font-size:15px; line-height:1.5 } .target .item{ font-size:19px; font-weight:800 }
+  .order .item{ font-size:18px } .order .meta, .target .meta{ font-size:14px; color:var(--mut); font-weight:600 }
+  .target{ font-size:15px; line-height:1.5; display:flex; flex-direction:column; gap:4px } .target .item{ font-size:20px; font-weight:800 }
+  /* 数量と納期は一番大きく。Airtable で小さくて読みにくかった点の改善 */
+  .facts{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 20px; font-size:15px; font-weight:700; color:var(--mut) }
+  .facts b{ font-size:26px; line-height:1.15; color:var(--txt); letter-spacing:.02em; margin-left:4px }
+  .facts .late b{ color:#f87171 } .facts .soon b{ color:#fbbf24 }
+  .facts .when{ font-size:13px; font-weight:800; margin-left:6px; padding:2px 7px; border-radius:6px }
+  .facts .late .when{ background:rgba(248,113,113,.18); color:#fca5a5 }
+  .facts .soon .when{ background:rgba(251,191,36,.18); color:#fde68a }
   .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
   .step{ min-height:86px; padding:10px; font-size:22px; letter-spacing:.06em; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
@@ -223,6 +230,32 @@
   $('wc').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
 
   function fmtDate(d) { return d ? d.slice(5).replace('-', '/') : '-'; }
+  const WD = ['日', '月', '火', '水', '木', '金', '土'];
+  const todayJST = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  function daysFromToday(d) {
+    const [y, m, dd] = d.split('-').map(Number); const [ty, tm, td] = todayJST().split('-').map(Number);
+    return Math.round((Date.UTC(y, m - 1, dd) - Date.UTC(ty, tm - 1, td)) / 86400000);
+  }
+  // 数量と納期の大きな表示。納期は曜日つき、過ぎていれば赤、今日・明日は黄色
+  function facts(o) {
+    const f = document.createElement('div'); f.className = 'facts';
+    const q = document.createElement('span'); const qb = document.createElement('b');
+    qb.textContent = o.amount == null ? '-' : Number(o.amount).toLocaleString('ja-JP');
+    q.append('数量', qb);
+    const n = document.createElement('span'); const nb = document.createElement('b');
+    n.append('納期', nb);
+    if (o.ndate) {
+      const [y, m, d] = o.ndate.split('-').map(Number);
+      nb.textContent = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+      const diff = daysFromToday(o.ndate);
+      const w = document.createElement('span'); w.className = 'when';
+      if (diff < 0) { n.className = 'late'; w.textContent = `${-diff}日過ぎ`; n.append(w); }
+      else if (diff === 0) { n.className = 'soon'; w.textContent = '今日'; n.append(w); }
+      else if (diff === 1) { n.className = 'soon'; w.textContent = '明日'; n.append(w); }
+    } else nb.textContent = '-';
+    f.append(q, n);
+    return f;
+  }
 
   // その受注に関係する工程: 品名タグから分かる工程 + 記録済みの工程 + 一覧のボタンの工程 + 仕上がり
   const TAG_STEP = { 'オートン': 'nuki', 'たおしK判': 'nuki', 'たおしM判': 'nuki', '機械貼': 'kikai', '花': 'tebari', 'CAD': 'cad' };
@@ -263,8 +296,8 @@
       el.className = 'order' + (o.closed ? ' closed' : '') + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
-      mt.textContent = `数量 ${o.amount ?? '-'} ・ 納期 ${fmtDate(o.ndate)} ・ ${o.progIn || '進行なし'}`;
-      el.append(it, mt, progressStrip(o));
+      mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
+      el.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) el.append(mm);
       el.onclick = () => selectOrder(o.id);
       box.append(el);
@@ -310,7 +343,6 @@
     r.onclick = () => loadView(S.view, true); box.append(r);
   }
 
-  const today = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
   function renderList() {
     const box = $('list'); box.textContent = '';
@@ -323,10 +355,8 @@
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
-      const nd = document.createElement('span'); nd.textContent = '納期 ' + fmtDate(o.ndate);
-      if (o.ndate && o.ndate < today()) nd.className = 'late';
-      mt.append(`${o.book} / ${o.wc} ・ 数量 ${o.amount ?? '-'} ・ `, nd, ` ・ ${o.progIn || '進行なし'}`);
-      el.append(it, mt, progressStrip(o, extraSteps));
+      mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
+      el.append(it, facts(o), mt, progressStrip(o, extraSteps));
       const mm = memoLine(o); if (mm) el.append(mm);
       el.onclick = () => selectOrder(o.id);
       row.append(el);
@@ -348,9 +378,9 @@
     const o = current(); if (!o) return;
     const t = $('target'); t.textContent = '';
     const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
-    const mt = document.createElement('div');
-    mt.textContent = `${o.book} / ${o.wc} ・ 数量 ${o.amount ?? '-'} ・ 納期 ${fmtDate(o.ndate)} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, mt);
+    const mt = document.createElement('div'); mt.className = 'meta';
+    mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
+    t.append(it, facts(o), mt);
 
     const box = $('steps'); box.textContent = '';
     for (const s of S.steps) {
