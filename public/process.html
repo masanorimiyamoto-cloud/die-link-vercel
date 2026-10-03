@@ -61,11 +61,14 @@
   .facts .soon .when{ background:rgba(251,191,36,.18); color:#fde68a }
   .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
   .stephead{ grid-column:1/-1; font-size:14px; color:var(--mut); font-weight:700; margin-top:6px }
-  .step.status{ background:linear-gradient(135deg,#334155 0%,#475569 100%) }
+  /* 工程ボタン: 未記録は暗く（OFF）、記録済みは明るく（ON）。明るい紫だと押されているように見えたため（2026-10-03） */
   .step{ min-height:72px; padding:8px; font-size:18px; letter-spacing:.02em; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
-  .step.rec{ outline:3px solid #fde68a; outline-offset:-3px }
-  .step.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
+    align-items:center; justify-content:center; gap:6px;
+    background:#141a24; color:rgba(230,240,255,.82); border:1px solid rgba(255,255,255,.16) }
+  .step.status{ background:#11161e; border-style:dashed }
+  .step.rec{ border:2px solid #fde68a; color:#fff }
+  .step.done{ background:linear-gradient(135deg,#15803d 0%,#22c55e 60%,#4ade80 110%); color:#fff; border-color:#86efac;
+    box-shadow:0 0 14px rgba(34,197,94,.45) }
   .step small{ font-size:12px; font-weight:700; letter-spacing:0; opacity:.95 }
   .variants{ display:flex; flex-wrap:wrap; gap:8px }
   .variants button{ flex:1 1 30%; padding:16px 8px; font-size:18px; background:var(--p) }
