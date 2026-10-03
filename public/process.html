@@ -43,6 +43,23 @@
   .pc.ok.now{ background:#16a34a; color:#fff; border-color:#86efac; box-shadow:0 0 10px rgba(34,197,94,.45) }
   .pc.out{ background:rgba(245,158,11,.16); color:#fde68a; border:1px solid rgba(245,158,11,.35) }
   .memo{ font-size:13px; color:#fde68a; font-weight:600 }
+  /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
+  .orow{ display:flex; gap:10px; align-items:flex-start; width:100% }
+  .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:4px }
+  .thumb{ flex:0 0 76px; width:76px; height:76px; border-radius:10px; overflow:hidden; background:#0b0f14;
+    border:1px solid rgba(255,255,255,.14); display:flex; align-items:center; justify-content:center; position:relative }
+  .thumb img{ width:100%; height:100%; object-fit:contain; background:#fff }
+  .thumb .n{ position:absolute; right:3px; bottom:3px; font-size:11px; padding:1px 5px; border-radius:6px; background:rgba(0,0,0,.65); color:#fff }
+  .imgs{ display:flex; gap:8px; overflow-x:auto }
+  .imgs img{ max-height:40vh; max-width:100%; border-radius:10px; background:#fff; cursor:zoom-in; flex:0 0 auto }
+  .imgnote{ font-size:13px; color:var(--mut) }
+  .viewer{ position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.94); display:flex; flex-direction:column }
+  .viewer .vbar{ display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; color:#fff; font-size:14px }
+  .viewer .vbar a{ color:#93c5fd }
+  .viewer .vimg{ flex:1; overflow:auto; display:flex; align-items:center; justify-content:center; touch-action:pinch-zoom }
+  .viewer .vimg img{ max-width:100%; max-height:100%; background:#fff }
+  .viewer .vimg.zoom{ align-items:flex-start; justify-content:flex-start }
+  .viewer .vimg.zoom img{ max-width:none; max-height:none }
   button{ font:inherit; font-weight:800; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
   button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
   .btn{ padding:12px 14px; background:var(--a); white-space:nowrap }
@@ -121,6 +138,7 @@
   <!-- 2. 工程を選んで完了 -->
   <section class="card" id="stepCard" hidden>
     <div class="target" id="target"></div>
+    <div class="imgs" id="stepImgs"></div>
     <div class="steps" id="steps"></div>
     <div class="variants" id="variants" hidden></div>
     <div class="msg" id="stepMsg" role="status"></div>
@@ -128,6 +146,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
+<div class="viewer" id="viewer" hidden role="dialog" aria-label="画像">
+  <div class="vbar"><span id="vname"></span><span><a id="vopen" target="_blank" rel="noopener">原寸で開く</a>　<button class="btn ghost" id="vclose" type="button">閉じる</button></span></div>
+  <div class="vimg" id="vimg"><img id="vpic" alt="" /></div>
+</div>
 <script src="/js/auth-client.js"></script>
 <script>
 (async function () {
@@ -297,6 +319,64 @@
     if (o.progOut) { const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut; box.append(c); }
     return box;
   }
+  /* ---------- 画像 ---------- */
+  // Airtable の画像URLは数時間で切れる。切れていたら一覧を取り直すよう案内する
+  function imgFail(img) {
+    img.onerror = null; img.removeAttribute('src'); img.alt = '期限切れ'; img.title = '更新ボタンで再表示できます';
+    img.style.background = '#334155';
+  }
+  function thumbOf(o) {
+    const list = (o.images || []).filter(a => a.thumb);
+    if (!list.length) return null;
+    const box = document.createElement('span'); box.className = 'thumb';
+    const img = document.createElement('img'); img.loading = 'lazy'; img.alt = '画像'; img.src = list[0].thumb;
+    img.onerror = () => imgFail(img);
+    box.append(img);
+    if (list.length > 1) { const n = document.createElement('span'); n.className = 'n'; n.textContent = '+' + (list.length - 1); box.append(n); }
+    // 行のボタンの中だが、画像を押したときは行の選択ではなく全画面表示にする
+    box.addEventListener('click', (e) => { e.stopPropagation(); openViewer(list, 0); });
+    return box;
+  }
+  function renderStepImages(o) {
+    const box = $('stepImgs'); box.textContent = '';
+    box.parentNode.querySelectorAll('.imgnote').forEach(e => e.remove());
+    const list = (o.images || []).filter(a => a.thumb);
+    list.forEach((a, i) => {
+      const img = document.createElement('img'); img.src = a.thumb; img.alt = a.name || '画像';
+      img.onerror = () => imgFail(img);
+      img.onclick = () => openViewer(list, i);
+      box.append(img);
+    });
+    if (list.length > 1) {
+      const n = document.createElement('div'); n.className = 'imgnote';
+      n.textContent = `画像が${list.length}枚あります（横にずらすと次の画像）`;
+      box.before(n); box.dataset.note = 1;
+    }
+  }
+  let viewerList = [], viewerIdx = 0;
+  function openViewer(list, i) {
+    viewerList = list; viewerIdx = i; showViewer();
+    $('viewer').hidden = false; document.body.style.overflow = 'hidden';
+  }
+  function showViewer() {
+    const a = viewerList[viewerIdx]; if (!a) return;
+    $('vimg').classList.remove('zoom');
+    const pic = $('vpic'); pic.src = a.full; pic.onerror = () => imgFail(pic);
+    $('vname').textContent = (a.name || '') + (viewerList.length > 1 ? `（${viewerIdx + 1}/${viewerList.length}）` : '');
+    $('vopen').href = a.full;
+  }
+  function closeViewer() { $('viewer').hidden = true; document.body.style.overflow = ''; $('vpic').removeAttribute('src'); }
+  $('vclose').onclick = closeViewer;
+  // 画像を押すと原寸⇔画面に合わせる を切り替え。複数あるときは左右の端を押すと前後へ
+  $('vimg').onclick = (e) => {
+    const r = $('vimg').getBoundingClientRect(); const x = (e.clientX - r.left) / r.width;
+    if (viewerList.length > 1 && (x < 0.15 || x > 0.85)) {
+      viewerIdx = (viewerIdx + (x < 0.15 ? -1 : 1) + viewerList.length) % viewerList.length; showViewer(); return;
+    }
+    $('vimg').classList.toggle('zoom');
+  };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('viewer').hidden) closeViewer(); });
+
   function memoLine(o) {
     if (!o.memo) return null;
     const m = document.createElement('div'); m.className = 'memo'; m.textContent = '連絡: ' + o.memo; return m;
@@ -311,8 +391,12 @@
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
-      el.append(it, facts(o), mt, progressStrip(o));
-      const mm = memoLine(o); if (mm) el.append(mm);
+      const info = document.createElement('div'); info.className = 'info';
+      info.append(it, facts(o), mt, progressStrip(o));
+      const mm = memoLine(o); if (mm) info.append(mm);
+      const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
+      const th = thumbOf(o); if (th) wrap.append(th);
+      el.append(wrap);
       el.dataset.id = o.id;
       el.onclick = () => selectOrder(o.id);
       box.append(el);
@@ -369,8 +453,12 @@
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
-      el.append(it, facts(o), mt, progressStrip(o));
-      const mm = memoLine(o); if (mm) el.append(mm);
+      const info = document.createElement('div'); info.className = 'info';
+      info.append(it, facts(o), mt, progressStrip(o));
+      const mm = memoLine(o); if (mm) info.append(mm);
+      const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
+      const th = thumbOf(o); if (th) wrap.append(th);
+      el.append(wrap);
       el.dataset.id = o.id;
       el.onclick = () => selectOrder(o.id);
       row.append(el);
@@ -395,6 +483,7 @@
     const mt = document.createElement('div'); mt.className = 'meta';
     mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
     t.append(it, facts(o), mt);
+    renderStepImages(o);
 
     const box = $('steps'); box.textContent = '';
     const lastKey = latestKey(o);
