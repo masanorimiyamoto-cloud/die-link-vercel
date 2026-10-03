@@ -18,7 +18,23 @@
   .row{ display:flex; gap:8px; align-items:center }
   input{ min-width:0; font-size:20px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.16);
     background:rgba(255,255,255,.06); color:var(--txt) }
-  #book{ width:6.5em } #wc{ flex:1 }
+  select{ font-size:20px; padding:10px 8px; border-radius:12px; border:1px solid rgba(255,255,255,.16);
+    background:#1a2230; color:var(--txt) }
+  #book{ width:5.2em } #wc{ flex:1 }
+  .tabs{ display:flex; gap:6px; background:rgba(255,255,255,.06); padding:4px; border-radius:14px }
+  .tabs button{ flex:1; padding:12px 6px; font-size:17px; background:transparent; color:var(--mut) }
+  .tabs button.on{ background:var(--a); color:#fff }
+  .chips{ display:flex; gap:6px; flex-wrap:wrap; align-items:center }
+  .chips button{ padding:8px 14px; font-size:15px; background:rgba(255,255,255,.10) }
+  .chips button.on{ background:var(--p) }
+  .chips .sp{ flex:1 }
+  .lrow{ display:flex; gap:8px; align-items:stretch }
+  .lrow .order{ flex:1; min-width:0 }
+  .lrow .quick{ flex:0 0 5.6em; font-size:15px; padding:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
+  .lrow .quick.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
+  .order .item{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
+  .wrap > *, .card > *{ min-width:0 }
+  .late{ color:#fca5a5 }
   button{ font:inherit; font-weight:800; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
   button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
   .btn{ padding:12px 14px; background:var(--a); white-space:nowrap }
@@ -50,6 +66,17 @@
 <main class="wrap">
   <div class="bar"><a href="/">← トップ</a><span id="who"></span></div>
   <h1>工程の完了を記録</h1>
+  <nav class="tabs" role="tablist">
+    <button type="button" id="tabList" role="tab">作業リスト</button>
+    <button type="button" id="tabFind" role="tab">品番で探す</button>
+  </nav>
+
+  <!-- 作業リスト（Airtable のビューをそのまま表示） -->
+  <section class="card" id="listCard" hidden>
+    <div class="chips" id="viewChips"></div>
+    <div class="msg" id="listMsg" role="status"></div>
+    <div id="list" style="display:flex;flex-direction:column;gap:8px"></div>
+  </section>
 
   <!-- 1. 受注を探す -->
   <section class="card" id="findCard">
@@ -62,7 +89,7 @@
       <div class="camhint">工程表のQRを枠いっぱいに映してください</div>
     </div>
     <div class="row">
-      <input id="book" placeholder="Book" autocapitalize="characters" autocomplete="off" aria-label="Book" />
+      <select id="book" aria-label="Book"><option>Ko</option><option>Ta</option><option>Yo</option></select>
       <input id="wc" placeholder="WorkCord" inputmode="numeric" autocomplete="off" aria-label="WorkCord" />
       <button class="btn ghost" id="searchBtn" type="button">検索</button>
     </div>
@@ -95,7 +122,19 @@
   if (!me) return;
   $('who').innerHTML = ''; const b = document.createElement('b'); b.textContent = me.name; $('who').append(b, ' さん');
 
-  const S = { orders: [], steps: [], sel: null, pendingStep: null, lastUndo: null };
+  const S = { orders: [], steps: [], views: [], view: '', mode: 'list', sel: null, pendingStep: null, lastUndo: null };
+
+  // Book は Ko / Ta / Yo から選ぶ。QR に別の値が来たときだけ選択肢を足す
+  function setBook(v) {
+    const sel = $('book'); v = String(v || '').trim();
+    if (!v) return;
+    if (![...sel.options].some(o => o.value === v)) { const o = document.createElement('option'); o.textContent = v; sel.append(o); }
+    sel.value = v;
+  }
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
 
   async function api(body) {
     const r = await fetch('/api/airtable-update-progress', {
@@ -151,7 +190,7 @@
       const p = parseQr(raw);
       if (!p) { say($('camMsg'), '工程表のQRではないようです', 'warn'); return; }
       stopCam(); navigator.vibrate?.(60);
-      $('book').value = p.book; $('wc').value = p.wc; search();
+      setBook(p.book); $('wc').value = p.wc; setMode('find'); search();
     }, 160);
   }
   function stopCam() {
@@ -181,6 +220,7 @@
   function fmtDate(d) { return d ? d.slice(5).replace('-', '/') : '-'; }
 
   function renderOrders() {
+    if (S.mode === 'list') return renderList();
     const box = $('orders'); box.textContent = '';
     for (const o of S.orders) {
       const el = document.createElement('button'); el.type = 'button';
@@ -191,6 +231,75 @@
       el.append(it, mt);
       el.onclick = () => selectOrder(o.id);
       box.append(el);
+    }
+  }
+
+  /* ---------- タブ ---------- */
+  function setMode(m) {
+    S.mode = m; store.set('process.mode', m);
+    $('tabList').classList.toggle('on', m === 'list'); $('tabFind').classList.toggle('on', m === 'find');
+    $('listCard').hidden = m !== 'list'; $('findCard').hidden = m !== 'find';
+    $('stepCard').hidden = true; S.sel = null; $('variants').hidden = true;
+    if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
+    else { S.orders = []; renderOrders(); say($('findMsg'), ''); }
+  }
+  $('tabList').onclick = () => setMode('list');
+  $('tabFind').onclick = () => setMode('find');
+
+  /* ---------- 作業リスト ---------- */
+  async function loadView(key, refresh) {
+    say($('listMsg'), '読み込み中…');
+    const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh });
+    if (!j.ok) return say($('listMsg'), j.error || '読み込めませんでした', 'err');
+    S.views = j.views; S.steps = j.steps; S.view = key && j.views.some(v => v.key === key) ? key : j.views[0].key;
+    store.set('process.view', S.view);
+    if (S.mode !== 'list') return;
+    S.orders = j.rows;
+    renderChips();
+    say($('listMsg'), j.rows.length ? `${j.rows.length}件` : 'このリストに作業はありません');
+    renderList();
+  }
+
+  function renderChips() {
+    const box = $('viewChips'); box.textContent = '';
+    for (const v of S.views) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
+      if (v.key === S.view) b.classList.add('on');
+      b.onclick = () => { S.sel = null; $('stepCard').hidden = true; loadView(v.key); };
+      box.append(b);
+    }
+    const sp = document.createElement('span'); sp.className = 'sp'; box.append(sp);
+    const r = document.createElement('button'); r.type = 'button'; r.textContent = '更新';
+    r.onclick = () => loadView(S.view, true); box.append(r);
+  }
+
+  const today = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+
+  function renderList() {
+    const box = $('list'); box.textContent = '';
+    const v = S.views.find(x => x.key === S.view);
+    const step = v && S.steps.find(s => s.key === v.step);
+    for (const o of S.orders) {
+      const row = document.createElement('div'); row.className = 'lrow';
+      const el = document.createElement('button'); el.type = 'button';
+      el.className = 'order' + (S.sel === o.id ? ' sel' : '');
+      const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
+      const mt = document.createElement('div'); mt.className = 'meta';
+      const nd = document.createElement('span'); nd.textContent = '納期 ' + fmtDate(o.ndate);
+      if (o.ndate && o.ndate < today()) nd.className = 'late';
+      mt.append(`${o.book} / ${o.wc} ・ 数量 ${o.amount ?? '-'} ・ `, nd, ` ・ ${o.progIn || '進行なし'}`);
+      el.append(it, mt);
+      el.onclick = () => selectOrder(o.id);
+      row.append(el);
+      if (step) {
+        const q = document.createElement('button'); q.type = 'button'; q.className = 'quick';
+        const done = o.done[step.key];
+        q.textContent = done ? '済' : step.label + '完了';
+        if (done) q.classList.add('done');
+        q.onclick = () => { S.sel = o.id; chooseStep(step); };
+        row.append(q);
+      }
+      box.append(row);
     }
   }
 
@@ -228,6 +337,8 @@
 
   function chooseStep(s) {
     const o = current();
+    if (!o) return;
+    if (s.variants.length > 1 && $('stepCard').hidden) { selectOrder(o.id); }
     if (s.variants.length === 1) return doComplete(s, s.variants[0]);
     // 抜き・手貼りは種類を選ぶ。工程(自動)から分かるものを目立たせる
     S.pendingStep = s;
@@ -256,6 +367,11 @@
     if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
     o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
     renderSteps(); renderOrders();
+    if (S.mode === 'list') {
+      // ビューの条件で完了した行は消えることがあるので、取り直してから表示をそろえる
+      await loadView(S.view, true);
+      if (!current()) { $('stepCard').hidden = true; S.sel = null; }
+    }
     say($('stepMsg'), `${j.value} を記録しました`, 'ok');
     navigator.vibrate?.([40, 40, 40]);
     showUndo({ id: o.id, step: s.key, variant: v.key, prev: j.prev, prevRecord: j.prevRecord, label: j.value });
@@ -274,12 +390,14 @@
     $('undoBtn').disabled = false; $('toast').hidden = true; S.lastUndo = null;
     if (!j.ok) return say($('stepMsg'), j.error || '取り消せませんでした', 'err');
     say($('stepMsg'), `${u.label} を取り消しました`, 'warn');
-    await search(); if (S.orders.some(o => o.id === u.id)) selectOrder(u.id);
+    if (S.mode === 'list') await loadView(S.view, true);
+    else { await search(); if (S.orders.some(o => o.id === u.id)) selectOrder(u.id); }
   };
 
   // URLで品番を渡されたら（?book=Ta&wc=230）すぐ探す
   const q = new URLSearchParams(location.search);
-  if (q.get('book') && q.get('wc')) { $('book').value = q.get('book'); $('wc').value = q.get('wc'); search(); }
+  if (q.get('book') && q.get('wc')) { setBook(q.get('book')); $('wc').value = q.get('wc'); setMode('find'); search(); }
+  else setMode(store.get('process.mode') === 'find' ? 'find' : 'list');
 })();
 </script>
 </body>
