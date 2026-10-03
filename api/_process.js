@@ -73,6 +73,10 @@ export const VIEWS = {
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
   tebari:  { label: '手貼り',       sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: (row) => [hasTag(row, '花') ? 'hana' : 'kami'] }] }, // Grid 手貼り（花 神)
   f2:      { label: '2F 小',        sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },          // Grid 2F_小
+  // 以下は 進行社内 に対応する選択肢が無いので、品名タグと記録済みの工程だけ札に出す
+  nao:     { label: 'Nao',          sources: [{ id: 'viwONbEg5wUbGjKhf', steps: [] }] },          // Grid Nao
+  dansai:  { label: '断裁ステッチ', sources: [{ id: 'viwo8sSBLMF1H2cKr', steps: [] }] },          // Grid 断裁ステッチ
+  pre:     { label: 'プレ',         sources: [{ id: 'viwfoMBJi9LeTlENl', steps: [] }] },          // Grid プレ
 };
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
