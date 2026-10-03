@@ -26,23 +26,31 @@ const F = {
   memo: '連絡事項',
 };
 
-// key は画面とAPIの間の識別子。variants[].value は 進行社内 の既存の選択肢名と完全一致させること。
-// tag は 工程(自動) に含まれていればおすすめとして画面で目立たせる。
-export const STEPS = {
-  // 生地カット終了 は 進行社内 にまだ無い選択肢。create:true の値だけ typecast で初回に自動作成させる。
-  kiji:   { label: '生地カット', field: '生地カット完了記録', variants: [{ key: '-', label: '生地カット', value: '生地カット終了', create: true }] },
-  nuki:   { label: '抜き',       field: '抜き完了記録', variants: [
-            { key: 'o',  label: 'オートン',  value: 'オートン抜き完了',      tag: 'オートン' },
-            { key: 'tk', label: 'たおしK判', value: '(K判)たおし抜き完了',   tag: 'たおしK判' },
-            { key: 'tm', label: 'たおしM判', value: '(M判)たおし抜き完了',   tag: 'たおしM判' } ] },
-  tebari: { label: '手貼り',     field: '手貼り完了記録', variants: [
-            { key: 'kami', label: '(神)貼り', value: '(神)貼り完了' },
-            { key: 'hana', label: '(花)貼り', value: '(花)貼り完了', tag: '花' } ] },
-  kikai:  { label: '機械貼',     field: '機械貼完了記録', variants: [{ key: '-', label: '機械貼', value: '機械貼完了', tag: '機械貼' }] },
-  seal:   { label: 'シール貼',   field: 'シール貼完了記録', variants: [{ key: '-', label: 'シール貼', value: 'シール貼完了' }] },
-  cad:    { label: 'CADカット',  field: 'CADカット完了記録', variants: [{ key: '-', label: 'CADカット', value: 'CADカット完了', tag: 'CAD' }] },
-  finish: { label: '仕上がり完了', field: '仕上がり完了記録', variants: [{ key: '-', label: '仕上がり', value: '仕上がりました' }] },
-};
+// 工程ボタン＝進行社内の選択肢。名前は Airtable の選択肢名と完全一致させる（2026-10-03 統一）。
+// 記録欄の名前は「選択肢名＋記録」。tag は 工程(自動) に含まれていればおすすめとして目立たせる。
+// group: 'status' は完了ではない状況（材料入荷など）。画面では下に分けて出す。
+// create: true は 進行社内 にまだ無い選択肢。初回だけ typecast で作らせる。
+// 工程表発行済・抜き作業中・生地照合済 は印刷や照合の画面が自動で入れるので、ボタンにしない。
+const CHOICES = [
+  { key: 'kiji',   value: '生地カット終了', create: true },
+  { key: 'o',      value: 'オートン抜き完了',     tag: 'オートン' },
+  { key: 'tk',     value: '(K判)たおし抜き完了',  tag: 'たおしK判' },
+  { key: 'tm',     value: '(M判)たおし抜き完了',  tag: 'たおしM判' },
+  { key: 'cad',    value: 'CADカット完了',        tag: 'CAD' },
+  { key: 'kami',   value: '(神)貼り完了' },
+  { key: 'hana',   value: '(花)貼り完了',         tag: '花' },
+  { key: 'kikai',  value: '機械貼完了',           tag: '機械貼' },
+  { key: 'seal',   value: 'シール貼完了' },
+  { key: 'finish', value: '仕上がりました' },
+  { key: 'zairyo', value: '貼り材料入りました', group: 'status' },
+  { key: 'hansei', value: '半製品あり',         group: 'status' },
+  { key: 'zaiko',  value: '製品在庫から',       group: 'status' },
+];
+// 以前の形（工程の中に種類 variants）を保ったまま、1工程1種類で表す。画面とAPIの作りを変えずに済む。
+export const STEPS = Object.fromEntries(CHOICES.map(c => [c.key, {
+  label: c.value, field: c.value + '記録', group: c.group || 'done',
+  variants: [{ key: '-', label: c.value, value: c.value, tag: c.tag, create: !!c.create }],
+}]));
 const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
@@ -54,10 +62,9 @@ export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
 // variant を省いた種類のある工程（抜き）は、押すと種類を選ぶ画面になる。label を省くと「工程名＋完了」。
 export const VIEWS = {
   cad:     { id: 'viwIPW4eEsp6mo271', label: 'CAD',        quick: [{ step: 'cad' }] },
-  // お守箔焼印は 生地カット → 抜き → 仕上がり。「仕上がりました」で最終工程とみなす（2026-10-03 ユーザー確認）
-  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', quick: [
-             { step: 'kiji', label: '生地カット終了' }, { step: 'nuki' }, { step: 'finish' }] },
-  tm:      { id: 'viwdwd47psKdZPYAN', label: 'たおしM判',  quick: [{ step: 'nuki', variant: 'tm' }] },
+  // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る（2026-10-03 ユーザー確認）
+  omamori: { id: 'viw2WoKluKqUBPwwk', label: 'お守箔焼印', quick: [{ step: 'kiji' }, { step: 'finish' }] },
+  tm:      { id: 'viwdwd47psKdZPYAN', label: 'たおしM判',  quick: [{ step: 'tm' }] },
 };
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
 const viewCache = new Map();     // key -> { at, rows }
@@ -177,7 +184,7 @@ async function orders(body) {
 
 export function publicSteps() {
   return Object.entries(STEPS).map(([key, s]) => ({
-    key, label: s.label,
+    key, label: s.label, group: s.group,
     variants: s.variants.map(v => ({ key: v.key, label: v.label, value: v.value, tag: v.tag || '' })),
   }));
 }

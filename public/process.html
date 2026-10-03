@@ -60,7 +60,9 @@
   .facts .late .when{ background:rgba(248,113,113,.18); color:#fca5a5 }
   .facts .soon .when{ background:rgba(251,191,36,.18); color:#fde68a }
   .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
-  .step{ min-height:86px; padding:10px; font-size:22px; letter-spacing:.06em; display:flex; flex-direction:column;
+  .stephead{ grid-column:1/-1; font-size:14px; color:var(--mut); font-weight:700; margin-top:6px }
+  .step.status{ background:linear-gradient(135deg,#334155 0%,#475569 100%) }
+  .step{ min-height:72px; padding:8px; font-size:18px; letter-spacing:.02em; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg,#6d28d9 0%,var(--p) 60%,#c084fc 110%) }
   .step.rec{ outline:3px solid #fde68a; outline-offset:-3px }
   .step.done{ background:rgba(34,197,94,.22); color:#bbf7d0 }
@@ -258,7 +260,7 @@
   }
 
   // その受注に関係する工程: 品名タグから分かる工程 + 記録済みの工程 + 一覧のボタンの工程 + 仕上がり
-  const TAG_STEP = { 'オートン': 'nuki', 'たおしK判': 'nuki', 'たおしM判': 'nuki', '機械貼': 'kikai', '花': 'tebari', 'CAD': 'cad' };
+  const TAG_STEP = { 'オートン': 'o', 'たおしK判': 'tk', 'たおしM判': 'tm', '機械貼': 'kikai', '花': 'hana', 'CAD': 'cad' };
   function relevantSteps(o, extra) {
     const want = new Set(extra || []);
     for (const [tag, key] of Object.entries(TAG_STEP)) if (hasTag(o, tag)) want.add(key);
@@ -383,8 +385,13 @@
     t.append(it, facts(o), mt);
 
     const box = $('steps'); box.textContent = '';
+    let lastGroup = 'done';
     for (const s of S.steps) {
-      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step';
+      if (s.group !== lastGroup) {
+        const h = document.createElement('div'); h.className = 'stephead'; h.textContent = '状況（材料・在庫）';
+        box.append(h); lastGroup = s.group;
+      }
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step' + (s.group === 'status' ? ' status' : '');
       if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
       const done = o.done[s.key];
       if (done) btn.classList.add('done');
