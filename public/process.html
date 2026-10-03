@@ -248,8 +248,10 @@
     for (const s of relevantSteps(o, extra)) {
       const c = document.createElement('span');
       const d = o.done[s.key];
-      c.className = 'pc' + (d ? ' ok' : '');
-      c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : s.label;
+      // Airtable で直接 進行社内 を入れた受注は記録欄が空。進行社内がこの工程の完了なら、名前なしで済にする
+      const byProg = !d && s.variants.some(v => v.value === o.progIn);
+      c.className = 'pc' + (d || byProg ? ' ok' : '');
+      c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : byProg ? `${s.label} ✓` : s.label;
       box.append(c);
     }
     if (o.progOut) { const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut; box.append(c); }
