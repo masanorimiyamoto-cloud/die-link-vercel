@@ -259,27 +259,19 @@
     return f;
   }
 
-  // その受注に関係する工程: 品名タグから分かる工程 + 記録済みの工程 + 一覧のボタンの工程 + 仕上がり
-  const TAG_STEP = { 'オートン': 'o', 'たおしK判': 'tk', 'たおしM判': 'tm', '機械貼': 'kikai', '花': 'hana', 'CAD': 'cad' };
-  function relevantSteps(o, extra) {
-    const want = new Set(extra || []);
-    for (const [tag, key] of Object.entries(TAG_STEP)) if (hasTag(o, tag)) want.add(key);
-    Object.keys(o.done || {}).forEach(k => want.add(k));
-    want.add('finish');
-    return S.steps.filter(s => want.has(s.key));
-  }
   // 「佐藤 2026-10-03 14:20」→「佐藤 10/03」
   const shortStamp = (t) => { const m = /^(.*?)\s+\d{4}-(\d\d)-(\d\d)/.exec(t || ''); return m ? `${m[1]} ${m[2]}/${m[3]}` : (t || ''); };
 
-  function progressStrip(o, extra) {
+  function progressStrip(o) {
     const box = document.createElement('div'); box.className = 'prog';
-    for (const s of relevantSteps(o, extra)) {
-      const c = document.createElement('span');
+    // 済んだものだけ出す。未完了の札（灰色）は「オートン抜き完了」などの名前が済と誤解されるため出さない（2026-10-03）
+    for (const s of S.steps) {
       const d = o.done[s.key];
-      // Airtable で直接 進行社内 を入れた受注は記録欄が空。進行社内がこの工程の完了なら、名前なしで済にする
+      // Airtable で直接 進行社内 を入れた受注は記録欄が空。進行社内がこの工程の値なら、名前なしで済にする
       const byProg = !d && s.variants.some(v => v.value === o.progIn);
-      c.className = 'pc' + (d || byProg ? ' ok' : '');
-      c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : byProg ? `${s.label} ✓` : s.label;
+      if (!d && !byProg) continue;
+      const c = document.createElement('span'); c.className = 'pc ok';
+      c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : `${s.label} ✓`;
       box.append(c);
     }
     if (o.progOut) { const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut; box.append(c); }
@@ -356,7 +348,7 @@
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
-      el.append(it, facts(o), mt, progressStrip(o, o.extra));
+      el.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) el.append(mm);
       el.onclick = () => selectOrder(o.id);
       row.append(el);
