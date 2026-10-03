@@ -384,10 +384,17 @@
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step' + (s.group === 'status' ? ' status' : '');
       if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
       const done = o.done[s.key];
-      if (done) btn.classList.add('done');
+      // Airtable で直接入れた（記録者なし）の完了も済として扱う
+      const byProg = !done && s.variants.some(v => v.value === o.progIn);
+      if (done || byProg) btn.classList.add('done');
       btn.append(document.createTextNode(s.label));
-      if (done) { const sm = document.createElement('small'); sm.textContent = '済 ' + done; btn.append(sm); }
-      btn.onclick = () => chooseStep(s);
+      if (done || byProg) {
+        const sm = document.createElement('small');
+        sm.textContent = (done ? '済 ' + shortStamp(done) : '済（記録者なし）') + ' ・ 押すと取消';
+        btn.append(sm);
+      }
+      // 済の工程をもう一度押すと取り消し（以前は上書きの確認だった）
+      btn.onclick = () => (done || byProg) ? cancelStep(s, done) : chooseStep(s);
       box.append(btn);
     }
     $('variants').hidden = true;
@@ -419,8 +426,9 @@
     const j = await api({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
     document.querySelectorAll('.step, .variants button').forEach(b => b.disabled = false);
     if (j.conflict) {
-      if (confirm(`${j.error}\n上書きしますか？`)) return doComplete(s, v, true);
-      return say($('stepMsg'), '記録しませんでした', 'warn');
+      // 他の人が先に記録していた。上書きはせず、最新の状態を見せる
+      say($('stepMsg'), `${j.error}。取り消すときは、もう一度そのボタンを押してください`, 'warn');
+      return refreshCurrent();
     }
     if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
     o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
@@ -433,6 +441,32 @@
     say($('stepMsg'), `${j.value} を記録しました`, 'ok');
     navigator.vibrate?.([40, 40, 40]);
     showUndo({ id: o.id, step: s.key, variant: v.key, prev: j.prev, prevRecord: j.prevRecord, label: j.value });
+  }
+
+  async function cancelStep(s, done) {
+    const o = current(); if (!o) return;
+    if (!confirm(`「${s.label}」${done ? `の記録（${done}）` : ''}を取り消しますか？\n進行社内は、この工程を記録する前の状態に戻します。`)) return;
+    say($('stepMsg'), '取り消しています…');
+    document.querySelectorAll('.step').forEach(b => b.disabled = true);
+    const j = await api({ action: 'cancel', id: o.id, step: s.key });
+    document.querySelectorAll('.step').forEach(b => b.disabled = false);
+    if (!j.ok) {
+      say($('stepMsg'), j.error || '取り消せませんでした', 'err');
+      if (j.stale) await refreshCurrent();
+      return;
+    }
+    delete o.done[s.key]; o.progIn = j.progIn || '';
+    if (o.group === '最終' && o.progIn !== '仕上がりました') o.group = '';
+    renderSteps(); renderOrders();
+    say($('stepMsg'), `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
+    if (S.mode === 'list') await refreshCurrent();
+  }
+
+  // 一覧を取り直し、選んでいた受注がまだあれば選び直す
+  async function refreshCurrent() {
+    const id = S.sel;
+    if (S.mode === 'list') await loadView(S.view, true); else await search();
+    if (id && S.orders.some(x => x.id === id)) selectOrder(id); else { $('stepCard').hidden = true; S.sel = null; }
   }
 
   /* ---------- 取り消し ---------- */

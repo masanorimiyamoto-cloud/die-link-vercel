@@ -284,7 +284,7 @@ export async function writeWorkLog(user, entries) {
       '内容': String(e.detail || ''),
     };
     const ids = (e.recordIds || []).filter(id => /^rec[A-Za-z0-9]{14}$/.test(id));
-    if (ids.length) fields['受注'] = ids;
+    if (ids.length) { fields['受注'] = ids; fields['受注ID'] = ids.join(','); } // 受注ID は取り消し時の検索用
     return { fields };
   });
   try {

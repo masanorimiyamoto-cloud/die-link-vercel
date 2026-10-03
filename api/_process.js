@@ -19,6 +19,7 @@ const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN 
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID || 'appwAnJP9OOZ3MVF5';
 const TABLE            = process.env.TABLE_ID || process.env.AIRTABLE_TABLE || 'TableJuchu';
 const API              = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(TABLE)}`;
+const WORKLOG_API      = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${process.env.WORKLOG_TABLE_ID || 'tblQFZ7QEuRaBW4oj'}`;
 
 const F = {
   book: 'Book', wc: 'WorkCord', item: 'ItemName', amount: 'NAmount', ndate: 'Ndate',
@@ -55,7 +56,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -141,6 +142,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'view') return view(body);
   if (action === 'complete') return complete(body, who.user);
   if (action === 'undo') return undo(body, who.user);
+  if (action === 'cancel') return cancel(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -249,6 +251,53 @@ async function complete(body, user) {
     detail: `${r.variant.value}（前の進行社内: ${before.progIn || '空白'}）${prevRecord ? ` 上書き前: ${prevRecord}` : ''}`,
   });
   return json({ ok: true, id: rec.id, value: r.variant.value, stamp, prev: before.progIn, prevRecord });
+}
+
+// ---- 工程ボタンをもう一度押したときの取り消し ----
+// 記録欄を空にし、進行社内がこの工程の値のままなら「この工程を記録する直前の値」へ戻す。
+// 直前の値は作業ログ（工程完了の行の「前の進行社内: ○○」）から探す。見つからなければ空白にする。
+const esc = (v) => String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+async function findPrevProgIn(rec, value) {
+  const f = rec.fields || {};
+  const target = `OR({受注ID}='${esc(rec.id)}',AND({受注ID}='',{Book}='${esc(f[F.book] || '')}',{WorkCord}='${esc(f[F.wc] ?? '')}'))`;
+  const url = new URL(WORKLOG_API);
+  url.searchParams.set('filterByFormula', `AND({操作}='工程完了',FIND('${esc(value)}（',{内容})=1,${target})`);
+  url.searchParams.set('sort[0][field]', '日時');
+  url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('maxRecords', '1');
+  try {
+    const j = await airtable(url);
+    const d = j.records?.[0]?.fields?.['内容'] || '';
+    const m = /前の進行社内: (.+?)）/.exec(d);
+    if (!m) return '';
+    return m[1] === '空白' || m[1] === value ? '' : m[1];
+  } catch { return ''; }
+}
+
+async function cancel(body, user) {
+  const r = resolveStep(body?.step, body?.variant);
+  if (!r) return json({ ok: false, error: '工程の指定が正しくありません' }, 400);
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const cur = rec.fields?.[r.step.field] || '';
+  const progIn = rec.fields?.[F.progIn] || '';
+  if (!cur && progIn !== r.variant.value) {
+    return json({ ok: false, error: 'この工程はもう記録されていません（誰かが先に取り消した可能性があります）', stale: true }, 409);
+  }
+  // 他人の記録は本人か管理者だけが取り消せる。記録者が無い（Airtable で直接入れた）ものは誰でも可
+  if (cur && user.role !== ROLE_ADMIN && !String(cur).startsWith(`${user.name} `)) {
+    return json({ ok: false, error: `${cur.split(' ')[0]} さんの記録なので取り消せません。本人か管理者に頼んでください` }, 403);
+  }
+  const fields = { [r.step.field]: null };
+  let restored = null;
+  if (progIn === r.variant.value) { restored = await findPrevProgIn(rec, r.variant.value); fields[F.progIn] = restored || null; }
+  await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields }] }) });
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: '工程取消', recordIds: [rec.id], book: rec.fields?.[F.book] || '', wc: rec.fields?.[F.wc] ?? '',
+    detail: `${r.variant.value} を取り消し${cur ? `（記録: ${cur}）` : ''}。進行社内は ${restored === null ? 'そのまま' : (restored || '空白') + ' に戻した'}`,
+  });
+  return json({ ok: true, progIn: restored === null ? progIn : restored });
 }
 
 async function undo(body, user) {
