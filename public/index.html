@@ -54,6 +54,9 @@
                 linear-gradient(135deg,#b45309 0%,var(--c) 55%,#fca311 110%) }
   .d{ background:radial-gradient(120% 120% at 20% 0%, rgba(255,255,255,.08), transparent 60%),
                 linear-gradient(135deg,#6d28d9 0%,#a855f7 55%,#c084fc 110%) }
+  /* 共有ボタンの Airtable ロゴ（紫の上でも色が沈まないよう白い角丸に載せる） */
+  .btn .ttl{ display:flex; align-items:center; gap:.35em }
+  .btn .logo{ width:1.05em; height:1.05em; padding:.12em; background:#fff; border-radius:.22em; box-shadow:0 2px 8px rgba(0,0,0,.25) }
   @media (min-width:520px){ .btn{ min-height:17vh } }
 
   /* ログイン帯：誰の操作として記録されるかを常に見せる */
@@ -102,7 +105,7 @@
     <a class="btn a" href="./scan-spec-google.html" aria-label="調べる">知る<span class="sub">図面仕様・半製品・お守生地</span></a>
     <a class="btn b" href="./scan-lookup.html"      aria-label="探す">探す<span class="sub">型の場所</span></a>
     <a class="btn c" href="./scan-register.html"    aria-label="登録する">仕舞う<span class="sub">しまう棚を登録</span></a>
-    <a class="btn d" href="./process.html"          aria-label="共有">共有<span class="sub">Airtableの抜き・貼り・仕上がりの連携</span></a>
+    <a class="btn d" href="./process.html"          aria-label="共有"><span class="ttl"><img class="logo" src="/img/airtable-mark.png" alt="" width="128" height="128">共有</span><span class="sub">Airtableの抜き・貼り・仕上がりの連携</span></a>
   </main>
 
 <script>
