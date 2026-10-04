@@ -49,6 +49,11 @@
   .amt input{ width:7.5em; font-size:24px; font-weight:800; text-align:right }
   .amt .note{ font-size:13px; color:var(--mut) }
   .amtbtn{ padding:8px 12px; font-size:15px; background:rgba(255,255,255,.10) }
+  /* 選んだ受注から「探す」（型の場所）へ。トップの探すボタンと同じ緑 */
+  .findbtn{ display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border-radius:12px;
+    font-size:18px; font-weight:800; color:#fff; text-decoration:none; letter-spacing:.04em;
+    background:linear-gradient(135deg,#059669 0%,#22c55e 55%,#86efac 110%) }
+  .findbtn small{ font-size:13px; font-weight:700; opacity:.9 }
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
   .orow{ display:flex; gap:10px; align-items:flex-start; width:100% }
   .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:4px }
@@ -355,6 +360,16 @@
     }
     return box;
   }
+  /* ---------- 探す（型の場所）へ ---------- */
+  // 探す画面は ?book=&wc= で開くと、その品番をターゲットにして図面・棚の情報を読み込む
+  function findLink(o) {
+    const a = document.createElement('a'); a.className = 'findbtn';
+    a.href = '/scan-lookup.html?' + new URLSearchParams({ book: o.book, wc: String(o.wc) }).toString();
+    a.append('この型を探す');
+    const sm = document.createElement('small'); sm.textContent = `${o.book} / ${o.wc}`; a.append(sm);
+    return a;
+  }
+
   /* ---------- 仕上がり数量の変更 ---------- */
   function amountEditor(o) {
     const box = document.createElement('div'); box.className = 'amt';
@@ -560,7 +575,7 @@
     const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
     const mt = document.createElement('div'); mt.className = 'meta';
     mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, facts(o), mt, amountEditor(o));
+    t.append(it, facts(o), mt, findLink(o), amountEditor(o));
     renderStepImages(o);
 
     const box = $('steps'); box.textContent = '';
