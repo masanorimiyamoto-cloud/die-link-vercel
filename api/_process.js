@@ -39,8 +39,8 @@ const CHOICES = [
   { key: 'tk',     value: '(K判)たおし抜き完了',  tag: 'たおしK判' },
   { key: 'tm',     value: '(M判)たおし抜き完了',  tag: 'たおしM判' },
   { key: 'cad',    value: 'CADカット完了',        tag: 'CAD' },
-  { key: 'kami',   value: '(神)貼り完了' },
-  { key: 'hana',   value: '(花)貼り完了',         tag: '花' },
+  // 2026-10-04 (神)/(花)貼り完了 は作業者の名前入りだったので「手貼り完了」に統一（誰が押したかは記録で分かる）
+  { key: 'tebari', value: '手貼り完了',           tag: '花' },
   { key: 'kikai',  value: '機械貼完了',           tag: '機械貼' },
   { key: 'seal',   value: 'シール貼完了' },
   { key: 'finish', value: '仕上がりました' },
@@ -73,7 +73,7 @@ export const VIEWS = {
   // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
   taoshi:  { label: 'たおし抜き',   sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
-  tebari:  { label: '手貼り',       sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: (row) => [hasTag(row, '花') ? 'hana' : 'kami'] }] }, // Grid 手貼り（花 神)
+  tebari:  { label: '手貼り',       sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
   f2:      { label: '2F 小',        sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },          // Grid 2F_小
   // 以下は 進行社内 に対応する選択肢が無いので、品名タグと記録済みの工程だけ札に出す
   nao:     { label: 'Nao',          sources: [{ id: 'viwONbEg5wUbGjKhf', steps: [] }] },          // Grid Nao
