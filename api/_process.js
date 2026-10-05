@@ -80,6 +80,9 @@ export const VIEWS = {
   nao:     { label: 'Nao',          sources: [{ id: 'viwONbEg5wUbGjKhf', steps: [] }] },          // Grid Nao
   dansai:  { label: '断裁ステッチ', sources: [{ id: 'viwo8sSBLMF1H2cKr', steps: [] }] },          // Grid 断裁ステッチ
   pre:     { label: 'プレ',         sources: [{ id: 'viwfoMBJi9LeTlENl', steps: [] }] },          // Grid プレ
+  // 2026-10-05 全件のビュー。絞り込みが無く9割がアーカイブ済で、500件の上限で途中が切れるため
+  // アーカイブ済だけはここで外す（Grid view は他でも使うので Airtable 側は変えない）
+  all:     { label: '全件',         sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [], formula: 'NOT({アーカイブ済})' }] }, // Grid view
 };
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
@@ -164,12 +167,14 @@ export async function handleProcess(action, body, who) {
 
 const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, ...RECORD_FIELDS];
 
-async function readView(viewId) {
+// formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
+async function readView(viewId, formula = '') {
   const rows = [];
   let offset;
   do {
     const url = new URL(API);
     url.searchParams.set('view', viewId);
+    if (formula) url.searchParams.set('filterByFormula', formula);
     url.searchParams.set('pageSize', '100');
     for (const f of LIST_FIELDS) url.searchParams.append('fields[]', f);
     if (offset) url.searchParams.set('offset', offset);
@@ -191,7 +196,7 @@ async function view(body) {
   const byId = new Map();
   for (const src of v.sources) {
     let got;
-    try { got = await readView(src.id); }
+    try { got = await readView(src.id, src.formula); }
     catch (e) {
       // Airtable でビューを消したり作り直したりすると ID が変わる。何が起きたか画面で分かるようにする
       const gone = /airtable (404|422)/.test(String(e?.message || ''));
