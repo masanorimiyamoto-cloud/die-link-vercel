@@ -83,6 +83,8 @@ export const VIEWS = {
   // 2026-10-05 全件のビュー。絞り込みが無く9割がアーカイブ済で、500件の上限で途中が切れるため
   // アーカイブ済だけはここで外す（Grid view は他でも使うので Airtable 側は変えない）
   all:     { label: '全件',         sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [], formula: 'NOT({アーカイブ済})' }] }, // Grid view
+  recent:  { label: 'Recent 1day',  sources: [{ id: 'viwgFO3k8bRAhJVNw', steps: [] }] },          // Grid Recent 1day
+  fax:     { label: 'Fax',          sources: [{ id: 'viwvqPJgm9s9BAlvR', steps: [] }] },          // Grid FromFAX 承認待ち
 };
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
