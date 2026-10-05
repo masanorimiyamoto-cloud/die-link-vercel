@@ -73,7 +73,8 @@ export const VIEWS = {
   // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
   taoshi:  { label: 'たおし抜き',   sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
-  tebari:  { label: '手貼り',       sources: [{ id: 'viw2w8DzG6PNmJ3Iy', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
+  // 2026-10-05 ビューが作り直されてIDが変わった（旧 viw2w8DzG6PNmJ3Iy は VIEW_ID_NOT_FOUND）
+  tebari:  { label: '手貼り',       sources: [{ id: 'viwK1jk2LXPw45fU9', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
   f2:      { label: '2F 小',        sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },          // Grid 2F_小
   // 以下は 進行社内 に対応する選択肢が無いので、品名タグと記録済みの工程だけ札に出す
   nao:     { label: 'Nao',          sources: [{ id: 'viwONbEg5wUbGjKhf', steps: [] }] },          // Grid Nao
