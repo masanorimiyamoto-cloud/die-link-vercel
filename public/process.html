@@ -59,6 +59,10 @@
     font-size:18px; font-weight:700; color:#fff; text-decoration:none; letter-spacing:.04em;
     background:linear-gradient(135deg,#059669 0%,#22c55e 55%,#86efac 110%) }
   .findbtn small{ font-size:13px; font-weight:700; opacity:.9 }
+  /* 「生地を照合」は トップの知るボタンと同じ青。探すと横に並べる */
+  .findbtn.fabric{ background:linear-gradient(135deg,#1b3bff 0%,#4f8cff 55%,#38bdf8 110%) }
+  .gobar{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
+  .gobar .findbtn{ flex-direction:column; gap:2px; padding:10px 6px; text-align:center }
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
   .orow{ display:flex; gap:10px; align-items:flex-start; width:100% }
   .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:4px }
@@ -399,6 +403,21 @@
     return a;
   }
 
+  /* ---------- 生地照合（知る）へ ---------- */
+  // 知る画面は ?book=&wc=&target=fabric で開くと、品番QRを読まずにそのまま生地照合に入る
+  function fabricLink(o) {
+    const a = document.createElement('a'); a.className = 'findbtn fabric';
+    a.href = '/scan-spec-google.html?' + new URLSearchParams({ book: o.book, wc: String(o.wc), target: 'fabric' }).toString();
+    a.append('生地を照合する');
+    const sm = document.createElement('small'); sm.textContent = `${o.book} / ${o.wc}`; a.append(sm);
+    return a;
+  }
+  function goBar(o) {
+    const g = document.createElement('div'); g.className = 'gobar';
+    g.append(findLink(o), fabricLink(o));
+    return g;
+  }
+
   /* ---------- 仕上がり数量の変更 ---------- */
   function amountEditor(o) {
     const box = document.createElement('div'); box.className = 'amt';
@@ -643,7 +662,7 @@
     const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
     const mt = document.createElement('div'); mt.className = 'meta';
     mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, facts(o), mt, findLink(o), amountEditor(o), ndateEditor(o));
+    t.append(it, facts(o), mt, goBar(o), amountEditor(o), ndateEditor(o));
     renderStepImages(o);
 
     const box = $('steps'); box.textContent = '';

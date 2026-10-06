@@ -1200,9 +1200,10 @@
   }
 
   // 照合対象（抜型/生地）の切替。生地はCAL-50不要・縦横比のみ
-  function setBoxTarget(t){
+  // save=false のときは端末に覚えさせない（共有からURLで生地照合に来たときなど）
+  function setBoxTarget(t, save = true){
     S.boxTarget = (t === 'fabric') ? 'fabric' : 'die';
-    try{ localStorage.setItem('boxTarget', S.boxTarget); }catch{}
+    if(save){ try{ localStorage.setItem('boxTarget', S.boxTarget); }catch{} }
     const fab = S.boxTarget === 'fabric';
     D.boxTgtFab.classList.toggle('active', fab);
     D.boxTgtDie.classList.toggle('active', !fab);
@@ -1244,7 +1245,7 @@
     await loadBoxDrawing(); // 図面はCV照合の入力に使うため読み込む（画面には重ねない）
     D.boxOverlay.style.display = 'none';
     D.measRect.style.display = 'none'; // 手動の寸法目安枠は現在使用しない
-    setBoxTarget(S.boxTarget);   // 対象トグル（抜型/生地）のUIを現在値に同期
+    setBoxTarget(S.boxTarget, false);   // 対象トグル（抜型/生地）のUIを現在値に同期（保存は切替ボタンのときだけ）
     if(!S.boxRaf) boxTick();
   }
 
@@ -1950,5 +1951,23 @@
   D.stack.addEventListener('pointermove', stackMove);
   D.stack.addEventListener('pointerup', stackUp);
   D.stack.addEventListener('pointercancel', stackUp);
+
+  /* ===========================================================
+     URL で品番を渡されたとき（共有の工程カード「生地を照合する」など）
+     ?book=Ta&wc=230&target=fabric … 品番QRを読まずにターゲットを決め、仕様・図面を読んだあと
+     querySpec() が自動で半製品照合（box）へ入る。target=fabric なら生地照合になる。
+     target はこの画面を開いている間だけ有効にし、端末の既定（抜型/生地）は書き換えない。
+     =========================================================== */
+  (function startFromUrl(){
+    const q = new URLSearchParams(location.search);
+    const b = (q.get('book') || '').trim();
+    const w = normHyphen((q.get('wc') || '').trim());
+    if(!b || !w) return;
+    const t = q.get('target');
+    if(t === 'fabric' || t === 'die') S.boxTarget = t;
+    setTarget(b, w);
+    S.locked = true; S.lastQueryKey = '';
+    querySpec();
+  })();
 
 })();
