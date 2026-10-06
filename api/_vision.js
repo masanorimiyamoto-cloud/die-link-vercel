@@ -5,14 +5,17 @@
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
 // ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが変わった場合は
-//   'gpt-6-sol' の id を実際のIDに直すだけでよい。
-//   （gpt-6-sol = GPT-6 Sol。公開IDが異なる場合はここだけ直す）
+//   'gpt-6.1-sol' の id を実際のIDに直すだけでよい。
+//   2026-10-06 gpt-6-sol → gpt-6.1-sol（NAS の .env と揃えた）。古い画面やスマホに残った
+//   'gpt-6-sol' の指定も 6.1 で動くよう、キーだけ残して同じIDに向ける。
 
+const GPT_SOL = { provider: 'openai', id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' };
 export const MODELS = {
-  'gpt-6-sol':     { provider: 'openai',    id: 'gpt-6-sol',     label: 'GPT-6 Sol' },
+  'gpt-6.1-sol':   GPT_SOL,
+  'gpt-6-sol':     GPT_SOL,
   'claude-sonnet-5': { provider: 'anthropic', id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
 };
-export const DEFAULT_MODEL = 'gpt-6-sol';
+export const DEFAULT_MODEL = 'gpt-6.1-sol';
 
 export function resolveModel(key) {
   return MODELS[key] || MODELS[DEFAULT_MODEL];

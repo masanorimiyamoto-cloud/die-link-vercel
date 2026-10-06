@@ -69,7 +69,7 @@ OpenCV.js は同期WASMで重く、メインスレッドで動かすと**UIが�
 ## 使用AIモデル
 
 `api/_vision.js` の `MODELS` を流用：
-- `gpt-6-sol`（既定）
+- `gpt-6.1-sol`（既定。2026-10-06 に gpt-6-sol から変更）
 - `claude-sonnet-5`
 
 新方式ではAIは**意味照合のみ**なので、既定の GPT-6 Sol で十分。
