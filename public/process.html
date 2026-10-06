@@ -51,6 +51,9 @@
   .amt input[type=date]{ width:auto; font-size:20px; text-align:left; color-scheme:dark }
   .amt .note{ font-size:13px; color:var(--mut) }
   .amtbtn{ padding:8px 12px; font-size:15px; background:rgba(255,255,255,.10) }
+  /* 数量は青、納期はオレンジで見分ける（やめる ボタンは灰色のまま） */
+  .amtbtn.qty{ background:rgba(59,130,246,.18); color:#bfdbfe; border:1px solid rgba(96,165,250,.55) }
+  .amtbtn.date{ background:rgba(249,115,22,.16); color:#fed7aa; border:1px solid rgba(251,146,60,.55) }
   /* 選んだ受注から「探す」（型の場所）へ。トップの探すボタンと同じ緑 */
   .findbtn{ display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border-radius:12px;
     font-size:18px; font-weight:700; color:#fff; text-decoration:none; letter-spacing:.04em;
@@ -102,12 +105,14 @@
   .pc.die.d-new{ background:rgba(59,130,246,.16); color:#bfdbfe; border-color:rgba(59,130,246,.45) }
   .pc.die.d-fix{ background:rgba(234,179,8,.16); color:#fde68a; border-color:rgba(234,179,8,.45) }
   .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
-  .stephead{ grid-column:1/-1; font-size:14px; color:var(--mut); font-weight:700; margin-top:6px }
+  .stephead{ grid-column:1/-1; font-size:14px; color:#93c5fd; font-weight:700; margin-top:6px }
+  .stephead.status{ color:#fcd34d }
   /* 工程ボタン: 未記録は暗く（OFF）、記録済みは明るく（ON）。明るい紫だと押されているように見えたため（2026-10-03） */
   .step{ min-height:72px; padding:8px; font-size:18px; letter-spacing:.02em; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:6px;
-    background:#141a24; color:rgba(230,240,255,.82); border:1px solid rgba(255,255,255,.16) }
-  .step.status{ background:#11161e; border-style:dashed }
+    background:#132036; color:rgba(230,240,255,.85); border:1px solid rgba(96,165,250,.32) }
+  /* グループごとに薄く色を分ける: 工程＝青み、状況＝黄土色み、Room＝紫み（2026-10-06） */
+  .step.status{ background:#241d0f; color:rgba(254,243,199,.85); border:1px dashed rgba(245,158,11,.45) }
   .step.rec{ border:2px solid #fde68a; color:#fff }
   .step.done{ background:linear-gradient(135deg,#15803d 0%,#22c55e 60%,#4ade80 110%); color:#fff; border-color:#86efac;
     box-shadow:0 0 14px rgba(34,197,94,.45) }
@@ -115,10 +120,10 @@
   .step.done.past{ background:rgba(34,197,94,.13); color:rgba(187,247,208,.75); border-color:rgba(34,197,94,.35); box-shadow:none }
   /* Room: 普段の部屋（品名タグから）は明るい枠。Room に入っている部屋は Airtable の色で塗る */
   .rooms{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
-  .roomhead{ font-size:14px; color:var(--mut); font-weight:700; margin-top:6px }
-  .roomhead small{ font-weight:600 }
+  .roomhead{ font-size:14px; color:#d8b4fe; font-weight:700; margin-top:6px }
+  .roomhead small{ font-weight:600; color:var(--mut) }
   .room{ min-height:52px; padding:6px; font-size:15px; letter-spacing:0; overflow-wrap:anywhere;
-    background:#141a24; color:rgba(230,240,255,.6); border:1px solid rgba(255,255,255,.14) }
+    background:#1e1530; color:rgba(233,213,255,.75); border:1px solid rgba(168,85,247,.35) }
   .room.def{ border:2px solid #fde68a; color:#fff; box-shadow:0 0 8px rgba(253,230,138,.35) }
   .room.on{ background:var(--rc); color:#fff; border-color:#fff }
   .room.on.def{ border-color:#fde68a }
@@ -402,7 +407,7 @@
       n.textContent = '受領伝票の発行後なので、数量・納期はここでは変えられません（伝票の照合で訂正）';
       box.append(n); return box;
     }
-    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn'; open.textContent = '仕上がり数量を変える';
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '仕上がり数量を変える';
     box.append(open);
     if (o.amountLog) { const n = document.createElement('span'); n.className = 'note'; n.textContent = '最後の変更: ' + o.amountLog; box.append(n); }
     open.onclick = () => {
@@ -441,7 +446,7 @@
   function ndateEditor(o) {
     const box = document.createElement('div'); box.className = 'amt';
     if (o.amountLocked) return box;
-    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn'; open.textContent = '納期を変える';
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn date'; open.textContent = '納期を変える';
     box.append(open);
     if (o.ndateLog) { const n = document.createElement('span'); n.className = 'note'; n.textContent = '最後の変更: ' + o.ndateLog; box.append(n); }
     open.onclick = () => {
@@ -643,10 +648,11 @@
 
     const box = $('steps'); box.textContent = '';
     const lastKey = latestKey(o);
-    let lastGroup = 'done';
+    let lastGroup = '';
     for (const s of S.steps) {
       if (s.group !== lastGroup) {
-        const h = document.createElement('div'); h.className = 'stephead'; h.textContent = '状況（材料・在庫）';
+        const h = document.createElement('div'); h.className = 'stephead' + (s.group === 'status' ? ' status' : '');
+        h.textContent = s.group === 'status' ? '状況（材料・在庫）' : '工程の完了';
         box.append(h); lastGroup = s.group;
       }
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step' + (s.group === 'status' ? ' status' : '');
