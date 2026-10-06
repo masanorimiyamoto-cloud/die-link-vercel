@@ -111,6 +111,16 @@
     box-shadow:0 0 14px rgba(34,197,94,.45) }
   .step small{ font-size:12px; font-weight:700; letter-spacing:0; opacity:.95 }
   .step.done.past{ background:rgba(34,197,94,.13); color:rgba(187,247,208,.75); border-color:rgba(34,197,94,.35); box-shadow:none }
+  /* Room: 普段の部屋（品名タグから）は明るい枠。Room に入っている部屋は Airtable の色で塗る */
+  .rooms{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
+  .roomhead{ font-size:14px; color:var(--mut); font-weight:700; margin-top:6px }
+  .roomhead small{ font-weight:600 }
+  .room{ min-height:52px; padding:6px; font-size:15px; letter-spacing:0; overflow-wrap:anywhere;
+    background:#141a24; color:rgba(230,240,255,.6); border:1px solid rgba(255,255,255,.14) }
+  .room.def{ border:2px solid #fde68a; color:#fff; box-shadow:0 0 8px rgba(253,230,138,.35) }
+  .room.on{ background:var(--rc); color:#fff; border-color:#fff }
+  .room.on.def{ border-color:#fde68a }
+  .pc.room{ background:rgba(255,255,255,.08); color:#fff; border:1px solid var(--rc) }
   .variants{ display:flex; flex-wrap:wrap; gap:8px }
   .variants button{ flex:1 1 30%; padding:16px 8px; font-size:18px; background:var(--p) }
   .variants button.rec{ outline:3px solid #fde68a; outline-offset:-3px }
@@ -160,6 +170,8 @@
     <div class="target" id="target"></div>
     <div class="imgs" id="stepImgs"></div>
     <div class="steps" id="steps"></div>
+    <div class="roomhead" id="roomHead">Room <small>（明るい枠＝普段の部屋。押すと Room に入る／もう一度押すと外す）</small></div>
+    <div class="rooms" id="rooms"></div>
     <div class="variants" id="variants" hidden></div>
     <div class="msg" id="stepMsg" role="status"></div>
   </section>
@@ -180,7 +192,7 @@
   if (!me) return;
   $('who').innerHTML = ''; const b = document.createElement('b'); b.textContent = me.name; $('who').append(b, ' さん');
 
-  const S = { orders: [], steps: [], views: [], view: '', mode: 'list', sel: null, pendingStep: null };
+  const S = { orders: [], steps: [], views: [], rooms: [], view: '', mode: 'list', sel: null, pendingStep: null };
 
   // Book は Ko / Ta / Yo から選ぶ。QR に別の値が来たときだけ選択肢を足す
   function setBook(v) {
@@ -265,7 +277,7 @@
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     const j = await api({ action: 'orders', book, wc });
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
-    S.orders = j.orders; S.steps = j.steps;
+    S.orders = j.orders; S.steps = j.steps; S.rooms = j.rooms || [];
     if (!j.orders.length) return say($('findMsg'), `${book} / ${wc} の受注は見つかりません`, 'err');
     const open = j.orders.filter(o => !o.closed);
     say($('findMsg'), open.length > 1 ? `受注が${open.length}件あります。どれか選んでください` : '');
@@ -346,6 +358,11 @@
     const die = (o.die || []).filter(v => !(v === '型まだ仕舞済でない' && o.die.includes('抜型を棚に仕舞い完了')));
     for (const v of die) {
       const c = document.createElement('span'); c.className = 'pc die ' + (DIE_CLASS[v] || ''); c.textContent = v; box.append(c);
+    }
+    // Room に入っている部屋のうち、普段の部屋（品名タグ）以外＝応援先を出す
+    for (const r of (o.room || []).filter(r => !hasTag(o, roomTag(r)))) {
+      const c = document.createElement('span'); c.className = 'pc room';
+      c.style.setProperty('--rc', roomColor(r)); c.textContent = '応援 ' + r; box.append(c);
     }
     if (o.progOut) {
       const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut;
@@ -513,7 +530,7 @@
     say($('listMsg'), '読み込み中…');
     const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh });
     if (!j.ok) return say($('listMsg'), j.error || '読み込めませんでした', 'err');
-    S.views = j.views; S.steps = j.steps; S.view = j.view || j.views[0].key;
+    S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     if (S.mode !== 'list') return;
     S.orders = j.rows;
@@ -603,6 +620,43 @@
       box.append(btn);
     }
     $('variants').hidden = true;
+    renderRooms(o);
+  }
+
+  /* ---------- Room（応援を頼む部屋） ---------- */
+  // Airtable の選択肢の色名（blueLight2 など）を、暗い画面で見える色にする
+  const ROOM_COLORS = { blue: '#2563eb', cyan: '#0891b2', teal: '#0d9488', green: '#16a34a', yellow: '#ca8a04',
+    orange: '#ea580c', red: '#dc2626', pink: '#db2777', purple: '#9333ea', gray: '#64748b' };
+  function roomColor(name) {
+    const c = S.rooms.find(r => r.name === name)?.color || '';
+    return ROOM_COLORS[/^[a-z]+/.exec(c)?.[0]] || '#4f8cff';
+  }
+  // 部屋名 → 工程(自動) のタグ名（手貼(花 神) → 花。それ以外は同じ名前）。サーバーが返す
+  const roomTag = (name) => S.rooms.find(r => r.name === name)?.tag || name;
+  function renderRooms(o) {
+    const box = $('rooms'); box.textContent = '';
+    $('roomHead').hidden = !S.rooms.length;
+    for (const r of S.rooms) {
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'room';
+      const on = (o.room || []).includes(r.name);
+      if (hasTag(o, r.tag || r.name)) btn.classList.add('def');
+      if (on) { btn.classList.add('on'); btn.style.setProperty('--rc', roomColor(r.name)); }
+      btn.textContent = (on ? '✓ ' : '') + r.name;
+      btn.onclick = () => toggleRoom(o, r.name, !on);
+      box.append(btn);
+    }
+  }
+  async function toggleRoom(o, room, on) {
+    if (!on && !confirm(`Room から「${room}」を外しますか？`)) return;
+    say($('stepMsg'), on ? `Room に ${room} を入れています…` : `Room から ${room} を外しています…`);
+    document.querySelectorAll('.room').forEach(b => b.disabled = true);
+    const j = await api({ action: 'room', id: o.id, room, on });
+    document.querySelectorAll('.room').forEach(b => b.disabled = false);
+    if (!j.ok) return say($('stepMsg'), j.error || 'Room を変えられませんでした', 'err');
+    o.room = j.room || [];
+    navigator.vibrate?.(40);
+    say($('stepMsg'), on ? `Room に「${room}」を入れました` : `Room から「${room}」を外しました`, on ? 'ok' : 'warn');
+    renderRooms(o); renderOrders();
   }
 
   function chooseStep(s) {

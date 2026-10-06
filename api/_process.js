@@ -7,6 +7,7 @@
 //                   絞り込みと並び順はビュー側の設定が効くので、条件を変えたいときは Airtable でビューを直す。
 //   action=complete { id, step, variant, force } … 工程完了を記録（ログイン必須）
 //   action=undo     { id, step, prev, prevRecord } … 直前の完了記録を取り消す（本人か管理者）
+//   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
 //
 // 完了の記録は2か所に書く:
 //   進行社内      … 既存の選択肢（オートン抜き完了 など）。進行社内グループの計算式や
@@ -25,8 +26,40 @@ const F = {
   book: 'Book', wc: 'WorkCord', item: 'ItemName', amount: 'NAmount', ndate: 'Ndate',
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
-  amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況',
+  amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
 };
+
+// ---- Room（作業する部屋。複数選択）----
+// 選択肢は Airtable のフィールド設定をそのまま使う（スキーマを読む）。読めないとき（PAT に
+// schema.bases:read が無い等）だけ下の一覧を使う。2026-10-06 時点の Airtable の選択肢と同じ並び（17個）。
+// 普段の部屋は 工程(自動) のタグ（|機械貼| など）で分かるので、画面ではそれを明るい枠にする。
+// 急ぎで別の部屋に応援を頼むときに、その部屋を Room に足す。
+// 2026-10-06 Room の 花 を「手貼(花 神)」に改名し 神 を廃止。タグは今も 花 なので対応表で結ぶ。
+// ここに無い部屋は、部屋名とタグ名が同じ（機械貼・CAD など）。
+const ROOM_TAG = { '手貼(花 神)': '花' };
+const ROOM_FALLBACK = [
+  ['機械貼', 'blueLight2'], ['手貼(花 神)', 'pinkBright'], ['2F_小', 'yellowLight2'], ['オートン', 'cyanLight2'],
+  ['たおしM判', 'tealLight2'], ['たおしK判', 'redLight2'], ['CAD', 'orangeLight2'], ['プレ', 'redLight2'],
+  ['箔焼印', 'grayLight2'], ['金', 'blueLight2'], ['Nao', 'tealLight2'],
+  ['福祉　内職', 'yellowLight2'], ['断裁ステッチ', 'grayLight2'], ['トヤマ(貼)', 'yellowLight2'],
+  ['プレ(折のみ）', 'greenLight2'], ['CAD(折）', 'redLight2'], ['CAD(包装検品）', 'orangeLight2'],
+].map(([name, color]) => ({ name, color }));
+const ROOM_CACHE_MS = 10 * 60 * 1000;
+let roomCache = null; // { at, list }
+async function roomChoices() {
+  if (roomCache && Date.now() - roomCache.at < ROOM_CACHE_MS) return roomCache.list;
+  let list = ROOM_FALLBACK;
+  try {
+    const j = await airtable(`https://api.airtable.com/v0/meta/bases/${AIRTABLE_BASE_ID}/tables`);
+    const t = (j.tables || []).find(x => x.id === TABLE || x.name === TABLE);
+    const fld = t?.fields?.find(x => x.name === F.room);
+    const ch = fld?.options?.choices;
+    if (Array.isArray(ch) && ch.length) list = ch.map(c => ({ name: c.name, color: c.color || '' }));
+  } catch { /* 読めなければ控えの一覧 */ }
+  list = list.map(r => ({ ...r, tag: ROOM_TAG[r.name] || r.name }));
+  roomCache = { at: Date.now(), list };
+  return list;
+}
 
 // 工程ボタン＝進行社内の選択肢。名前は Airtable の選択肢名と完全一致させる（2026-10-03 統一）。
 // 記録欄の名前は「選択肢名＋記録」。tag は 工程(自動) に含まれていればおすすめとして目立たせる。
@@ -57,7 +90,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel', 'amount']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel', 'amount', 'room']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -128,6 +161,7 @@ function describe(rec) {
     memo: f[F.memo] || '',
     paper: f[F.paper] || '',
     die: Array.isArray(f[F.die]) ? f[F.die].map(String) : [],   // 抜型状況（複数選択）
+    room: Array.isArray(f[F.room]) ? f[F.room].map(String) : [], // Room（複数選択）
     // 数量を画面で変えた履歴の最後の行（「1000→1020 佐藤 …」）から元の数量を出す
     amountFrom: (() => { const m = /^(\d+|空白)→/.exec(String(f[F.amtLog] || '').trim()); return m ? m[1] : ''; })(),
     amountLog: String(f[F.amtLog] || '').trim().split('\n').pop() || '',
@@ -164,10 +198,11 @@ export async function handleProcess(action, body, who) {
   if (action === 'undo') return undo(body, who.user);
   if (action === 'cancel') return cancel(body, who.user);
   if (action === 'amount') return changeAmount(body, who.user);
+  if (action === 'room') return setRoom(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 async function readView(viewId, formula = '') {
@@ -193,7 +228,7 @@ async function view(body) {
   const v = VIEWS[key];
   const c = viewCache.get(key);
   if (c && Date.now() - c.at < VIEW_CACHE_MS && !body?.refresh) {
-    return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), cachedAt: c.at });
+    return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), rooms: await roomChoices(), cachedAt: c.at });
   }
   const byId = new Map();
   for (const src of v.sources) {
@@ -218,7 +253,7 @@ async function view(body) {
   if (v.sources.length > 1) rows.sort((a, b) => String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
   const at = Date.now();
   viewCache.set(key, { at, rows });
-  return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), cachedAt: at });
+  return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomChoices(), cachedAt: at });
 }
 
 export function publicViews() {
@@ -239,7 +274,7 @@ async function orders(body) {
   const j = await airtable(url);
   const list = (j.records || []).map(describe).sort((a, b) =>
     (a.closed - b.closed) || String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
-  return json({ ok: true, orders: list, steps: publicSteps() });
+  return json({ ok: true, orders: list, steps: publicSteps(), rooms: await roomChoices() });
 }
 
 export function publicSteps() {
@@ -362,6 +397,29 @@ async function changeAmount(body, user) {
     action: '数量変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: line,
   });
   return json({ ok: true, amount: next, line });
+}
+
+// ---- Room に応援先を足す／外す ----
+// 複数選択なので、今の値を読んでから1つだけ足す／外す（他の人が入れた部屋は残す）。
+// typecast は使わない。選択肢に無い名前はここで弾き、Airtable に勝手に選択肢を増やさない。
+async function setRoom(body, user) {
+  const room = String(body?.room || '');
+  const rooms = await roomChoices();
+  if (!rooms.some(r => r.name === room)) return json({ ok: false, error: `Room に「${room}」という選択肢がありません` }, 400);
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const f = rec.fields || {};
+  const cur = Array.isArray(f[F.room]) ? f[F.room].map(String) : [];
+  const on = !!body?.on;
+  if (on === cur.includes(room)) return json({ ok: true, room: cur, unchanged: true });
+  const next = on ? [...cur, room] : cur.filter(r => r !== room);
+  await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.room]: next } }] }) });
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: 'Room変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '',
+    detail: `${room} を${on ? '追加' : '外した'}（Room: ${cur.join('、') || '空白'} → ${next.join('、') || '空白'}）`,
+  });
+  return json({ ok: true, room: next });
 }
 
 async function undo(body, user) {
