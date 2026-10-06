@@ -7,6 +7,7 @@
 //                   絞り込みと並び順はビュー側の設定が効くので、条件を変えたいときは Airtable でビューを直す。
 //   action=complete { id, step, variant, force } … 工程完了を記録（ログイン必須）
 //   action=undo     { id, step, prev, prevRecord } … 直前の完了記録を取り消す（本人か管理者）
+//   action=ndate    { id, ndate }                … 納期（Ndate）を変える（ログイン必須）
 //   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
 //
 // 完了の記録は2か所に書く:
@@ -27,6 +28,7 @@ const F = {
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
+  ndateLog: '納期変更記録',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -90,7 +92,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel', 'amount', 'room']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'room']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -165,6 +167,9 @@ function describe(rec) {
     // 数量を画面で変えた履歴の最後の行（「1000→1020 佐藤 …」）から元の数量を出す
     amountFrom: (() => { const m = /^(\d+|空白)→/.exec(String(f[F.amtLog] || '').trim()); return m ? m[1] : ''; })(),
     amountLog: String(f[F.amtLog] || '').trim().split('\n').pop() || '',
+    // 納期も同じ（「2026-10-08→2026-10-10 佐藤 …」）
+    ndateFrom: (() => { const m = /^(\d{4}-\d\d-\d\d|空白)→/.exec(String(f[F.ndateLog] || '').trim()); return m ? m[1] : ''; })(),
+    ndateLog: String(f[F.ndateLog] || '').trim().split('\n').pop() || '',
     // 伝票を出した後は数量を変えられない（画面でボタンを出さないため）
     amountLocked: !!f[F.slipId] || ['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消'].includes(String(f[F.progOut] || '')),
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
@@ -198,11 +203,12 @@ export async function handleProcess(action, body, who) {
   if (action === 'undo') return undo(body, who.user);
   if (action === 'cancel') return cancel(body, who.user);
   if (action === 'amount') return changeAmount(body, who.user);
+  if (action === 'ndate') return changeNdate(body, who.user);
   if (action === 'room') return setRoom(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 async function readView(viewId, formula = '') {
@@ -397,6 +403,38 @@ async function changeAmount(body, user) {
     action: '数量変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: line,
   });
   return json({ ok: true, amount: next, line });
+}
+
+// ---- 納期（Ndate）の変更 ----
+// 差分プル（Airtable_Fetch.py）が Excel の E列へ戻す。伝票発行後は Excel 側も E列を戻さないので、
+// 数量と同じく発行前だけ変えられるようにする（発行後の訂正は受領伝票の照合で行う）。
+// 日付の打ち間違い（年違いなど）を弾くため、今日の前後1年の外は受けない。
+async function changeNdate(body, user) {
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const f = rec.fields || {};
+  const next = String(body?.ndate ?? '').trim();
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(next);
+  const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (!m || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return json({ ok: false, error: '納期の日付が正しくありません' }, 400);
+  const today = Date.parse(nowJST().slice(0, 10) + 'T00:00:00Z');
+  if (Math.abs(d.getTime() - today) > 366 * 86400000) return json({ ok: false, error: '納期は今日の前後1年の中で入れてください' }, 400);
+  if (f[F.slipId] || SLIP_DONE_OUT.has(String(f[F.progOut] || ''))) {
+    return json({ ok: false, error: '受領伝票を発行した後なので、ここでは納期を変えられません。伝票の照合で訂正してください' }, 409);
+  }
+  const cur = String(f[F.ndate] || '');
+  if (cur === next) return json({ ok: true, ndate: next, unchanged: true });
+  const line = `${cur || '空白'}→${next} ${user.name} ${nowJST()}`;
+  const log = String(f[F.ndateLog] || '').trim();
+  await airtable(API, {
+    method: 'PATCH',
+    body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.ndate]: next, [F.ndateLog]: log ? `${log}\n${line}` : line } }] }),
+  });
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: '納期変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: line,
+  });
+  return json({ ok: true, ndate: next, line });
 }
 
 // ---- Room に応援先を足す／外す ----

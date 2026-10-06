@@ -47,6 +47,7 @@
   .facts .from{ font-size:13px; font-weight:700; color:#93c5fd; margin-left:6px }
   .amt{ display:flex; flex-wrap:wrap; gap:8px; align-items:center }
   .amt input{ width:7.5em; font-size:24px; font-weight:800; text-align:right }
+  .amt input[type=date]{ width:auto; font-size:20px; text-align:left; color-scheme:dark }
   .amt .note{ font-size:13px; color:var(--mut) }
   .amtbtn{ padding:8px 12px; font-size:15px; background:rgba(255,255,255,.10) }
   /* 選んだ受注から「探す」（型の場所）へ。トップの探すボタンと同じ緑 */
@@ -316,6 +317,11 @@
       else if (diff === 0) { n.className = 'soon'; w.textContent = '今日'; n.append(w); }
       else if (diff === 1) { n.className = 'soon'; w.textContent = '明日'; n.append(w); }
     } else nb.textContent = '-';
+    if (o.ndateFrom && o.ndateFrom !== o.ndate) {
+      const fr = document.createElement('span'); fr.className = 'from';
+      fr.textContent = '元 ' + (o.ndateFrom === '空白' ? '空白' : fmtDate(o.ndateFrom));
+      fr.title = o.ndateLog || ''; n.append(fr);
+    }
     f.append(q, n);
     return f;
   }
@@ -392,7 +398,7 @@
     const box = document.createElement('div'); box.className = 'amt';
     if (o.amountLocked) {
       const n = document.createElement('span'); n.className = 'note';
-      n.textContent = '受領伝票の発行後なので、数量はここでは変えられません（伝票の照合で訂正）';
+      n.textContent = '受領伝票の発行後なので、数量・納期はここでは変えられません（伝票の照合で訂正）';
       box.append(n); return box;
     }
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn'; open.textContent = '仕上がり数量を変える';
@@ -423,6 +429,45 @@
         if (!o.amountFrom) o.amountFrom = String(cur);
         o.amount = j.amount; o.amountLog = j.line || o.amountLog;
         say($('stepMsg'), `仕上がり数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} にしました`, 'ok');
+        renderSteps(); renderOrders();
+      };
+    };
+    return box;
+  }
+
+  /* ---------- 納期の変更 ---------- */
+  // 数量と同じく、伝票発行後は変えられない（発行後は数量の欄に案内が出るのでここは何も出さない）
+  function ndateEditor(o) {
+    const box = document.createElement('div'); box.className = 'amt';
+    if (o.amountLocked) return box;
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn'; open.textContent = '納期を変える';
+    box.append(open);
+    if (o.ndateLog) { const n = document.createElement('span'); n.className = 'note'; n.textContent = '最後の変更: ' + o.ndateLog; box.append(n); }
+    open.onclick = () => {
+      box.textContent = '';
+      const inp = document.createElement('input'); inp.type = 'date'; inp.value = o.ndate || '';
+      inp.setAttribute('aria-label', '納期');
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
+      box.append(inp, save, cancel);
+      inp.focus();
+      cancel.onclick = () => renderSteps();
+      save.onclick = async () => {
+        const next = inp.value;
+        if (!/^\d{4}-\d\d-\d\d$/.test(next)) return say($('stepMsg'), '納期の日付を選んでください', 'err');
+        if (next === o.ndate) return renderSteps();
+        const [y, m, d] = next.split('-').map(Number);
+        const label = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+        // 過ぎた日にするのは打ち間違いのことが多いので確認する
+        if (daysFromToday(next) < 0 && !confirm(`納期を過ぎた日（${label}）にします。よろしいですか？`)) return;
+        save.disabled = true;
+        const j = await api({ action: 'ndate', id: o.id, ndate: next });
+        save.disabled = false;
+        if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
+        if (!o.ndateFrom) o.ndateFrom = o.ndate || '空白';
+        const before = o.ndate ? fmtDate(o.ndate) : '空白';
+        o.ndate = j.ndate; o.ndateLog = j.line || o.ndateLog;
+        say($('stepMsg'), `納期を ${before} → ${label} にしました`, 'ok');
         renderSteps(); renderOrders();
       };
     };
@@ -592,7 +637,7 @@
     const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
     const mt = document.createElement('div'); mt.className = 'meta';
     mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, facts(o), mt, findLink(o), amountEditor(o));
+    t.append(it, facts(o), mt, findLink(o), amountEditor(o), ndateEditor(o));
     renderStepImages(o);
 
     const box = $('steps'); box.textContent = '';
