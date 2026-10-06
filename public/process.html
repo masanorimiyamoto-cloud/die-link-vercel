@@ -13,7 +13,8 @@
   .wrap{ max-width:640px; margin:0 auto; padding:12px 14px 40px; display:flex; flex-direction:column; gap:12px }
   .bar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:14px; color:var(--mut) }
   .bar b{ color:var(--txt) } .bar a{ color:#93c5fd; text-decoration:none }
-  h1{ margin:0; font-size:22px; letter-spacing:.06em }
+  /* 文字の太さ: 大きい文字は 2026-10-06 に一段階細くした（800→700 など）。14px 以下の小さい文字は元のまま */
+  h1{ margin:0; font-size:22px; font-weight:600; letter-spacing:.06em }
   .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
   .row{ display:flex; gap:8px; align-items:center }
   input{ min-width:0; font-size:20px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.16);
@@ -46,13 +47,13 @@
   /* 仕上がり数量の変更 */
   .facts .from{ font-size:13px; font-weight:700; color:#93c5fd; margin-left:6px }
   .amt{ display:flex; flex-wrap:wrap; gap:8px; align-items:center }
-  .amt input{ width:7.5em; font-size:24px; font-weight:800; text-align:right }
+  .amt input{ width:7.5em; font-size:24px; font-weight:700; text-align:right }
   .amt input[type=date]{ width:auto; font-size:20px; text-align:left; color-scheme:dark }
   .amt .note{ font-size:13px; color:var(--mut) }
   .amtbtn{ padding:8px 12px; font-size:15px; background:rgba(255,255,255,.10) }
   /* 選んだ受注から「探す」（型の場所）へ。トップの探すボタンと同じ緑 */
   .findbtn{ display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border-radius:12px;
-    font-size:18px; font-weight:800; color:#fff; text-decoration:none; letter-spacing:.04em;
+    font-size:18px; font-weight:700; color:#fff; text-decoration:none; letter-spacing:.04em;
     background:linear-gradient(135deg,#059669 0%,#22c55e 55%,#86efac 110%) }
   .findbtn small{ font-size:13px; font-weight:700; opacity:.9 }
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
@@ -61,7 +62,7 @@
   .thumb{ flex:0 0 76px; width:76px; height:76px; border-radius:10px; overflow:hidden; background:#0b0f14;
     border:1px solid rgba(255,255,255,.14); display:flex; align-items:center; justify-content:center; position:relative }
   .thumb img{ width:100%; height:100%; object-fit:contain; background:#fff }
-  .thumb .n{ position:absolute; right:3px; bottom:3px; font-size:11px; padding:1px 5px; border-radius:6px; background:rgba(0,0,0,.65); color:#fff }
+  .thumb .n{ position:absolute; right:3px; bottom:3px; font-size:11px; font-weight:800; padding:1px 5px; border-radius:6px; background:rgba(0,0,0,.65); color:#fff }
   .imgs{ display:flex; gap:8px; overflow-x:auto }
   .imgs img{ max-height:40vh; max-width:100%; border-radius:10px; background:#fff; cursor:zoom-in; flex:0 0 auto }
   .imgnote{ font-size:13px; color:var(--mut) }
@@ -72,7 +73,7 @@
   .viewer .vimg img{ max-width:100%; max-height:100%; background:#fff }
   .viewer .vimg.zoom{ align-items:flex-start; justify-content:flex-start }
   .viewer .vimg.zoom img{ max-width:none; max-height:none }
-  button{ font:inherit; font-weight:800; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
+  button{ font:inherit; font-weight:700; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
   button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
   .btn{ padding:12px 14px; background:var(--a); white-space:nowrap }
   .ghost{ background:rgba(255,255,255,.12) }
@@ -83,10 +84,10 @@
   .order.sel{ border-color:var(--a); background:rgba(79,140,255,.16) }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:18px } .order .meta, .target .meta{ font-size:14px; color:var(--mut); font-weight:600 }
-  .target{ font-size:15px; line-height:1.5; display:flex; flex-direction:column; gap:4px } .target .item{ font-size:20px; font-weight:800 }
+  .target{ font-size:15px; line-height:1.5; display:flex; flex-direction:column; gap:4px } .target .item{ font-size:20px; font-weight:700 }
   /* 数量と納期は一番大きく。Airtable で小さくて読みにくかった点の改善 */
-  .facts{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 20px; font-size:15px; font-weight:700; color:var(--mut) }
-  .facts b{ font-size:26px; line-height:1.15; color:var(--txt); letter-spacing:.02em; margin-left:4px }
+  .facts{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 20px; font-size:15px; font-weight:600; color:var(--mut) }
+  .facts b{ font-weight:800; font-size:26px; line-height:1.15; color:var(--txt); letter-spacing:.02em; margin-left:4px }
   .facts .late b{ color:#f87171 } .facts .soon b{ color:#fbbf24 }
   .facts .when{ font-size:13px; font-weight:800; margin-left:6px; padding:2px 7px; border-radius:6px }
   .facts .late .when{ background:rgba(248,113,113,.18); color:#fca5a5 }
