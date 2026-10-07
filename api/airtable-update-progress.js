@@ -37,6 +37,9 @@ import { getSessionUser, writeWorkLog } from './_auth.js';
 import { PROCESS_ACTIONS, handleProcess } from './_process.js';
 export const config = { runtime: 'edge' };
 
+// 作業ログの「工程」に入れる名前（インセンティブ集計で工程完了と同じ欄で数えられるように）
+const STEP_NAME = { found: '抜型照合', stored: '抜型仕舞い', fabric: '生地照合' };
+
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID || 'appwAnJP9OOZ3MVF5';
 const TABLE_ID         = process.env.TABLE_ID || '';
@@ -341,10 +344,6 @@ export default async function handler(req) {
         records = [p.picked];
       }
       totalMatched += records.length;
-      logEntries.push({
-        action, book: it.book, wc: it.wc, recordIds: records.map(r => r.id),
-        detail: `${status}${it.loc ? ` 棚:${it.loc}` : ''}`,
-      });
 
       // loc があれば Location（棚番号）と LastSeen（当日）も併せて更新
       const common = {};
@@ -356,9 +355,11 @@ export default async function handler(req) {
       }
 
       const updates = [];
+      let fresh = false; // この品番で、照合済／仕舞済／生地照合 のチェックが新しく付く受注があるか（＝実績）
       for (const rec of records) {
         const raw = rec.fields?.[progressField];
         const checked = checkField ? rec.fields?.[checkField] === true : true;
+        if (checkField && !checked) fresh = true;
         const progInOk = !progressInLabel
           || String(rec.fields?.[FIELD_PROGRESS_IN] || '').trim() === progressInLabel;
         // 進行社外は空白か材料待ちのときだけ書く（レコードごとに判定。既に同じ値なら書かない）
@@ -383,6 +384,12 @@ export default async function handler(req) {
           updates.push({ id: rec.id, fields: { ...common, ...extra, [progressField]: status } });
         }
       }
+      // 作業ログ（ログイン中のときだけ書かれる）。読み直し・棚の付け替えも残すが、実績に数えるのは新しく済んだときだけ
+      logEntries.push({
+        action, step: STEP_NAME[action] || '', credit: fresh,
+        book: it.book, wc: it.wc, recordIds: records.map(r => r.id),
+        detail: `${status}${it.loc ? ` 棚:${it.loc}` : ''}${fresh ? '' : '（既に済み）'}`,
+      });
       if (!updates.length) continue;
 
       totalUpdated += await batchUpdate(updates);
@@ -390,12 +397,14 @@ export default async function handler(req) {
     }
 
     if (who) await writeWorkLog(who.user, logEntries);
+    const credited = logEntries.filter(e => e.credit).length;
 
     return json({
       ok: true,
       action,
       status,
       operator: who ? who.user.name : null, // 誰の操作として記録したか（未ログインは null）
+      credited: who ? credited : 0,          // そのうちインセンティブの実績に数えた件数（新しく済んだ品番の数）
       progressIn: progressInLabel || null,   // 併せて入れた 進行社内 の値（無ければ null）
       progressOutIfEmpty: progressOutLabel || null, // 進行社外が空白・材料待ちの行にだけ入れた値
       targets,      // pickOne で選んだ受注（品名・数量・納期・既に照合済か）

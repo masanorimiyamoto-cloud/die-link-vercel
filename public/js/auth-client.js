@@ -58,8 +58,34 @@
     return u;
   }
 
+  // ページの一番上に細いログイン帯を出す。未ログインだと照合・仕舞いの実績が残らないことを知らせる
+  async function statusBar(opts = {}) {
+    const u = await me();
+    const bar = document.createElement('div');
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;'
+      + 'font:600 13px/1.4 system-ui,-apple-system,"Noto Sans JP",sans-serif;'
+      + (u ? 'background:#0f172a;color:#cbd5e1' : 'background:#f59e0b;color:#1f1300');
+    const left = document.createElement('span');
+    const link = document.createElement('a');
+    link.href = loginUrl();
+    link.style.cssText = 'font-weight:800;padding:4px 10px;border-radius:8px;text-decoration:none;white-space:nowrap;'
+      + (u ? 'color:#93c5fd' : 'background:#1f1300;color:#fff');
+    if (u) {
+      const b = document.createElement('b'); b.textContent = u.name; b.style.color = '#fff';
+      left.append(b, ' さんの実績として記録');
+      link.textContent = '切替';
+    } else {
+      left.textContent = opts.warn || 'ログインしていません。照合・仕舞いの実績が記録されません';
+      link.textContent = 'ログイン';
+    }
+    bar.append(left, link);
+    document.body.prepend(bar);
+    return u;
+  }
+
   window.DLAuth = {
-    me, csrf, safeNext, loginUrl, requireLogin,
+    me, csrf, safeNext, loginUrl, requireLogin, statusBar,
     login: (no, pin) => post('login', { no, pin }).then(j => { mePromise = null; return j; }),
     logout: () => post('logout').then(j => { mePromise = null; return j; }),
     setPin: (id, pin) => post('set-pin', { id, pin }),

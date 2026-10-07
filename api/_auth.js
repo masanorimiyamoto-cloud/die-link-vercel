@@ -266,7 +266,8 @@ export async function getSessionUser(req) {
 }
 
 /* ---------------- 作業ログ ---------------- */
-// entry = { action, recordIds?, book?, wc?, detail?, step? }。1件でも配列でもよい。
+// entry = { action, recordIds?, book?, wc?, detail?, step?, credit? }。1件でも配列でもよい。
+// credit: true はインセンティブ集計に数える行（実績対象）。新しく仕事が済んだときだけ付ける。
 // 失敗しても本来の処理は止めない（ログのために現場の操作を失敗させない）。
 //
 // 欄は名前ではなくフィールドIDで書く。2026-10-04 夜に受注へのリンク欄が「受注」→「TableJuchu」に
@@ -283,6 +284,7 @@ const WL = {
   order: 'fld2Orx6AZfV7wr87',   // 受注（TableJuchu へのリンク）
   orderId: 'fldOfsIbZmKNfeik8', // 受注ID（rec...。取り消し時の検索・集計の突き合わせ用）
   book: 'fldljarkaPvAUGXpr', wc: 'fldlvtyNqEZAJCxmN', detail: 'fldJvGOGNVnGzadUW', // Book / WorkCord / 内容
+  credit: 'fldIHadyI8FqyEqQ5',  // 実績対象（checkbox）2026-10-07
 };
 export async function writeWorkLog(user, entries) {
   if (!user) return false;
@@ -302,6 +304,7 @@ export async function writeWorkLog(user, entries) {
     };
     if (Number.isFinite(no)) fields[WL.staffNo] = no;
     if (e.step) fields[WL.step] = String(e.step);
+    if (e.credit === true) fields[WL.credit] = true;
     const ids = (e.recordIds || []).filter(id => /^rec[A-Za-z0-9]{14}$/.test(id));
     if (ids.length) { fields[WL.order] = ids; fields[WL.orderId] = ids.join(','); }
     return { fields };

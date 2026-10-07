@@ -311,7 +311,7 @@ async function complete(body, user) {
     }),
   });
   await writeWorkLog(user, {
-    action: '工程完了', step: r.variant.value, recordIds: [rec.id], book: before.book, wc: before.wc,
+    action: '工程完了', step: r.variant.value, credit: true, recordIds: [rec.id], book: before.book, wc: before.wc,
     detail: `${r.variant.value}（前の進行社内: ${before.progIn || '空白'}）${prevRecord ? ` 上書き前: ${prevRecord}` : ''}`,
   });
   return json({ ok: true, id: rec.id, value: r.variant.value, stamp, prev: before.progIn, prevRecord });
