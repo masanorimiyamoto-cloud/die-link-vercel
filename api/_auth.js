@@ -266,38 +266,69 @@ export async function getSessionUser(req) {
 }
 
 /* ---------------- 作業ログ ---------------- */
-// entry = { action, recordIds?, book?, wc?, detail? }。1件でも配列でもよい。
+// entry = { action, recordIds?, book?, wc?, detail?, step? }。1件でも配列でもよい。
 // 失敗しても本来の処理は止めない（ログのために現場の操作を失敗させない）。
+//
+// 欄は名前ではなくフィールドIDで書く。2026-10-04 夜に受注へのリンク欄が「受注」→「TableJuchu」に
+// 改名され、名前で書いていたこのコードは 10/7 まで受注つきのログ（工程完了・数量変更など）を
+// 全部捨てていた（ログインのログだけ残っていた）。IDなら Airtable で欄名を変えても壊れない。
+// インセンティブ集計に使うので、個人IDとして社員番号も毎回残す（氏名は表記が変わるため）。
+const WL = {
+  at: 'fldal1FMiPlRVn9BF',      // 日時
+  staff: 'fldMv4gqppC1ngSOF',   // 社員（TableStaff へのリンク）
+  staffNo: 'fldmjyRUDyPPaFFnb', // 社員番号（記録時点）
+  name: 'fldEBJAH0707h1ity',    // 社員名（記録時点）
+  action: 'fldHbWQ5VemkIPMmS',  // 操作
+  step: 'flds9HiDR5e1eiFGf',    // 工程（工程完了・取消の対象）
+  order: 'fld2Orx6AZfV7wr87',   // 受注（TableJuchu へのリンク）
+  orderId: 'fldOfsIbZmKNfeik8', // 受注ID（rec...。取り消し時の検索・集計の突き合わせ用）
+  book: 'fldljarkaPvAUGXpr', wc: 'fldlvtyNqEZAJCxmN', detail: 'fldJvGOGNVnGzadUW', // Book / WorkCord / 内容
+};
 export async function writeWorkLog(user, entries) {
   if (!user) return false;
   const list = (Array.isArray(entries) ? entries : [entries]).filter(Boolean);
   if (!list.length) return true;
   const now = new Date().toISOString();
+  const no = Number(user.no);
   const records = list.map(e => {
     const fields = {
-      '日時': now,
-      '社員': [user.id],
-      '社員名': user.name,
-      '操作': String(e.action || ''),
-      'Book': String(e.book || ''),
-      'WorkCord': String(e.wc ?? ''),
-      '内容': String(e.detail || ''),
+      [WL.at]: now,
+      [WL.staff]: [user.id],
+      [WL.name]: user.name,
+      [WL.action]: String(e.action || ''),
+      [WL.book]: String(e.book || ''),
+      [WL.wc]: String(e.wc ?? ''),
+      [WL.detail]: String(e.detail || ''),
     };
+    if (Number.isFinite(no)) fields[WL.staffNo] = no;
+    if (e.step) fields[WL.step] = String(e.step);
     const ids = (e.recordIds || []).filter(id => /^rec[A-Za-z0-9]{14}$/.test(id));
-    if (ids.length) { fields['受注'] = ids; fields['受注ID'] = ids.join(','); } // 受注ID は取り消し時の検索用
+    if (ids.length) { fields[WL.order] = ids; fields[WL.orderId] = ids.join(','); }
     return { fields };
   });
-  try {
-    for (let i = 0; i < records.length; i += 10) {
-      await airtable(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${WORKLOG_TABLE}`, {
-        method: 'POST', body: JSON.stringify({ records: records.slice(i, i + 10) }),
-      });
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${WORKLOG_TABLE}`;
+  let ok = true;
+  for (let i = 0; i < records.length; i += 10) {
+    const slice = records.slice(i, i + 10);
+    try {
+      await airtable(url, { method: 'POST', body: JSON.stringify({ records: slice }) });
+    } catch (e) {
+      // リンク欄など一部の欄で弾かれても記録そのものは残す。リンク2つを外し、内容に失敗の理由を添えて書き直す
+      console.error('worklog failed, retry without links', e?.message || e);
+      try {
+        const bare = slice.map(r => {
+          const f = { ...r.fields }; delete f[WL.staff]; delete f[WL.order];
+          f[WL.detail] = `${f[WL.detail] || ''}\n[ログ書込の再試行: ${String(e?.message || e).slice(0, 160)}]`.trim();
+          return { fields: f };
+        });
+        await airtable(url, { method: 'POST', body: JSON.stringify({ records: bare }) });
+      } catch (e2) {
+        console.error('worklog failed', e2?.message || e2);
+        ok = false;
+      }
     }
-    return true;
-  } catch (e) {
-    console.error('worklog failed', e?.message || e);
-    return false;
   }
+  return ok;
 }
 
 export const LIMITS = { MAX_FAILS, LOCK_MINUTES };

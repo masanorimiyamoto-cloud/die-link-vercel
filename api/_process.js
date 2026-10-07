@@ -311,7 +311,7 @@ async function complete(body, user) {
     }),
   });
   await writeWorkLog(user, {
-    action: '工程完了', recordIds: [rec.id], book: before.book, wc: before.wc,
+    action: '工程完了', step: r.variant.value, recordIds: [rec.id], book: before.book, wc: before.wc,
     detail: `${r.variant.value}（前の進行社内: ${before.progIn || '空白'}）${prevRecord ? ` 上書き前: ${prevRecord}` : ''}`,
   });
   return json({ ok: true, id: rec.id, value: r.variant.value, stamp, prev: before.progIn, prevRecord });
@@ -360,7 +360,7 @@ async function cancel(body, user) {
   await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields }] }) });
   viewCache.clear();
   await writeWorkLog(user, {
-    action: '工程取消', recordIds: [rec.id], book: rec.fields?.[F.book] || '', wc: rec.fields?.[F.wc] ?? '',
+    action: '工程取消', step: r.variant.value, recordIds: [rec.id], book: rec.fields?.[F.book] || '', wc: rec.fields?.[F.wc] ?? '',
     detail: `${r.variant.value} を取り消し${cur ? `（記録: ${cur}）` : ''}。進行社内は ${restored === null ? 'そのまま' : (restored || '空白') + ' に戻した'}`,
   });
   return json({ ok: true, progIn: restored === null ? progIn : restored });
@@ -476,7 +476,7 @@ async function undo(body, user) {
   await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields }] }) });
   viewCache.clear();
   await writeWorkLog(user, {
-    action: '工程完了取消', recordIds: [rec.id], book: rec.fields?.[F.book] || '', wc: rec.fields?.[F.wc] ?? '',
+    action: '工程完了取消', step: r.variant.value, recordIds: [rec.id], book: rec.fields?.[F.book] || '', wc: rec.fields?.[F.wc] ?? '',
     detail: `${r.variant.value} を取り消し（進行社内を ${F.progIn in fields ? (body?.prev || '空白') : 'そのまま'} に）`,
   });
   return json({ ok: true });
