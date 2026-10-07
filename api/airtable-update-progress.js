@@ -12,7 +12,8 @@
 //    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加（「型まだ仕舞済でない」は除去）
 //             ＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
-//             ＋ 進行社外が空白のときだけ → シート材料入荷済（値があれば触らない）
+//             ＋ 進行社外が空白か材料待ち（シート手配必要／シート手配済み）のときだけ → シート材料入荷済
+//               （受領伝票発行可能・伝票出力済・完納済・納期変更 などが入っていれば触らない）
 //             同一 Book/WorkCord の受注が複数あっても1行だけ更新する（pickOne）。
 //             伝票済の行は除き、未照合 → 納期が近い → 作成が古い の順で選ぶ。
 //             選んだ行は targets で返す（画面で品名・数量・納期を表示するため）。
@@ -45,7 +46,7 @@ const API              = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${TABL
 
 const FIELD_BOOK     = process.env.FIELD_BOOK     || 'Book';
 const FIELD_WC       = process.env.FIELD_WC       || 'WorkCord';   // number型
-const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // fabric で空白時のみ書く
+const FIELD_PROGRESS_OUT = process.env.FIELD_PROGRESS    || '進行社外'; // fabric で空白・材料待ちのときだけ書く
 const FIELD_PROGRESS_IN  = process.env.FIELD_PROGRESS_IN || '進行社内'; // fabric（生地照合）用
 const FIELD_DIE_STATUS   = process.env.FIELD_DIE_STATUS  || '抜型状況'; // found / stored 用（複数選択）
 const FIELD_ARCHIVED = process.env.FIELD_ARCHIVED || 'アーカイブ済';
@@ -87,11 +88,18 @@ const STATUS_CONFLICTS = {
 const ACTION_PROGRESS_IN = {
   found: process.env.PROGRESS_IN_LABEL_FOUND || '抜き作業中',
 };
-// action ごとに 進行社外(singleSelect) が「空白のときだけ」入れる値。
-// 進行社外は伝票発行の判定に使うので、既に値があれば絶対に上書きしない（8/7 の事故の再発防止）。
+// action ごとに 進行社外(singleSelect) へ入れる値。空白か、下の「材料待ち」の値のときだけ書く。
+// 進行社外は伝票発行の判定に使うので、それ以外の値（受領伝票発行可能・伝票出力済・完納済 など）は
+// 絶対に上書きしない（8/7 の事故の再発防止）。
+// 2026-10-07 空白のときだけ → 材料待ち（シート手配必要／シート手配済み）も書き換えるよう広げた。
+// 生地が届いて照合できた＝材料は入った、なので手配中の表示を残す理由がない。
 const ACTION_PROGRESS_OUT_IF_EMPTY = {
   fabric: process.env.PROGRESS_OUT_LABEL_FABRIC || 'シート材料入荷済',
 };
+const PROGRESS_OUT_REPLACEABLE = new Set(
+  (process.env.PROGRESS_OUT_REPLACEABLE_LABELS || 'シート手配必要,シート手配済み')
+    .split(',').map(s => s.trim()).filter(Boolean)
+);
 // action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）
 const ACTION_CHECKBOX = {
   found:  FIELD_CHECK_DIE,
@@ -353,8 +361,10 @@ export default async function handler(req) {
         const checked = checkField ? rec.fields?.[checkField] === true : true;
         const progInOk = !progressInLabel
           || String(rec.fields?.[FIELD_PROGRESS_IN] || '').trim() === progressInLabel;
-        // 進行社外は空白のときだけ埋める（レコードごとに判定）
-        const fillOut = !!progressOutLabel && !String(rec.fields?.[FIELD_PROGRESS_OUT] || '').trim();
+        // 進行社外は空白か材料待ちのときだけ書く（レコードごとに判定。既に同じ値なら書かない）
+        const curOut = String(rec.fields?.[FIELD_PROGRESS_OUT] || '').trim();
+        const fillOut = !!progressOutLabel && curOut !== progressOutLabel
+          && (!curOut || PROGRESS_OUT_REPLACEABLE.has(curOut));
         const extra = fillOut ? { [FIELD_PROGRESS_OUT]: progressOutLabel } : {};
 
         if (isMulti) {
@@ -387,7 +397,7 @@ export default async function handler(req) {
       status,
       operator: who ? who.user.name : null, // 誰の操作として記録したか（未ログインは null）
       progressIn: progressInLabel || null,   // 併せて入れた 進行社内 の値（無ければ null）
-      progressOutIfEmpty: progressOutLabel || null, // 進行社外が空白の行にだけ入れた値
+      progressOutIfEmpty: progressOutLabel || null, // 進行社外が空白・材料待ちの行にだけ入れた値
       targets,      // pickOne で選んだ受注（品名・数量・納期・既に照合済か）
       candidates,   // pickOne の候補数（2以上なら同品番の未完了受注が複数あった）
       matched: totalMatched,
