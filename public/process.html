@@ -5,74 +5,81 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>工程の完了を記録</title>
 <style>
-  :root{ --bg:#0b0f14; --txt:#e6f0ff; --mut:rgba(230,240,255,.62); --line:rgba(255,255,255,.12);
-    --card:rgba(255,255,255,.05); --a:#4f8cff; --p:#a855f7; --ok:#22c55e; --err:#f87171; --warn:#f59e0b; }
+  /* 見た目は Airtable を手本に整えた（2026-10-08）: 細い線・丸い札・平らな色・「小さなラベル＋大きな値」。
+     太さは 本文 500／見出し・値 600 を基本にし、800 は使わない。暗い画面と大きめの文字はそのまま */
+  :root{ --bg:#0f1115; --surf:#171a20; --surf2:#1e222a; --hover:#262b35;
+    --txt:#e8eaee; --mut:#9aa1ad; --dim:#737b88; --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+    --card:var(--surf); --a:#3b82f6; --a-soft:rgba(59,130,246,.18); --p:#8b5cf6;
+    --ok:#22c55e; --err:#f87171; --warn:#f59e0b; --r:10px; }
   *{ box-sizing:border-box } [hidden]{ display:none !important }
   html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--txt);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif }
+    font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Noto Sans JP",Meiryo,sans-serif;
+    font-weight:500; -webkit-font-smoothing:antialiased; line-height:1.45 }
   .wrap{ max-width:640px; margin:0 auto; padding:12px 14px 40px; display:flex; flex-direction:column; gap:12px }
   .bar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:14px; color:var(--mut) }
-  .bar b{ color:var(--txt) } .bar a{ color:#93c5fd; text-decoration:none }
-  /* 文字の太さ: 大きい文字は 2026-10-06 に一段階細くした（800→700 など）。14px 以下の小さい文字は元のまま */
-  h1{ margin:0; font-size:22px; font-weight:600; letter-spacing:.06em }
-  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
+  .bar b{ color:var(--txt); font-weight:600 } .bar a{ color:#93c5fd; text-decoration:none }
+  h1{ margin:2px 0 0; font-size:21px; font-weight:600; letter-spacing:.04em }
+  .card{ background:var(--surf); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
   .row{ display:flex; gap:8px; align-items:center }
-  input{ min-width:0; font-size:20px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06); color:var(--txt) }
-  select{ font-size:20px; padding:10px 8px; border-radius:12px; border:1px solid rgba(255,255,255,.16);
-    background:#1a2230; color:var(--txt) }
+  input, select{ font:inherit; font-size:19px; padding:10px 12px; border-radius:var(--r); border:1px solid var(--line2);
+    background:var(--surf2); color:var(--txt); outline:none }
+  input:focus, select:focus{ border-color:var(--a); box-shadow:0 0 0 3px var(--a-soft) }
+  input{ min-width:0 } select{ padding:10px 8px }
   #book{ width:5.2em } #wc{ flex:1 }
-  .tabs{ display:flex; gap:6px; background:rgba(255,255,255,.06); padding:4px; border-radius:14px }
-  .tabs button{ flex:1; padding:12px 6px; font-size:17px; background:transparent; color:var(--mut) }
-  .tabs button.on{ background:var(--a); color:#fff }
+  /* タブは Airtable の切替のような、枠の中で一段明るく浮く形 */
+  .tabs{ display:flex; gap:4px; background:var(--surf); border:1px solid var(--line); padding:4px; border-radius:12px }
+  .tabs button{ flex:1; padding:11px 6px; font-size:16px; font-weight:500; background:transparent; color:var(--mut); border-radius:9px }
+  .tabs button.on{ background:var(--hover); color:var(--txt); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.4), inset 0 0 0 1px var(--line2) }
+  /* ビューの切替は丸い札。選んだものだけ色を付ける */
   .chips{ display:flex; gap:6px; flex-wrap:wrap; align-items:center }
-  .chips button{ padding:8px 14px; font-size:15px; background:rgba(255,255,255,.10) }
-  .chips button.on{ background:var(--p) }
+  .chips button{ padding:7px 13px; font-size:14px; font-weight:500; border-radius:999px; background:var(--surf2); color:var(--mut); border:1px solid var(--line) }
+  .chips button.on{ background:rgba(139,92,246,.18); color:#ddd6fe; border-color:rgba(139,92,246,.55); font-weight:600 }
   .chips .sp{ flex:1 }
   .lrow{ display:flex; gap:8px; align-items:stretch }
   .lrow .order{ flex:1; min-width:0 }
   .order .item{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
   .wrap > *, .card > *{ min-width:0 }
   .late{ color:#fca5a5 }
-  /* 一覧で進行が見えるよう、工程ごとの小さな札を並べる */
-  .prog{ display:flex; flex-wrap:wrap; gap:4px; margin-top:4px }
-  .pc{ font-size:13px; font-weight:700; padding:3px 7px; border-radius:7px; line-height:1.3;
-    background:rgba(255,255,255,.07); color:rgba(230,240,255,.55); border:1px dashed rgba(255,255,255,.18) }
-  .pc.ok{ background:rgba(34,197,94,.20); color:#bbf7d0; border:1px solid rgba(34,197,94,.45) }
-  /* 済んだ工程はすべて出すが、最後のもの（今の進行社内）だけ明るく、それ以前は暗く */
-  .pc.ok.past{ background:rgba(34,197,94,.07); color:rgba(187,247,208,.55); border-color:rgba(34,197,94,.22) }
-  .pc.ok.now{ background:#16a34a; color:#fff; border-color:#86efac; box-shadow:0 0 10px rgba(34,197,94,.45) }
-  .pc.out{ background:rgba(245,158,11,.16); color:#fde68a; border:1px solid rgba(245,158,11,.35) }
-  .memo{ font-size:13px; color:#fde68a; font-weight:600 }
+  /* 一覧で進行が見えるよう、工程ごとの小さな札を並べる（Airtable の選択肢のような丸い札） */
+  .prog{ display:flex; flex-wrap:wrap; gap:5px; margin-top:2px }
+  .pc{ font-size:12.5px; font-weight:500; padding:2px 9px; border-radius:999px; line-height:1.55;
+    background:rgba(255,255,255,.06); color:var(--mut); border:1px solid transparent }
+  .pc.ok{ background:rgba(34,197,94,.16); color:#bbf7d0 }
+  /* 済んだ工程はすべて出すが、最後のもの（今の進行社内）だけ明るく、それ以前は控えめに */
+  .pc.ok.past{ background:rgba(34,197,94,.07); color:rgba(187,247,208,.6) }
+  .pc.ok.now{ background:#16a34a; color:#fff; font-weight:600 }
+  .pc.out{ background:rgba(245,158,11,.15); color:#fde68a }
+  .memo{ font-size:13px; color:#fde68a; font-weight:500; padding:4px 8px; border-radius:6px;
+    background:rgba(245,158,11,.08); border-left:2px solid rgba(245,158,11,.6) }
   /* 仕上がり数量の変更 */
-  .facts .from{ font-size:13px; font-weight:700; color:#93c5fd; margin-left:6px }
+  .facts .from{ font-size:12px; font-weight:500; color:#93c5fd; margin-left:6px; letter-spacing:0 }
   .amt{ display:flex; flex-wrap:wrap; gap:8px; align-items:center }
-  .amt input{ width:7.5em; font-size:24px; font-weight:700; text-align:right }
-  .amt input[type=date]{ width:auto; font-size:20px; text-align:left; color-scheme:dark }
-  .amt .note{ font-size:13px; color:var(--mut) }
-  .amtbtn{ padding:8px 12px; font-size:15px; background:rgba(255,255,255,.10) }
+  .amt input{ width:7.5em; font-size:22px; font-weight:600; text-align:right; font-variant-numeric:tabular-nums }
+  .amt input[type=date]{ width:auto; font-size:19px; text-align:left; color-scheme:dark }
+  .amt .note{ font-size:12.5px; color:var(--mut) }
+  .amtbtn{ padding:7px 12px; font-size:14px; font-weight:500; background:var(--surf2); color:var(--txt); border:1px solid var(--line2) }
   /* 数量は青、納期はオレンジで見分ける（やめる ボタンは灰色のまま） */
-  .amtbtn.qty{ background:rgba(59,130,246,.18); color:#bfdbfe; border:1px solid rgba(96,165,250,.55) }
-  .amtbtn.date{ background:rgba(249,115,22,.16); color:#fed7aa; border:1px solid rgba(251,146,60,.55) }
-  /* 選んだ受注から「探す」（型の場所）へ。トップの探すボタンと同じ緑 */
-  .findbtn{ display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border-radius:12px;
-    font-size:18px; font-weight:700; color:#fff; text-decoration:none; letter-spacing:.04em;
-    background:linear-gradient(135deg,#059669 0%,#22c55e 55%,#86efac 110%) }
-  .findbtn small{ font-size:13px; font-weight:700; opacity:.9 }
+  .amtbtn.qty{ background:rgba(59,130,246,.12); color:#bfdbfe; border-color:rgba(96,165,250,.4) }
+  .amtbtn.date{ background:rgba(249,115,22,.11); color:#fed7aa; border-color:rgba(251,146,60,.4) }
+  /* 選んだ受注から「探す」（型の場所）へ。トップの探すボタンと同じ緑（グラデーションをやめ平らな色に） */
+  .findbtn{ display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border-radius:var(--r);
+    font-size:17px; font-weight:600; color:#fff; text-decoration:none; letter-spacing:.03em; background:#16a34a }
+  .findbtn:active{ filter:brightness(.92) }
+  .findbtn small{ font-size:12.5px; font-weight:500; opacity:.85 }
   /* 「生地を照合」は トップの知るボタンと同じ青。探すと横に並べる */
-  .findbtn.fabric{ background:linear-gradient(135deg,#1b3bff 0%,#4f8cff 55%,#38bdf8 110%) }
+  .findbtn.fabric{ background:#2563eb }
   .gobar{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
-  .gobar .findbtn{ flex-direction:column; gap:2px; padding:10px 6px; text-align:center }
+  .gobar .findbtn{ flex-direction:column; gap:1px; padding:10px 6px; text-align:center }
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
-  .orow{ display:flex; gap:10px; align-items:flex-start; width:100% }
-  .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:4px }
-  .thumb{ flex:0 0 76px; width:76px; height:76px; border-radius:10px; overflow:hidden; background:#0b0f14;
-    border:1px solid rgba(255,255,255,.14); display:flex; align-items:center; justify-content:center; position:relative }
+  .orow{ display:flex; gap:12px; align-items:flex-start; width:100% }
+  .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px }
+  .thumb{ flex:0 0 72px; width:72px; height:72px; border-radius:8px; overflow:hidden; background:#fff;
+    border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; position:relative }
   .thumb img{ width:100%; height:100%; object-fit:contain; background:#fff }
-  .thumb .n{ position:absolute; right:3px; bottom:3px; font-size:11px; font-weight:800; padding:1px 5px; border-radius:6px; background:rgba(0,0,0,.65); color:#fff }
+  .thumb .n{ position:absolute; right:3px; bottom:3px; font-size:11px; font-weight:600; padding:0 6px; border-radius:999px; background:rgba(0,0,0,.7); color:#fff }
   .imgs{ display:flex; gap:8px; overflow-x:auto }
-  .imgs img{ max-height:40vh; max-width:100%; border-radius:10px; background:#fff; cursor:zoom-in; flex:0 0 auto }
-  .imgnote{ font-size:13px; color:var(--mut) }
+  .imgs img{ max-height:40vh; max-width:100%; border-radius:8px; background:#fff; cursor:zoom-in; flex:0 0 auto; border:1px solid var(--line2) }
+  .imgnote{ font-size:12.5px; color:var(--mut) }
   .viewer{ position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.94); display:flex; flex-direction:column }
   .viewer .vbar{ display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; color:#fff; font-size:14px }
   .viewer .vbar a{ color:#93c5fd }
@@ -80,65 +87,70 @@
   .viewer .vimg img{ max-width:100%; max-height:100%; background:#fff }
   .viewer .vimg.zoom{ align-items:flex-start; justify-content:flex-start }
   .viewer .vimg.zoom img{ max-width:none; max-height:none }
-  button{ font:inherit; font-weight:700; border:0; border-radius:12px; color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent }
+  button{ font:inherit; font-weight:600; border:0; border-radius:var(--r); color:#fff; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    transition:background-color .12s, border-color .12s }
   button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
-  .btn{ padding:12px 14px; background:var(--a); white-space:nowrap }
-  .ghost{ background:rgba(255,255,255,.12) }
-  .camwrap{ position:relative; border-radius:12px; overflow:hidden; background:#000; aspect-ratio:4/3 }
+  .btn{ padding:11px 14px; background:var(--a); white-space:nowrap }
+  .ghost{ background:var(--surf2); border:1px solid var(--line2) }
+  .camwrap{ position:relative; border-radius:var(--r); overflow:hidden; background:#000; aspect-ratio:4/3 }
   video{ width:100%; height:100%; object-fit:cover; display:block }
   .camhint{ position:absolute; left:0; right:0; bottom:0; padding:8px; font-size:13px; text-align:center; background:rgba(0,0,0,.55) }
-  .order{ text-align:left; padding:12px; border-radius:12px; border:2px solid transparent; background:rgba(255,255,255,.06); color:var(--txt); display:flex; flex-direction:column; gap:4px }
-  .order.sel{ border-color:var(--a); background:rgba(79,140,255,.16) }
+  /* 受注の行は Airtable のレコードカードのように: 一段明るい面＋細い線。選ぶと青い枠と左の帯 */
+  .order{ text-align:left; padding:12px 12px 12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--surf2);
+    color:var(--txt); display:flex; flex-direction:column; gap:4px; font-weight:500 }
+  .order.sel{ border-color:rgba(59,130,246,.7); background:#1c2533; box-shadow:inset 3px 0 0 var(--a) }
   .order.closed{ opacity:.5 }
-  .order .item{ font-size:18px } .order .meta, .target .meta{ font-size:14px; color:var(--mut); font-weight:600 }
-  .target{ font-size:15px; line-height:1.5; display:flex; flex-direction:column; gap:4px } .target .item{ font-size:20px; font-weight:700 }
-  /* 数量と納期は一番大きく。Airtable で小さくて読みにくかった点の改善 */
-  .facts{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 20px; font-size:15px; font-weight:600; color:var(--mut) }
-  .facts b{ font-weight:800; font-size:26px; line-height:1.15; color:var(--txt); letter-spacing:.02em; margin-left:4px }
+  .order .item{ font-size:17px; font-weight:600; line-height:1.4; letter-spacing:.01em }
+  .order .meta, .target .meta{ font-size:13px; color:var(--mut); font-weight:500; font-variant-numeric:tabular-nums }
+  .target{ font-size:15px; line-height:1.5; display:flex; flex-direction:column; gap:6px }
+  .target .item{ font-size:20px; font-weight:600; line-height:1.4 }
+  /* 数量と納期は一番大きく（Airtable で小さくて読みにくかった点の改善）。ラベルは小さく控えめ、値は大きく */
+  .facts{ display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 22px; font-size:12px; font-weight:500; color:var(--dim); letter-spacing:.06em }
+  .facts b{ font-weight:600; font-size:24px; line-height:1.2; color:var(--txt); letter-spacing:.01em; margin-left:6px; font-variant-numeric:tabular-nums }
   .facts .late b{ color:#f87171 } .facts .soon b{ color:#fbbf24 }
-  .facts .when{ font-size:13px; font-weight:800; margin-left:6px; padding:2px 7px; border-radius:6px }
-  .facts .late .when{ background:rgba(248,113,113,.18); color:#fca5a5 }
-  .facts .soon .when{ background:rgba(251,191,36,.18); color:#fde68a }
+  .facts .when{ font-size:12px; font-weight:600; margin-left:6px; padding:1px 8px; border-radius:999px; letter-spacing:0; vertical-align:3px }
+  .facts .late .when{ background:rgba(248,113,113,.16); color:#fca5a5 }
+  .facts .soon .when{ background:rgba(251,191,36,.16); color:#fde68a }
   /* 紙入荷日は 進行社外（シート手配済み／シート材料入荷済）の札の中に小さく添える */
-  .pc.out .pd{ font-weight:600; opacity:.8; margin-left:5px }
+  .pc.out .pd{ font-weight:500; opacity:.8; margin-left:5px }
   /* 抜型状況（Airtable の選択肢の色に寄せる）。未仕舞は注意として目立たせる */
-  .pc.die{ border-style:solid }
-  .pc.die.d-check{ background:rgba(168,85,247,.16); color:#d8b4fe; border-color:rgba(168,85,247,.45) }
-  .pc.die.d-stored{ background:rgba(34,211,238,.14); color:#a5f3fc; border-color:rgba(34,211,238,.45) }
-  .pc.die.d-notyet{ background:#be185d; color:#fff; border-color:#f9a8d4 }
-  .pc.die.d-new{ background:rgba(59,130,246,.16); color:#bfdbfe; border-color:rgba(59,130,246,.45) }
-  .pc.die.d-fix{ background:rgba(234,179,8,.16); color:#fde68a; border-color:rgba(234,179,8,.45) }
-  .steps{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
-  .stephead{ grid-column:1/-1; font-size:14px; color:#93c5fd; font-weight:700; margin-top:6px }
+  .pc.die.d-check{ background:rgba(168,85,247,.16); color:#e9d5ff }
+  .pc.die.d-stored{ background:rgba(34,211,238,.13); color:#a5f3fc }
+  .pc.die.d-notyet{ background:#be185d; color:#fff; font-weight:600 }
+  .pc.die.d-new{ background:rgba(59,130,246,.16); color:#bfdbfe }
+  .pc.die.d-fix{ background:rgba(234,179,8,.15); color:#fde68a }
+  /* 見出しは Airtable の欄名のように小さく控えめに、下に細い線 */
+  .steps{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
+  .stephead, .roomhead{ grid-column:1/-1; font-size:12.5px; font-weight:600; letter-spacing:.08em; color:#93c5fd;
+    margin-top:8px; padding-bottom:6px; border-bottom:1px solid var(--line) }
   .stephead.status{ color:#fcd34d }
   /* 工程ボタン: 未記録は暗く（OFF）、記録済みは明るく（ON）。明るい紫だと押されているように見えたため（2026-10-03） */
-  .step{ min-height:72px; padding:8px; font-size:18px; letter-spacing:.02em; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:6px;
-    background:#132036; color:rgba(230,240,255,.85); border:1px solid rgba(96,165,250,.32) }
+  .step{ min-height:68px; padding:8px; font-size:17px; font-weight:600; letter-spacing:.02em; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:4px;
+    background:#161e2b; color:rgba(232,234,238,.88); border:1px solid rgba(96,165,250,.25) }
   /* グループごとに薄く色を分ける: 工程＝青み、状況＝黄土色み、Room＝紫み（2026-10-06） */
-  .step.status{ background:#241d0f; color:rgba(254,243,199,.85); border:1px dashed rgba(245,158,11,.45) }
-  .step.rec{ border:2px solid #fde68a; color:#fff }
-  .step.done{ background:linear-gradient(135deg,#15803d 0%,#22c55e 60%,#4ade80 110%); color:#fff; border-color:#86efac;
-    box-shadow:0 0 14px rgba(34,197,94,.45) }
-  .step small{ font-size:12px; font-weight:700; letter-spacing:0; opacity:.95 }
-  .step.done.past{ background:rgba(34,197,94,.13); color:rgba(187,247,208,.75); border-color:rgba(34,197,94,.35); box-shadow:none }
+  .step.status{ background:#211c12; color:rgba(254,243,199,.88); border:1px solid rgba(245,158,11,.3) }
+  .step.rec{ border:1.5px solid #fde68a; color:#fff }
+  .step.done{ background:#16a34a; color:#fff; border-color:#4ade80 }
+  .step small{ font-size:11.5px; font-weight:500; letter-spacing:0; opacity:.9 }
+  .step.done.past{ background:rgba(34,197,94,.10); color:rgba(187,247,208,.8); border-color:rgba(34,197,94,.3) }
   /* Room: 普段の部屋（品名タグから）は明るい枠。Room に入っている部屋は Airtable の色で塗る */
   .rooms{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
-  .roomhead{ font-size:14px; color:#d8b4fe; font-weight:700; margin-top:6px }
-  .roomhead small{ font-weight:600; color:var(--mut) }
-  .room{ min-height:52px; padding:6px; font-size:15px; letter-spacing:0; overflow-wrap:anywhere;
-    background:#1e1530; color:rgba(233,213,255,.75); border:1px solid rgba(168,85,247,.35) }
-  .room.def{ border:2px solid #fde68a; color:#fff; box-shadow:0 0 8px rgba(253,230,138,.35) }
-  .room.on{ background:var(--rc); color:#fff; border-color:#fff }
+  .roomhead{ color:#c4b5fd }
+  .roomhead small{ font-weight:500; letter-spacing:0; color:var(--dim) }
+  .room{ min-height:50px; padding:6px; font-size:14.5px; font-weight:500; letter-spacing:0; overflow-wrap:anywhere;
+    background:#1b1626; color:rgba(233,213,255,.78); border:1px solid rgba(168,85,247,.28) }
+  .room.def{ border:1.5px solid #fde68a; color:#fff }
+  .room.on{ background:var(--rc); color:#fff; border-color:rgba(255,255,255,.7); font-weight:600 }
   .room.on.def{ border-color:#fde68a }
-  .pc.room{ background:rgba(255,255,255,.08); color:#fff; border:1px solid var(--rc) }
+  .pc.room{ background:rgba(255,255,255,.06); color:#fff; border:1px solid var(--rc) }
   .variants{ display:flex; flex-wrap:wrap; gap:8px }
-  .variants button{ flex:1 1 30%; padding:16px 8px; font-size:18px; background:var(--p) }
-  .variants button.rec{ outline:3px solid #fde68a; outline-offset:-3px }
-  .msg{ font-size:15px; line-height:1.5; min-height:1.2em } .msg.err{ color:var(--err) } .msg.ok{ color:var(--ok) } .msg.warn{ color:var(--warn) }
+  .variants button{ flex:1 1 30%; padding:15px 8px; font-size:17px; background:var(--p) }
+  .variants button.rec{ outline:2px solid #fde68a; outline-offset:-2px }
+  .msg{ font-size:14px; line-height:1.5; min-height:1.2em; color:var(--mut) } .msg.err{ color:var(--err) } .msg.ok{ color:var(--ok) } .msg.warn{ color:var(--warn) }
   /* 記録後に戻った行を一瞬光らせ、どこに戻ったか分かるようにする */
   .order.flash{ animation:flash 1.8s ease-out }
-  @keyframes flash{ 0%,30%{ box-shadow:0 0 0 4px #fde68a, 0 0 18px rgba(253,230,138,.6) } 100%{ box-shadow:0 0 0 0 transparent } }
+  @keyframes flash{ 0%,30%{ box-shadow:0 0 0 3px #fde68a, 0 0 16px rgba(253,230,138,.5) } 100%{ box-shadow:0 0 0 0 transparent } }
 </style>
 </head>
 <body>
