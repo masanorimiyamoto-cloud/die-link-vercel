@@ -4,6 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>工程の完了を記録</title>
+<script>
+  // 背景の白／黒は端末ごとに覚える。描く前に決めて、黒→白のちらつきを出さない
+  try { if (localStorage.getItem('dl.theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch {}
+</script>
 <style>
   /* 見た目は Airtable を手本に整えた（2026-10-08）: 細い線・丸い札・平らな色・「小さなラベル＋大きな値」。
      太さは 本文 500／見出し・値 600 を基本にし、800 は使わない。暗い画面と大きめの文字はそのまま */
@@ -91,7 +95,7 @@
     transition:background-color .12s, border-color .12s }
   button:active{ transform:scale(.985) } button:disabled{ opacity:.5 }
   .btn{ padding:11px 14px; background:var(--a); white-space:nowrap }
-  .ghost{ background:var(--surf2); border:1px solid var(--line2) }
+  .ghost{ background:var(--surf2); color:var(--txt); border:1px solid var(--line2) }
   .camwrap{ position:relative; border-radius:var(--r); overflow:hidden; background:#000; aspect-ratio:4/3 }
   video{ width:100%; height:100%; object-fit:cover; display:block }
   .camhint{ position:absolute; left:0; right:0; bottom:0; padding:8px; font-size:13px; text-align:center; background:rgba(0,0,0,.55) }
@@ -151,11 +155,61 @@
   /* 記録後に戻った行を一瞬光らせ、どこに戻ったか分かるようにする */
   .order.flash{ animation:flash 1.8s ease-out }
   @keyframes flash{ 0%,30%{ box-shadow:0 0 0 3px #fde68a, 0 0 16px rgba(253,230,138,.5) } 100%{ box-shadow:0 0 0 0 transparent } }
+  /* 白／黒の切替ボタン（右上、名前の左） */
+  .barr{ display:flex; align-items:center; gap:10px }
+  .themebtn{ padding:5px 11px; font-size:13px; font-weight:500; border-radius:999px; background:var(--surf2); color:var(--mut); border:1px solid var(--line2) }
+
+  /* ---------- 白モード（Airtable と同じ白い背景）。黒モードで決め打ちの色を、白の上で読める濃さに置き換える ---------- */
+  :root[data-theme=light]{ color-scheme:light; --bg:#f4f5f7; --surf:#fff; --surf2:#fff; --hover:#fff;
+    --txt:#1f2328; --mut:#5f6672; --dim:#80868f; --line:rgba(0,0,0,.08); --line2:rgba(0,0,0,.14);
+    --a:#2563eb; --a-soft:rgba(37,99,235,.15); --ok:#16a34a; --err:#dc2626; --warn:#d97706 }
+  :root[data-theme=light] .bar a{ color:#2563eb }
+  :root[data-theme=light] .card{ box-shadow:0 1px 3px rgba(0,0,0,.05) }
+  :root[data-theme=light] .tabs{ background:#eceef1; border-color:transparent }
+  :root[data-theme=light] .tabs button.on{ background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.12) }
+  :root[data-theme=light] .chips button{ background:#f1f2f4; border-color:transparent }
+  :root[data-theme=light] .chips button.on{ background:#ede9fe; color:#5b21b6; border-color:#c4b5fd }
+  :root[data-theme=light] .order{ background:#fff; border-color:#e1e4e8; box-shadow:0 1px 2px rgba(0,0,0,.04) }
+  :root[data-theme=light] .order.sel{ background:#f0f6ff; border-color:#93c5fd; box-shadow:inset 3px 0 0 var(--a) }
+  :root[data-theme=light] .late{ color:#dc2626 }
+  :root[data-theme=light] .facts .late b{ color:#dc2626 } :root[data-theme=light] .facts .soon b{ color:#c2410c }
+  :root[data-theme=light] .facts .late .when{ background:#fee2e2; color:#b91c1c }
+  :root[data-theme=light] .facts .soon .when{ background:#ffedd5; color:#9a3412 }
+  :root[data-theme=light] .facts .from{ color:#2563eb }
+  :root[data-theme=light] .pc{ background:#f1f2f4; color:var(--mut) }
+  :root[data-theme=light] .pc.ok{ background:#dcfce7; color:#166534 }
+  :root[data-theme=light] .pc.ok.past{ background:#f0fdf4; color:#5b8a6b }
+  :root[data-theme=light] .pc.ok.now{ background:#16a34a; color:#fff }
+  :root[data-theme=light] .pc.out{ background:#fef3c7; color:#92400e }
+  :root[data-theme=light] .pc.die.d-check{ background:#f3e8ff; color:#6b21a8 }
+  :root[data-theme=light] .pc.die.d-stored{ background:#cffafe; color:#155e75 }
+  :root[data-theme=light] .pc.die.d-notyet{ background:#db2777; color:#fff }
+  :root[data-theme=light] .pc.die.d-new{ background:#dbeafe; color:#1e40af }
+  :root[data-theme=light] .pc.die.d-fix{ background:#fef9c3; color:#854d0e }
+  :root[data-theme=light] .pc.room{ background:#fff; color:var(--txt) }
+  :root[data-theme=light] .memo{ color:#92400e; background:#fffbeb; border-left-color:#f59e0b }
+  :root[data-theme=light] .amt input[type=date]{ color-scheme:light }
+  :root[data-theme=light] .amtbtn.qty{ background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe }
+  :root[data-theme=light] .amtbtn.date{ background:#fff7ed; color:#c2410c; border-color:#fed7aa }
+  :root[data-theme=light] .stephead{ color:#2563eb } :root[data-theme=light] .stephead.status{ color:#b45309 }
+  :root[data-theme=light] .roomhead{ color:#7c3aed }
+  :root[data-theme=light] .step{ background:#f5f8ff; color:#1e293b; border-color:#c7d7f5 }
+  :root[data-theme=light] .step.status{ background:#fffbeb; color:#78350f; border-color:#fcd9a0 }
+  /* 普段の工程・部屋の印は、白の上では薄い黄色が見えないので濃いオレンジの枠に */
+  :root[data-theme=light] .step.rec{ border:1.5px solid #f59e0b; color:#1f2328 }
+  :root[data-theme=light] .step.done{ background:#16a34a; color:#fff; border-color:#15803d }
+  :root[data-theme=light] .step.done.past{ background:#f0fdf4; color:#166534; border-color:#bbf7d0 }
+  :root[data-theme=light] .room{ background:#faf5ff; color:#6b21a8; border-color:#e9d5ff }
+  :root[data-theme=light] .room.def{ border:1.5px solid #f59e0b; color:#1f2328 }
+  :root[data-theme=light] .room.on{ background:var(--rc); color:#fff; border-color:transparent }
+  :root[data-theme=light] .room.on.def{ border-color:#f59e0b }
+  :root[data-theme=light] .variants button.rec{ outline-color:#f59e0b }
+  :root[data-theme=light] .thumb, :root[data-theme=light] .imgs img{ border-color:#e1e4e8 }
 </style>
 </head>
 <body>
 <main class="wrap">
-  <div class="bar"><a href="/">← トップ</a><span id="who"></span></div>
+  <div class="bar"><a href="/">← トップ</a><span class="barr"><button type="button" class="themebtn" id="themeBtn"></button><span id="who"></span></span></div>
   <h1>工程の完了を記録</h1>
   <nav class="tabs" role="tablist">
     <button type="button" id="tabList" role="tab">作業リスト</button>
@@ -210,6 +264,16 @@
 (async function () {
   const $ = (id) => document.getElementById(id);
   const say = (el, t, cls) => { el.textContent = t || ''; el.className = 'msg ' + (cls || ''); };
+
+  // 背景の白／黒の切替。ボタンには「押すとなる方」を出す
+  function showTheme() { $('themeBtn').textContent = document.documentElement.dataset.theme === 'light' ? '☾ 黒に' : '☀ 白に'; }
+  $('themeBtn').onclick = () => {
+    const light = document.documentElement.dataset.theme !== 'light';
+    if (light) document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem('dl.theme', light ? 'light' : 'dark'); } catch {}
+    showTheme();
+  };
+  showTheme();
 
   const me = await DLAuth.requireLogin();
   if (!me) return;
