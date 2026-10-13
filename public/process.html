@@ -451,10 +451,10 @@
     for (const v of die) {
       const c = document.createElement('span'); c.className = 'pc die ' + (DIE_CLASS[v] || ''); c.textContent = v; box.append(c);
     }
-    // Room に入っている部屋を全部出す。普段の部屋（品名タグ）は部屋名だけ、それ以外は応援先として「応援 」を付ける（2026-10-13）
-    for (const r of (o.room || [])) {
+    // Room に入っている部屋のうち、普段の部屋（品名タグ）以外＝応援先を出す
+    for (const r of (o.room || []).filter(r => !hasTag(o, roomTag(r)))) {
       const c = document.createElement('span'); c.className = 'pc room';
-      c.style.setProperty('--rc', roomColor(r)); c.textContent = (hasTag(o, roomTag(r)) ? '' : '応援 ') + r; box.append(c);
+      c.style.setProperty('--rc', roomColor(r)); c.textContent = '応援 ' + r; box.append(c);
     }
     if (o.progOut) {
       const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut;
