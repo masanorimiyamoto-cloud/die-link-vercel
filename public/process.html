@@ -109,7 +109,7 @@
     color:var(--txt); display:flex; flex-direction:column; gap:4px; font-weight:500 }
   .order.sel{ border-color:rgba(59,130,246,.7); background:#1c2533; box-shadow:inset 3px 0 0 var(--a) }
   .order.closed{ opacity:.5 }
-  .order .item{ font-size:17px; font-weight:600; line-height:1.4; letter-spacing:.01em }
+  .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
   .order .meta, .target .meta{ font-size:13px; color:var(--mut); font-weight:500; font-variant-numeric:tabular-nums }
   .target{ font-size:15px; line-height:1.5; display:flex; flex-direction:column; gap:6px }
   .target .item{ font-size:20px; font-weight:600; line-height:1.4 }
@@ -667,6 +667,9 @@
   };
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('viewer').hidden) closeViewer(); });
 
+  // 一覧の品名は # 以降（工程・配送のタグ）を外す。工程は下の流れで分かる。1件を開いた画面では元の品名のまま
+  const itemShort = (o) => String(o.item || '').replace(/\s*[#＃].*$/s, '').trim() || o.item || '(品名なし)';
+
   function memoLine(o) {
     if (!o.memo) return null;
     const m = document.createElement('div'); m.className = 'memo'; m.textContent = '連絡: ' + o.memo; return m;
@@ -678,7 +681,7 @@
     for (const o of S.orders) {
       const el = document.createElement('button'); el.type = 'button';
       el.className = 'order' + (o.closed ? ' closed' : '') + (S.sel === o.id ? ' sel' : '');
-      const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
+      const it = document.createElement('div'); it.className = 'item'; it.textContent = itemShort(o);
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
@@ -704,6 +707,16 @@
   }
   $('tabList').onclick = () => setMode('list');
   $('tabFind').onclick = () => setMode('find');
+
+  // スリープや別のアプリから戻ったら作業リストを読み直す（自動の定期読み直しはしない 2026-10-14）。
+  // 受注を開いて操作している間と画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (!hiddenAt || Date.now() - hiddenAt < 5000) return; // 一瞬の切り替えでは読まない
+    hiddenAt = 0;
+    if (S.mode === 'list' && !S.sel && $('viewer').hidden) loadView(S.view, true);
+  });
 
   /* ---------- 作業リスト ---------- */
   async function loadView(key, refresh) {
@@ -740,7 +753,7 @@
       const row = document.createElement('div'); row.className = 'lrow';
       const el = document.createElement('button'); el.type = 'button';
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
-      const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
+      const it = document.createElement('div'); it.className = 'item'; it.textContent = itemShort(o);
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
