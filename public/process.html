@@ -44,15 +44,20 @@
   .order .item{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
   .wrap > *, .card > *{ min-width:0 }
   .late{ color:#fca5a5 }
-  /* 一覧で進行が見えるよう、工程ごとの小さな札を並べる（Airtable の選択肢のような丸い札） */
-  .prog{ display:flex; flex-wrap:wrap; gap:5px; margin-top:2px }
+  /* 一覧の進行は 上段 社外／下段 社内 の流れ（A → B → C）。今の段階だけ光る四角で囲み、前の段階は控えめに（2026-10-14） */
+  .prog{ display:flex; flex-direction:column; gap:6px; margin-top:2px }
+  .prog .tags{ display:flex; flex-wrap:wrap; gap:5px }
+  .flow{ display:flex; flex-wrap:wrap; align-items:center; gap:5px 4px }
+  .flow .fl{ flex:0 0 2.4em; font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--dim) }
+  .fs{ display:inline-flex; flex-direction:column; align-items:center; font-size:12.5px; line-height:1.3; padding:3px 8px;
+    border-radius:6px; border:1px solid var(--line2); color:var(--mut) }
+  .fs small{ font-size:10.5px; font-weight:500; opacity:.8; font-variant-numeric:tabular-nums }
+  .farr, .fnone{ color:var(--dim); font-size:12px }
+  .flow.in .fs.now{ border:2px solid #4ade80; color:#fff; background:rgba(34,197,94,.2); box-shadow:0 0 10px rgba(74,222,128,.55); font-weight:600 }
+  .flow.out .fs.now{ border:2px solid #fbbf24; color:#fff; background:rgba(245,158,11,.18); box-shadow:0 0 10px rgba(251,191,36,.5); font-weight:600 }
+  .flow .fs.now.alert{ border-color:#f87171; background:rgba(248,113,113,.2); box-shadow:0 0 10px rgba(248,113,113,.55) }
   .pc{ font-size:12.5px; font-weight:500; padding:2px 9px; border-radius:999px; line-height:1.55;
     background:rgba(255,255,255,.06); color:var(--mut); border:1px solid transparent }
-  .pc.ok{ background:rgba(34,197,94,.16); color:#bbf7d0 }
-  /* 済んだ工程はすべて出すが、最後のもの（今の進行社内）だけ明るく、それ以前は控えめに */
-  .pc.ok.past{ background:rgba(34,197,94,.07); color:rgba(187,247,208,.6) }
-  .pc.ok.now{ background:#16a34a; color:#fff; font-weight:600 }
-  .pc.out{ background:rgba(245,158,11,.15); color:#fde68a }
   .memo{ font-size:13px; color:#fde68a; font-weight:500; padding:4px 8px; border-radius:6px;
     background:rgba(245,158,11,.08); border-left:2px solid rgba(245,158,11,.6) }
   /* 仕上がり数量の変更 */
@@ -77,10 +82,10 @@
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
   .orow{ display:flex; gap:12px; align-items:flex-start; width:100% }
   .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px }
-  .thumb{ flex:0 0 72px; width:72px; height:72px; border-radius:8px; overflow:hidden; background:#fff;
+  .thumb{ flex:0 0 36px; width:36px; height:36px; border-radius:8px; overflow:hidden; background:#fff;
     border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; position:relative }
   .thumb img{ width:100%; height:100%; object-fit:contain; background:#fff }
-  .thumb .n{ position:absolute; right:3px; bottom:3px; font-size:11px; font-weight:600; padding:0 6px; border-radius:999px; background:rgba(0,0,0,.7); color:#fff }
+  .thumb .n{ position:absolute; right:1px; bottom:1px; font-size:9.5px; font-weight:600; padding:0 4px; border-radius:999px; background:rgba(0,0,0,.7); color:#fff }
   .imgs{ display:flex; gap:8px; overflow-x:auto }
   .imgs img{ max-height:40vh; max-width:100%; border-radius:8px; background:#fff; cursor:zoom-in; flex:0 0 auto; border:1px solid var(--line2) }
   .imgnote{ font-size:12.5px; color:var(--mut) }
@@ -115,8 +120,6 @@
   .facts .when{ font-size:12px; font-weight:600; margin-left:6px; padding:1px 8px; border-radius:999px; letter-spacing:0; vertical-align:3px }
   .facts .late .when{ background:rgba(248,113,113,.16); color:#fca5a5 }
   .facts .soon .when{ background:rgba(251,191,36,.16); color:#fde68a }
-  /* 紙入荷日は 進行社外（シート手配済み／シート材料入荷済）の札の中に小さく添える */
-  .pc.out .pd{ font-weight:500; opacity:.8; margin-left:5px }
   /* 抜型状況（Airtable の選択肢の色に寄せる）。未仕舞は注意として目立たせる */
   .pc.die.d-check{ background:rgba(168,85,247,.16); color:#e9d5ff }
   .pc.die.d-stored{ background:rgba(34,211,238,.13); color:#a5f3fc }
@@ -177,10 +180,9 @@
   :root[data-theme=light] .facts .soon .when{ background:#ffedd5; color:#9a3412 }
   :root[data-theme=light] .facts .from{ color:#2563eb }
   :root[data-theme=light] .pc{ background:#f1f2f4; color:var(--mut) }
-  :root[data-theme=light] .pc.ok{ background:#dcfce7; color:#166534 }
-  :root[data-theme=light] .pc.ok.past{ background:#f0fdf4; color:#5b8a6b }
-  :root[data-theme=light] .pc.ok.now{ background:#16a34a; color:#fff }
-  :root[data-theme=light] .pc.out{ background:#fef3c7; color:#92400e }
+  :root[data-theme=light] .flow.in .fs.now{ background:#dcfce7; color:#14532d; border-color:#16a34a; box-shadow:0 0 8px rgba(22,163,74,.45) }
+  :root[data-theme=light] .flow.out .fs.now{ background:#fef3c7; color:#78350f; border-color:#d97706; box-shadow:0 0 8px rgba(217,119,6,.45) }
+  :root[data-theme=light] .flow .fs.now.alert{ background:#fee2e2; color:#7f1d1d; border-color:#dc2626; box-shadow:0 0 8px rgba(220,38,38,.4) }
   :root[data-theme=light] .pc.die.d-check{ background:#f3e8ff; color:#6b21a8 }
   :root[data-theme=light] .pc.die.d-stored{ background:#cffafe; color:#155e75 }
   :root[data-theme=light] .pc.die.d-notyet{ background:#db2777; color:#fff }
@@ -436,37 +438,69 @@
     return list.length ? list[list.length - 1].s.key : '';
   }
 
+  /* ---------- 進行の流れ（上段 社外／下段 社内。今の段階だけ光る四角で囲む）2026-10-14 ---------- */
+  // 進行社外は変わった日時の記録が無いので、決まった流れの中で今どこかを出す。前の段階は「通ったはず」として薄く出す。
+  // 材料の段階を過ぎたら、どの材料の道（シート手配／在庫シート／機械貼材料）を通ったか分からないので材料は出さない
+  const OUT_MAT = ['シート手配必要', 'シート手配済み', 'シート材料入荷済'];
+  const OUT_MAT1 = ['在庫シート利用', '機械貼材料入荷済'];
+  const OUT_SLIP = ['受領伝票発行可能', '伝票出力済'];
+  const OUT_END = ['完納済', '完納（数量訂正）', '分納残'];
+  function outFlow(v) {
+    if (!v) return [];
+    let i = OUT_MAT.indexOf(v); if (i >= 0) return OUT_MAT.slice(0, i + 1).map(label => ({ label }));
+    if (OUT_MAT1.includes(v)) return [{ label: v }];
+    i = OUT_SLIP.indexOf(v); if (i >= 0) return OUT_SLIP.slice(0, i + 1).map(label => ({ label }));
+    if (OUT_END.includes(v)) return [...OUT_SLIP, v].map(label => ({ label }));
+    return [{ label: v, alert: true }]; // 納期変更・キャンセル・伝票取消など、流れの外の知らせ
+  }
+  // 「2026-10-03 14:20」「佐藤 2026-10-03 14:20」→「10/3」
+  const md = (t) => { const m = /\d{4}-(\d\d)-(\d\d)/.exec(t || ''); return m ? `${+m[1]}/${+m[2]}` : ''; };
+  // 進行社内は 工程表印刷日時 と各工程の「〜記録」の日時で並べる。記録の無い今の進行（抜き作業中など）は最後に足す
+  function inFlow(o) {
+    const items = doneSteps(o).map(({ s, d, t }) => ({ label: s.label, sub: d ? md(d) : '', t }));
+    if (o.printedAt) items.push({ label: '工程表発行済', sub: md(o.printedAt), t: stampTime(o.printedAt) || '0000' });
+    items.sort((a, b) => a.t.localeCompare(b.t));
+    if (o.progIn && !items.some(x => x.label === o.progIn)) items.push({ label: o.progIn, sub: '' });
+    const i = items.findIndex(x => x.label === o.progIn);
+    return { items, cur: i >= 0 ? i : items.length - 1 };
+  }
+  function flowRow(name, cls, items, cur) {
+    const row = document.createElement('div'); row.className = 'flow ' + cls;
+    const h = document.createElement('span'); h.className = 'fl'; h.textContent = name; row.append(h);
+    if (!items.length) { const n = document.createElement('span'); n.className = 'fnone'; n.textContent = '—'; row.append(n); return row; }
+    items.forEach((it, i) => {
+      if (i) { const a = document.createElement('span'); a.className = 'farr'; a.textContent = '→'; row.append(a); }
+      const b = document.createElement('span'); b.className = 'fs ' + (i === cur ? 'now' : 'past') + (it.alert ? ' alert' : '');
+      b.append(it.label);
+      if (it.sub) { const s = document.createElement('small'); s.textContent = it.sub; b.append(s); }
+      row.append(b);
+    });
+    return row;
+  }
+
   function progressStrip(o) {
     const box = document.createElement('div'); box.className = 'prog';
-    // 済んだものだけ出す。未完了の札（灰色）は「オートン抜き完了」などの名前が済と誤解されるため出さない（2026-10-03）
-    const last = latestKey(o);
-    for (const { s, d } of doneSteps(o)) {
-      const c = document.createElement('span'); c.className = 'pc ok ' + (s.key === last ? 'now' : 'past');
-      c.textContent = d ? `${s.label} ✓ ${shortStamp(d)}` : `${s.label} ✓`;
-      box.append(c);
+    const out = outFlow(o.progOut);
+    // シートの手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
+    if (o.paper && /^シート(手配済み|材料入荷済)$/.test(o.progOut)) {
+      const [py, pm, pd] = o.paper.split('-').map(Number);
+      out[out.length - 1].sub = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
     }
+    const ins = inFlow(o);
+    box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur));
+    const tags = document.createElement('div'); tags.className = 'tags';
     // 抜型状況。仕舞い完了があるのに「型まだ仕舞済でない」が残っていたら、古い方は出さない
     const DIE_CLASS = { '抜型照合済': 'd-check', '抜型を棚に仕舞い完了': 'd-stored', '型まだ仕舞済でない': 'd-notyet', '今回新型': 'd-new', '型修正あり': 'd-fix' };
     const die = (o.die || []).filter(v => !(v === '型まだ仕舞済でない' && o.die.includes('抜型を棚に仕舞い完了')));
     for (const v of die) {
-      const c = document.createElement('span'); c.className = 'pc die ' + (DIE_CLASS[v] || ''); c.textContent = v; box.append(c);
+      const c = document.createElement('span'); c.className = 'pc die ' + (DIE_CLASS[v] || ''); c.textContent = v; tags.append(c);
     }
     // Room に入っている部屋のうち、普段の部屋（品名タグ）以外＝応援先を出す
     for (const r of (o.room || []).filter(r => !hasTag(o, roomTag(r)))) {
       const c = document.createElement('span'); c.className = 'pc room';
-      c.style.setProperty('--rc', roomColor(r)); c.textContent = '応援 ' + r; box.append(c);
+      c.style.setProperty('--rc', roomColor(r)); c.textContent = '応援 ' + r; tags.append(c);
     }
-    if (o.progOut) {
-      const c = document.createElement('span'); c.className = 'pc out'; c.textContent = o.progOut;
-      // シートの手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
-      if (o.paper && /^シート(手配済み|材料入荷済)$/.test(o.progOut)) {
-        const [py, pm, pd] = o.paper.split('-').map(Number);
-        const d = document.createElement('span'); d.className = 'pd';
-        d.textContent = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
-        c.append(d);
-      }
-      box.append(c);
-    }
+    if (tags.childNodes.length) box.append(tags);
     return box;
   }
   /* ---------- 探す（型の場所）へ ---------- */
@@ -646,7 +680,7 @@
       el.className = 'order' + (o.closed ? ' closed' : '') + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
-      mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
+      mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
       info.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) info.append(mm);
@@ -708,7 +742,7 @@
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
       const mt = document.createElement('div'); mt.className = 'meta';
-      mt.textContent = `${o.book} / ${o.wc} ・ ${o.progIn || '進行なし'}`;
+      mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
       info.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) info.append(mm);

@@ -28,7 +28,7 @@ const F = {
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
-  ndateLog: '納期変更記録',
+  ndateLog: '納期変更記録', printed: '工程表印刷日時',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -164,6 +164,7 @@ function describe(rec) {
     paper: f[F.paper] || '',
     die: Array.isArray(f[F.die]) ? f[F.die].map(String) : [],   // 抜型状況（複数選択）
     room: Array.isArray(f[F.room]) ? f[F.room].map(String) : [], // Room（複数選択）
+    printedAt: String(f[F.printed] || ''), // 工程表印刷日時（YYYY-MM-DD HH:MM）。作業リストの社内の流れの最初に出す
     // 数量を画面で変えた履歴の最後の行（「1000→1020 佐藤 …」）から元の数量を出す
     amountFrom: (() => { const m = /^(\d+|空白)→/.exec(String(f[F.amtLog] || '').trim()); return m ? m[1] : ''; })(),
     amountLog: String(f[F.amtLog] || '').trim().split('\n').pop() || '',
@@ -208,7 +209,7 @@ export async function handleProcess(action, body, who) {
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 async function readView(viewId, formula = '') {
