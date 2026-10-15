@@ -46,7 +46,7 @@ const ROOM_FALLBACK = [
   ['福祉　内職', 'yellowLight2'], ['断裁ステッチ', 'grayLight2'], ['トヤマ(貼)', 'yellowLight2'],
   ['プレ(折のみ）', 'greenLight2'], ['CAD(折）', 'redLight2'], ['CAD(包装検品）', 'orangeLight2'],
 ].map(([name, color]) => ({ name, color }));
-const ROOM_CACHE_MS = 10  * 1000;
+const ROOM_CACHE_MS = 10 * 10 * 1000;
 let roomCache = null; // { at, list }
 async function roomChoices() {
   if (roomCache && Date.now() - roomCache.at < ROOM_CACHE_MS) return roomCache.list;
