@@ -708,20 +708,25 @@
   $('tabList').onclick = () => setMode('list');
   $('tabFind').onclick = () => setMode('find');
 
-  // スリープや別のアプリから戻ったら作業リストを読み直す（自動の定期読み直しはしない 2026-10-14）。
-  // 受注を開いて操作している間と画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない
+  // 作業リストの自動の読み直し。受注を開いて操作している間と画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない
+  const canAutoLoad = () => S.mode === 'list' && !S.sel && $('viewer').hidden && !document.hidden;
+  // スリープや別のアプリから戻ったら、Airtable から取り直す（2026-10-14）
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (!hiddenAt || Date.now() - hiddenAt < 5000) return; // 一瞬の切り替えでは読まない
     hiddenAt = 0;
-    if (S.mode === 'list' && !S.sel && $('viewer').hidden) loadView(S.view, true);
+    if (canAutoLoad()) loadView(S.view, true, true);
   });
+  // 開いたままでも3分ごとに読み直す（2026-10-15）。サーバーの20秒の使い回しに乗せるので、何台で開いても Airtable の回数制限にかからない
+  setInterval(() => { if (canAutoLoad()) loadView(S.view, false, true); }, 3 * 60 * 1000);
 
   /* ---------- 作業リスト ---------- */
-  async function loadView(key, refresh) {
-    say($('listMsg'), '読み込み中…');
+  // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりビューを替えたりしたら結果を捨てる
+  async function loadView(key, refresh, quiet) {
+    if (!quiet) say($('listMsg'), '読み込み中…');
     const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh });
+    if (quiet && (S.sel || S.view !== key || S.mode !== 'list')) return;
     if (!j.ok) return say($('listMsg'), j.error || '読み込めませんでした', 'err');
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
