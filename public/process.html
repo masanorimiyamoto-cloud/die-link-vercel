@@ -25,7 +25,7 @@
   h1{ margin:2px 0 0; font-size:21px; font-weight:600; letter-spacing:.04em }
   .card{ background:var(--surf); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
   /* 作業リストの見出し。下へスクロールしても上に残り、押すと一番上の行へ戻る（2026-10-17） */
-  .listhead{ position:sticky; top:0; z-index:20; margin:-12px -12px 0; padding:10px 14px; border:0; border-radius:14px 14px 0 0;
+  .listhead{ position:sticky; top:0; z-index:20; margin:-12px -14px 0; padding:12px 16px; border:0; border-radius:0;
     background:var(--surf); border-bottom:1px solid var(--line); color:var(--txt); text-align:left;
     display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:18px; font-weight:600; cursor:pointer }
   .listhead .cnt{ font-size:14px; font-weight:500; color:var(--mut) }
@@ -225,8 +225,12 @@
 </head>
 <body>
 <main class="wrap">
+  <!-- 作業リストの見出し。ページの一番上に常に出し、押すと一番上の行へ戻る（2026-10-17） -->
+  <button type="button" class="listhead" id="listHead" aria-label="一覧の一番上へ戻る" hidden>
+    <span><span id="listHeadName">作業リスト</span> <span class="cnt" id="listHeadCnt"></span></span>
+    <span class="up">↑ 先頭へ</span>
+  </button>
   <div class="bar"><a href="/">← トップ</a><span class="barr"><button type="button" class="themebtn" id="themeBtn"></button><span id="who"></span></span></div>
-  <h1>工程の完了を記録</h1>
   <nav class="tabs" role="tablist">
     <button type="button" id="tabList" role="tab">作業リスト</button>
     <button type="button" id="tabFind" role="tab">品番で探す</button>
@@ -234,10 +238,6 @@
 
   <!-- 作業リスト（Airtable のビューをそのまま表示） -->
   <section class="card" id="listCard" hidden>
-    <button type="button" class="listhead" id="listHead" aria-label="一覧の一番上へ戻る">
-      <span><span id="listHeadName">作業リスト</span> <span class="cnt" id="listHeadCnt"></span></span>
-      <span class="up">↑ 先頭へ</span>
-    </button>
     <div class="chips" id="viewChips"></div>
     <div class="msg" id="listMsg" role="status"></div>
     <div id="list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -719,6 +719,7 @@
     S.mode = m; store.set('process.mode', m);
     $('tabList').classList.toggle('on', m === 'list'); $('tabFind').classList.toggle('on', m === 'find');
     $('listCard').hidden = m !== 'list'; $('findCard').hidden = m !== 'find';
+    $('listHead').hidden = m !== 'list';
     $('stepCard').hidden = true; S.sel = null; $('variants').hidden = true;
     if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
     else { S.orders = []; renderOrders(); say($('findMsg'), ''); }
@@ -769,13 +770,14 @@
     const head = $('listHead');
     const first = $('list').firstElementChild;
     const target = first || $('listCard');
+    if (!first) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     const y = target.getBoundingClientRect().top + window.scrollY - head.offsetHeight - 8;
     window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
   };
   // 見出しが上に貼り付いている間だけ影と「↑ 先頭へ」を出す
   window.addEventListener('scroll', () => {
     const h = $('listHead'); if (!h || $('listCard').hidden) return;
-    h.classList.toggle('stuck', $('listCard').getBoundingClientRect().top < -2);
+    h.classList.toggle('stuck', window.scrollY > 8);
   }, { passive: true });
 
   function renderChips() {
