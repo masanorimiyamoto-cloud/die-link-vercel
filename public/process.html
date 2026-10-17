@@ -20,12 +20,15 @@
     font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Noto Sans JP",Meiryo,sans-serif;
     font-weight:500; -webkit-font-smoothing:antialiased; line-height:1.45 }
   .wrap{ max-width:640px; margin:0 auto; padding:12px 14px 40px; display:flex; flex-direction:column; gap:12px }
+  body.has-head .wrap{ padding-top:calc(var(--headh, 48px) + 10px) }
+  body.has-head .card, body.has-head .order{ scroll-margin-top:calc(var(--headh, 48px) + 10px) } /* 自動スクロールで見出しの下に隠れないように */
   .bar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:14px; color:var(--mut) }
   .bar b{ color:var(--txt); font-weight:600 } .bar a{ color:#93c5fd; text-decoration:none }
   h1{ margin:2px 0 0; font-size:21px; font-weight:600; letter-spacing:.04em }
   .card{ background:var(--surf); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
   /* 作業リストの見出し。下へスクロールしても上に残り、押すと一番上の行へ戻る（2026-10-17） */
-  .listhead{ position:sticky; top:0; z-index:20; margin:-12px -14px 0; padding:12px 16px; border:0; border-radius:0;
+  /* 2026-10-17 sticky は実機で一緒に流れてしまったので fixed で画面の上に固定し、その高さぶん本文を下げる */
+  .listhead{ position:fixed; top:0; left:0; right:0; max-width:640px; margin:0 auto; z-index:30; padding:12px 16px; border:0; border-radius:0;
     background:var(--surf); border-bottom:1px solid var(--line); color:var(--txt); text-align:left;
     display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:18px; font-weight:600; cursor:pointer }
   .listhead .cnt{ font-size:14px; font-weight:500; color:var(--mut) }
@@ -720,6 +723,8 @@
     $('tabList').classList.toggle('on', m === 'list'); $('tabFind').classList.toggle('on', m === 'find');
     $('listCard').hidden = m !== 'list'; $('findCard').hidden = m !== 'find';
     $('listHead').hidden = m !== 'list';
+    document.body.classList.toggle('has-head', m === 'list');
+    fitHead();
     $('stepCard').hidden = true; S.sel = null; $('variants').hidden = true;
     if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
     else { S.orders = []; renderOrders(); say($('findMsg'), ''); }
@@ -764,6 +769,7 @@
     const n = S.orders.length;
     const done = document.querySelectorAll('#list .order.mine').length;
     $('listHeadCnt').textContent = n ? (done ? `${n}件・済${done}` : `${n}件`) : '0件';
+    fitHead();
   }
   // 見出しを押すと一番上の行へ戻る（見出しの高さぶん下げて、行が隠れないようにする）
   $('listHead').onclick = () => {
@@ -774,6 +780,12 @@
     const y = target.getBoundingClientRect().top + window.scrollY - head.offsetHeight - 8;
     window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
   };
+  // 固定した見出しの高さぶん、本文を下げる（文字の大きさや改行で高さが変わるので毎回測る）
+  function fitHead() {
+    const h = $('listHead'); if (!h || h.hidden) return;
+    document.documentElement.style.setProperty('--headh', h.offsetHeight + 'px');
+  }
+  window.addEventListener('resize', fitHead);
   // 見出しが上に貼り付いている間だけ影と「↑ 先頭へ」を出す
   window.addEventListener('scroll', () => {
     const h = $('listHead'); if (!h || $('listCard').hidden) return;
