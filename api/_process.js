@@ -100,16 +100,18 @@ export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'c
 // 2026-10-03 ユーザーが Airtable 側でビューを整理（オートン未完了・神・たおしK判 を削除し統合）。
 const hasTag = (row, tag) => String(row.kotei || '').includes('|' + tag + '|');
 export const VIEWS = {
-  cad:     { label: 'CAD',          sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
+  // mine: この一覧を見る人にとっての「自分の工程」。どれかが済んでいれば行を青枠＋「済」にする（2026-10-17）
+  // mineValues: 旧い選択肢名など、進行社内がこの値なら済とみなすもの
+  cad:     { label: 'CAD',          mine: ['cad'], sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
   // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る
-  omamori: { label: 'お守箔焼印',   sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
-  auton:   { label: 'オートン抜き', sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
-  kikai:   { label: '機械貼',       sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },   // Grid 機械貼
+  omamori: { label: 'お守箔焼印',   mine: ['finish'], sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
+  auton:   { label: 'オートン抜き', mine: ['o'], sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
+  kikai:   { label: '機械貼',       mine: ['kikai'], sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },   // Grid 機械貼
   // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
-  taoshi:  { label: 'たおし抜き',   sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
+  taoshi:  { label: 'たおし抜き',   mine: ['tk', 'tm'], sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
   // 2026-10-05 ビューが作り直されてIDが変わった（旧 viw2w8DzG6PNmJ3Iy は VIEW_ID_NOT_FOUND）
-  tebari:  { label: '手貼り',       sources: [{ id: 'viwK1jk2LXPw45fU9', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
+  tebari:  { label: '手貼り',       mine: ['tebari'], mineValues: ['(神)貼り完了', '(花)貼り完了'], sources: [{ id: 'viwK1jk2LXPw45fU9', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
   f2:      { label: '2F 小',        sources: [{ id: 'viwwv6PpN5jJInPuK', steps: [] }] },          // Grid 2F_小
   // 以下は 進行社内 に対応する選択肢が無いので、品名タグと記録済みの工程だけ札に出す
   nao:     { label: 'Nao',          sources: [{ id: 'viwONbEg5wUbGjKhf', steps: [] }] },          // Grid Nao
@@ -264,7 +266,7 @@ async function view(body) {
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label }));
+  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [] }));
 }
 
 async function orders(body) {

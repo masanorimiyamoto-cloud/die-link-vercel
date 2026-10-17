@@ -108,6 +108,11 @@
   .order{ text-align:left; padding:12px 12px 12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--surf2);
     color:var(--txt); display:flex; flex-direction:column; gap:4px; font-weight:500 }
   .order.sel{ border-color:rgba(59,130,246,.7); background:#1c2533; box-shadow:inset 3px 0 0 var(--a) }
+  /* 見ている作業リストの工程（自分の工程）が済んだ受注: 行全体を太い青枠で囲み「済」の札を付ける */
+  .order.mine{ border:3px solid #3b82f6; background:rgba(59,130,246,.10); padding:10px 10px 10px 12px }
+  .minebadge{ align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-size:15px; font-weight:700;
+    color:#fff; background:#2563eb; border-radius:8px; padding:3px 10px; margin-bottom:2px }
+  .minebadge small{ font-size:12px; font-weight:500; opacity:.9 }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
   .order .meta, .target .meta{ font-size:13px; color:var(--mut); font-weight:500; font-variant-numeric:tabular-nums }
@@ -174,6 +179,7 @@
   :root[data-theme=light] .chips button.on{ background:#ede9fe; color:#5b21b6; border-color:#c4b5fd }
   :root[data-theme=light] .order{ background:#fff; border-color:#e1e4e8; box-shadow:0 1px 2px rgba(0,0,0,.04) }
   :root[data-theme=light] .order.sel{ background:#f0f6ff; border-color:#93c5fd; box-shadow:inset 3px 0 0 var(--a) }
+  :root[data-theme=light] .order.mine{ border-color:#2563eb; background:#eff6ff }
   :root[data-theme=light] .late{ color:#dc2626 }
   :root[data-theme=light] .facts .late b{ color:#dc2626 } :root[data-theme=light] .facts .soon b{ color:#c2410c }
   :root[data-theme=light] .facts .late .when{ background:#fee2e2; color:#b91c1c }
@@ -759,9 +765,17 @@
       const el = document.createElement('button'); el.type = 'button';
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = itemShort(o);
+      const md = mineDone(o, v);
+      if (md) el.classList.add('mine');
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
+      if (md) {
+        const b = document.createElement('span'); b.className = 'minebadge';
+        b.append(`✓ ${v.label} 済`);   // 「CADカット完了 済」のような重複を避け、一覧の名前で出す
+        if (md.who) { const sm = document.createElement('small'); sm.textContent = md.who; b.append(sm); }
+        info.append(b);
+      }
       info.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
@@ -772,6 +786,21 @@
       row.append(el);
       box.append(row);
     }
+  }
+
+  // 見ている作業リストの工程（自分の工程）が済んでいるか。済なら { label, who } を返す
+  // ・その工程の記録（氏名 日時）がある ・進行社内がその工程の値（旧い名前も含む）
+  // ・進行社内グループが「最終」（仕上がった受注は、それより前の自分の工程も済んでいる）
+  function mineDone(o, v) {
+    if (!v || !(v.mine || []).length) return null;
+    for (const k of v.mine) {
+      const s = S.steps.find(x => x.key === k); if (!s) continue;
+      if (o.done[k]) return { label: s.label, who: shortStamp(o.done[k]) };
+      if (s.variants.some(x => x.value === o.progIn)) return { label: s.label, who: '' };
+    }
+    if ((v.mineValues || []).includes(o.progIn)) return { label: o.progIn, who: '' };
+    if (o.group === '最終') return { label: v.label, who: '仕上がり済' };
+    return null;
   }
 
   /* ---------- 工程を選ぶ ---------- */
