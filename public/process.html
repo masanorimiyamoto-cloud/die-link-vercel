@@ -24,6 +24,14 @@
   .bar b{ color:var(--txt); font-weight:600 } .bar a{ color:#93c5fd; text-decoration:none }
   h1{ margin:2px 0 0; font-size:21px; font-weight:600; letter-spacing:.04em }
   .card{ background:var(--surf); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px }
+  /* 作業リストの見出し。下へスクロールしても上に残り、押すと一番上の行へ戻る（2026-10-17） */
+  .listhead{ position:sticky; top:0; z-index:20; margin:-12px -12px 0; padding:10px 14px; border:0; border-radius:14px 14px 0 0;
+    background:var(--surf); border-bottom:1px solid var(--line); color:var(--txt); text-align:left;
+    display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:18px; font-weight:600; cursor:pointer }
+  .listhead .cnt{ font-size:14px; font-weight:500; color:var(--mut) }
+  .listhead .up{ font-size:13px; font-weight:500; color:var(--mut); white-space:nowrap; opacity:0; transition:opacity .2s }
+  .listhead.stuck{ box-shadow:0 6px 14px rgba(0,0,0,.35) }
+  .listhead.stuck .up{ opacity:1 }
   .row{ display:flex; gap:8px; align-items:center }
   input, select{ font:inherit; font-size:19px; padding:10px 12px; border-radius:var(--r); border:1px solid var(--line2);
     background:var(--surf2); color:var(--txt); outline:none }
@@ -226,6 +234,10 @@
 
   <!-- 作業リスト（Airtable のビューをそのまま表示） -->
   <section class="card" id="listCard" hidden>
+    <button type="button" class="listhead" id="listHead" aria-label="一覧の一番上へ戻る">
+      <span><span id="listHeadName">作業リスト</span> <span class="cnt" id="listHeadCnt"></span></span>
+      <span class="up">↑ 先頭へ</span>
+    </button>
     <div class="chips" id="viewChips"></div>
     <div class="msg" id="listMsg" role="status"></div>
     <div id="list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -741,7 +753,30 @@
     renderChips();
     say($('listMsg'), j.rows.length ? `${j.rows.length}件` : 'このリストに作業はありません');
     renderList();
+    updateListHead();
   }
+
+  // 見出し「作業リスト（オートン抜き）」と件数。済（青枠）の数も添える
+  function updateListHead() {
+    const v = S.views.find(x => x.key === S.view);
+    $('listHeadName').textContent = `作業リスト（${v ? v.label : ''}）`;
+    const n = S.orders.length;
+    const done = document.querySelectorAll('#list .order.mine').length;
+    $('listHeadCnt').textContent = n ? (done ? `${n}件・済${done}` : `${n}件`) : '0件';
+  }
+  // 見出しを押すと一番上の行へ戻る（見出しの高さぶん下げて、行が隠れないようにする）
+  $('listHead').onclick = () => {
+    const head = $('listHead');
+    const first = $('list').firstElementChild;
+    const target = first || $('listCard');
+    const y = target.getBoundingClientRect().top + window.scrollY - head.offsetHeight - 8;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  };
+  // 見出しが上に貼り付いている間だけ影と「↑ 先頭へ」を出す
+  window.addEventListener('scroll', () => {
+    const h = $('listHead'); if (!h || $('listCard').hidden) return;
+    h.classList.toggle('stuck', $('listCard').getBoundingClientRect().top < -2);
+  }, { passive: true });
 
   function renderChips() {
     const box = $('viewChips'); box.textContent = '';
@@ -786,6 +821,7 @@
       row.append(el);
       box.append(row);
     }
+    if (S.views.length) updateListHead(); // 済の数が変わったら見出しにも反映
   }
 
   // 見ている作業リストの工程（自分の工程）が済んでいるか。済なら { label, who } を返す
