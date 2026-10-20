@@ -230,6 +230,31 @@
   :root[data-theme=light] .room.on.def{ border-color:#f59e0b }
   :root[data-theme=light] .variants button.rec{ outline-color:#f59e0b }
   :root[data-theme=light] .thumb, :root[data-theme=light] .imgs img{ border-color:#e1e4e8 }
+  /* 2026-10-21 白はまぶしすぎたので青を基調に（指定色: 主 #0B57D0 / 明るい青 #2F7DF6 / 白 #FFFFFF / 青みの白 #F4F8FD /
+     枠線 #D9E7FB / 文字 #163A70）。地は青みの白より一段濃くし、白は受注の行だけに使ってまぶしさを抑える。
+     済＝緑・期限切れ＝赤・注意＝黄 の意味の色はそのまま */
+  :root[data-theme=light]{ --bg:#E8F0FB; --surf:#F4F8FD; --surf2:#FFFFFF; --hover:#FFFFFF;
+    --txt:#163A70; --mut:#4A6690; --dim:#7A92B5; --line:#D9E7FB; --line2:#BFD5F5; --a:#0B57D0; --a-soft:rgba(11,87,208,.12) }
+  :root[data-theme=light] .bar a{ color:#0B57D0 }
+  :root[data-theme=light] .card{ background:#F4F8FD; border-color:#D9E7FB; box-shadow:0 1px 3px rgba(11,87,208,.06) }
+  :root[data-theme=light] .listhead{ background:#0B57D0; color:#fff; border-bottom:1px solid #0A4AB2; box-shadow:0 2px 8px rgba(11,87,208,.25) }
+  :root[data-theme=light] .listhead .cnt, :root[data-theme=light] .listhead .up{ color:#D9E7FB }
+  :root[data-theme=light] .tabs{ background:#DCE8F8; border-color:transparent }
+  :root[data-theme=light] .tabs button{ color:#4A6690 }
+  :root[data-theme=light] .tabs button.on{ background:#FFFFFF; color:#0B57D0; box-shadow:0 1px 3px rgba(11,87,208,.18) }
+  :root[data-theme=light] .chips button{ background:#FFFFFF; color:#163A70; border-color:#D9E7FB }
+  :root[data-theme=light] .chips button.on{ background:#0B57D0; color:#fff; border-color:#0B57D0 }
+  :root[data-theme=light] .order{ background:#FFFFFF; border-color:#D9E7FB; box-shadow:0 1px 2px rgba(11,87,208,.06) }
+  :root[data-theme=light] .order.sel{ background:#EEF4FE; border-color:#2F7DF6; box-shadow:inset 3px 0 0 #0B57D0 }
+  :root[data-theme=light] .order.mine{ border-color:#0B57D0; background:#EAF2FE }
+  :root[data-theme=light] .minebadge{ background:#0B57D0 }
+  :root[data-theme=light] .facts .from{ color:#0B57D0 }
+  :root[data-theme=light] .pc{ background:#EEF4FC; color:#4A6690 }
+  :root[data-theme=light] .step{ background:#F4F8FD; color:#163A70; border-color:#D9E7FB }
+  :root[data-theme=light] .stephead{ color:#0B57D0 }
+  :root[data-theme=light] .amtbtn.qty{ background:#EEF4FE; color:#0B57D0; border-color:#BFD5F5 }
+  :root[data-theme=light] .themebtn{ color:#0B57D0; border-color:#BFD5F5; background:#FFFFFF }
+  :root[data-theme=light] .thumb, :root[data-theme=light] .imgs img{ border-color:#D9E7FB }
 
   /* ===== VIVANT（2026-10-20）: ドラマでブルーウォーカーが見ている画面の雰囲気。
      黒に近い紺の地に薄い方眼、シアンの細く光る線、大きな数字は等幅＋淡い発光。
