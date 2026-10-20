@@ -6,7 +6,7 @@
 <title>工程の完了を記録</title>
 <script>
   // 背景の白／黒は端末ごとに覚える。描く前に決めて、黒→白のちらつきを出さない
-  try { if (localStorage.getItem('dl.theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch {}
+  try { const t = localStorage.getItem('dl.theme'); if (t === 'light' || t === 'vivant') document.documentElement.dataset.theme = t; } catch {}
 </script>
 <style>
   /* 見た目は Airtable を手本に整えた（2026-10-08）: 細い線・丸い札・平らな色・「小さなラベル＋大きな値」。
@@ -21,6 +21,10 @@
     font-weight:500; -webkit-font-smoothing:antialiased; line-height:1.45 }
   .wrap{ max-width:640px; margin:0 auto; padding:12px 14px 40px; display:flex; flex-direction:column; gap:12px }
   body.has-head .wrap{ padding-top:calc(var(--headh, 48px) + 10px) }
+  /* 2026-10-20 実機で fixed の見出しまで一緒に流れたため、作業リストのときはページ全体を動かさず
+     本文（.wrap）だけをスクロールさせる。見出しはスクロールする箱の外なので、端末に関係なく動かない */
+  body.has-head{ overflow:hidden; height:100vh; height:100dvh }
+  body.has-head .wrap{ height:100vh; height:100dvh; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; box-sizing:border-box }
   body.has-head .card, body.has-head .order{ scroll-margin-top:calc(var(--headh, 48px) + 10px) } /* 自動スクロールで見出しの下に隠れないように */
   .bar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:14px; color:var(--mut) }
   .bar b{ color:var(--txt); font-weight:600 } .bar a{ color:#93c5fd; text-decoration:none }
@@ -31,7 +35,9 @@
   .listhead{ position:fixed; top:0; left:0; right:0; max-width:640px; margin:0 auto; z-index:30; padding:12px 16px; border:0; border-radius:0;
     background:var(--surf); border-bottom:1px solid var(--line); color:var(--txt); text-align:left;
     display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:18px; font-weight:600; cursor:pointer }
-  .listhead .cnt{ font-size:14px; font-weight:500; color:var(--mut) }
+  .listhead .cnt{ font-size:14px; font-weight:500; color:var(--mut); white-space:nowrap }
+  /* 見出しは1行に収める（長いリスト名は末尾を…で省く）。2行になると本文の下げ幅が変わり、ボタンに重なりやすい */
+  .listhead > span:first-child{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
   .listhead .up{ font-size:13px; font-weight:500; color:var(--mut); white-space:nowrap; opacity:0; transition:opacity .2s }
   .listhead.stuck{ box-shadow:0 6px 14px rgba(0,0,0,.35) }
   .listhead.stuck .up{ opacity:1 }
@@ -224,6 +230,44 @@
   :root[data-theme=light] .room.on.def{ border-color:#f59e0b }
   :root[data-theme=light] .variants button.rec{ outline-color:#f59e0b }
   :root[data-theme=light] .thumb, :root[data-theme=light] .imgs img{ border-color:#e1e4e8 }
+
+  /* ===== VIVANT（2026-10-20）: ドラマでブルーウォーカーが見ている画面の雰囲気。
+     黒に近い紺の地に薄い方眼、シアンの細く光る線、大きな数字は等幅＋淡い発光。
+     意味の色（済=青緑、期限切れ=赤、注意=黄）は他の配色と同じ役割のまま ===== */
+  :root[data-theme=vivant]{ color-scheme:dark; --bg:#02060d; --surf:#06111d; --surf2:#0a1828; --hover:#0f2236;
+    --txt:#d6f6ff; --mut:#6fa8bf; --dim:#4b7a8f; --line:rgba(34,211,238,.18); --line2:rgba(34,211,238,.32);
+    --a:#22d3ee; --a-soft:rgba(34,211,238,.16); --p:#38bdf8; --ok:#2dd4bf; --err:#ff4d6d; --warn:#fbbf24 }
+  :root[data-theme=vivant] body{
+    background:
+      radial-gradient(120% 70% at 50% -10%, rgba(34,211,238,.10), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(34,211,238,.035) 0 1px, transparent 1px 28px),
+      repeating-linear-gradient(90deg, rgba(34,211,238,.035) 0 1px, transparent 1px 28px),
+      var(--bg) }
+  :root[data-theme=vivant] .card{ background:rgba(6,17,29,.88); border-color:rgba(34,211,238,.22);
+    box-shadow:0 0 0 1px rgba(34,211,238,.06), inset 0 0 28px rgba(34,211,238,.04) }
+  :root[data-theme=vivant] .listhead{ background:#02060d; border-bottom:1px solid rgba(34,211,238,.45);
+    box-shadow:0 1px 14px rgba(34,211,238,.18); letter-spacing:.03em }
+  :root[data-theme=vivant] .listhead #listHeadName{ color:#67e8f9; text-shadow:0 0 8px rgba(34,211,238,.55) }
+  :root[data-theme=vivant] .listhead #listHeadName::before{ content:'▍'; color:#22d3ee; margin-right:2px }
+  :root[data-theme=vivant] .listhead .cnt, :root[data-theme=vivant] .listhead .up{ color:#7dd3fc; font-family:Consolas,"SF Mono","Roboto Mono",monospace; letter-spacing:0 }
+  :root[data-theme=vivant] .bar a{ color:#67e8f9 }
+  :root[data-theme=vivant] .tabs{ background:rgba(6,17,29,.9); border-color:rgba(34,211,238,.22) }
+  :root[data-theme=vivant] .tabs button.on{ background:rgba(34,211,238,.14); color:#cffafe; box-shadow:inset 0 0 0 1px rgba(34,211,238,.6), 0 0 10px rgba(34,211,238,.25) }
+  :root[data-theme=vivant] .chips button{ background:rgba(10,24,40,.9); border-color:rgba(34,211,238,.22); color:#a5f3fc }
+  :root[data-theme=vivant] .chips button.on{ background:rgba(34,211,238,.18); color:#ecfeff; border-color:#22d3ee; box-shadow:0 0 10px rgba(34,211,238,.4) }
+  :root[data-theme=vivant] .order{ background:rgba(8,20,34,.92); border-color:rgba(34,211,238,.20) }
+  :root[data-theme=vivant] .order.sel{ background:rgba(14,32,52,.95); border-color:rgba(56,189,248,.7); box-shadow:inset 3px 0 0 #38bdf8 }
+  :root[data-theme=vivant] .order.mine{ border-color:#22d3ee; background:rgba(34,211,238,.08); box-shadow:0 0 16px rgba(34,211,238,.35), inset 0 0 18px rgba(34,211,238,.06) }
+  :root[data-theme=vivant] .minebadge{ background:#22d3ee; color:#00131c; box-shadow:0 0 10px rgba(34,211,238,.6) }
+  :root[data-theme=vivant] .order .item{ color:#ecfeff }
+  :root[data-theme=vivant] .facts b{ font-family:Consolas,"SF Mono","Roboto Mono",monospace; color:#e0faff; text-shadow:0 0 8px rgba(34,211,238,.45); letter-spacing:.02em }
+  :root[data-theme=vivant] .facts .late b{ color:#ff6b84; text-shadow:0 0 8px rgba(255,77,109,.55) }
+  :root[data-theme=vivant] .facts .soon b{ color:#fcd34d; text-shadow:0 0 8px rgba(251,191,36,.45) }
+  :root[data-theme=vivant] .order .meta, :root[data-theme=vivant] .target .meta{ font-family:Consolas,"SF Mono","Roboto Mono",monospace; color:#7fb8cc }
+  :root[data-theme=vivant] .btn{ background:linear-gradient(135deg,#0891b2,#22d3ee); color:#00131c }
+  :root[data-theme=vivant] .step{ background:rgba(8,20,34,.95); border-color:rgba(34,211,238,.25); color:#bdf4ff }
+  :root[data-theme=vivant] .step.done{ background:linear-gradient(135deg,#0e7490,#22d3ee); color:#00131c; border-color:#a5f3fc; box-shadow:0 0 14px rgba(34,211,238,.5) }
+  :root[data-theme=vivant] .themebtn{ border-color:rgba(34,211,238,.5); color:#67e8f9; box-shadow:0 0 8px rgba(34,211,238,.25) }
 </style>
 </head>
 <body>
@@ -288,12 +332,15 @@
   const $ = (id) => document.getElementById(id);
   const say = (el, t, cls) => { el.textContent = t || ''; el.className = 'msg ' + (cls || ''); };
 
-  // 背景の白／黒の切替。ボタンには「押すとなる方」を出す
-  function showTheme() { $('themeBtn').textContent = document.documentElement.dataset.theme === 'light' ? '☾ 黒に' : '☀ 白に'; }
+  // 配色の切替: 黒 → 白 → VIVANT → 黒。ボタンには「押すとなる方」を出す（端末ごとに覚える）
+  const THEMES = ['dark', 'light', 'vivant'];
+  const THEME_LABEL = { dark: '☾ 黒に', light: '☀ 白に', vivant: '◈ VIVANT' };
+  const curTheme = () => document.documentElement.dataset.theme || 'dark';
+  function showTheme() { $('themeBtn').textContent = THEME_LABEL[THEMES[(THEMES.indexOf(curTheme()) + 1) % THEMES.length]]; }
   $('themeBtn').onclick = () => {
-    const light = document.documentElement.dataset.theme !== 'light';
-    if (light) document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme;
-    try { localStorage.setItem('dl.theme', light ? 'light' : 'dark'); } catch {}
+    const next = THEMES[(THEMES.indexOf(curTheme()) + 1) % THEMES.length];
+    if (next === 'dark') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('dl.theme', next); } catch {}
     showTheme();
   };
   showTheme();
@@ -815,9 +862,11 @@
     const head = $('listHead');
     const first = $('list').firstElementChild;
     const target = first || $('listCard');
-    if (!first) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-    const y = target.getBoundingClientRect().top + window.scrollY - head.offsetHeight - 8;
-    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    const sc = scroller();
+    if (!first) { sc.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    const base = sc === window ? 0 : sc.getBoundingClientRect().top;
+    const y = target.getBoundingClientRect().top - base + scrollTopOf(sc) - head.offsetHeight - 8;
+    sc.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
   };
   // 固定した見出しの高さぶん、本文を下げる（文字の大きさや改行で高さが変わるので毎回測る）
   function fitHead() {
@@ -825,11 +874,18 @@
     document.documentElement.style.setProperty('--headh', h.offsetHeight + 'px');
   }
   window.addEventListener('resize', fitHead);
-  // 見出しが上に貼り付いている間だけ影と「↑ 先頭へ」を出す
-  window.addEventListener('scroll', () => {
+  // 配色の切替や件数の桁で見出しの高さが変わっても、本文の下げ幅を自動で合わせる（VIVANT で見出しがボタンに重なった）
+  if (window.ResizeObserver) new ResizeObserver(fitHead).observe($('listHead'));
+  // 作業リストのときは本文（.wrap）が、それ以外はページがスクロールする
+  const scroller = () => (document.body.classList.contains('has-head') ? document.querySelector('.wrap') : window);
+  const scrollTopOf = (sc) => (sc === window ? window.scrollY : sc.scrollTop);
+  // 少しでも下へ動いたら影と「↑ 先頭へ」を出す
+  const onScroll = () => {
     const h = $('listHead'); if (!h || $('listCard').hidden) return;
-    h.classList.toggle('stuck', window.scrollY > 8);
-  }, { passive: true });
+    h.classList.toggle('stuck', scrollTopOf(scroller()) > 8);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  document.querySelector('.wrap').addEventListener('scroll', onScroll, { passive: true });
 
   function renderChips() {
     const box = $('viewChips'); box.textContent = '';
