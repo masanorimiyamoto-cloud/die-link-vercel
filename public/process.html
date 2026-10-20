@@ -645,7 +645,12 @@
     box.append(img);
     if (list.length > 1) { const n = document.createElement('span'); n.className = 'n'; n.textContent = '+' + (list.length - 1); box.append(n); }
     // 行のボタンの中だが、画像を押したときは行の選択ではなく全画面表示にする
-    box.addEventListener('click', (e) => { e.stopPropagation(); openViewer(list, 0); });
+    // 自動の読み直しで行を作り直さなかったときも、最新の一覧の URL で開く（古い URL は数時間で切れる）
+    box.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = S.orders.find(x => x.id === o.id) || o;
+      openViewer((cur.images || []).filter(a => a.thumb), 0);
+    });
     return box;
   }
   function renderStepImages(o) {
@@ -734,18 +739,21 @@
 
   // 作業リストの自動の読み直し。受注を開いて操作している間と画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない
   const canAutoLoad = () => S.mode === 'list' && !S.sel && $('viewer').hidden && !document.hidden;
-  // スリープや別のアプリから戻ったら、Airtable から取り直す（2026-10-14）
+  // スリープや別のアプリから戻ったら読み直す（2026-10-14）。サーバーの20秒の使い回しに乗せて、スマホで待たないようにする（2026-10-20）
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     if (!hiddenAt || Date.now() - hiddenAt < 5000) return; // 一瞬の切り替えでは読まない
     hiddenAt = 0;
-    if (canAutoLoad()) loadView(S.view, true, true);
+    if (canAutoLoad()) loadView(S.view, false, true);
   });
   // 開いたままでも3分ごとに読み直す（2026-10-15）。サーバーの20秒の使い回しに乗せるので、何台で開いても Airtable の回数制限にかからない
   setInterval(() => { if (canAutoLoad()) loadView(S.view, false, true); }, 3 * 60 * 1000);
 
   /* ---------- 作業リスト ---------- */
+  // 一覧の中身の比較用。画像の URL は取るたびに署名が変わるので、ファイル名だけで比べる
+  const rowsSig = rows => JSON.stringify(rows.map(o => ({ ...o, images: (o.images || []).map(a => a.name) })));
+  let shownSig = '';
   // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりビューを替えたりしたら結果を捨てる
   async function loadView(key, refresh, quiet) {
     if (!quiet) say($('listMsg'), '読み込み中…');
@@ -758,6 +766,10 @@
     S.orders = j.rows;
     renderChips();
     say($('listMsg'), j.rows.length ? `${j.rows.length}件` : 'このリストに作業はありません');
+    // 自動の読み直しで中身が変わっていなければ、行も画像も作り直さない（スマホで画像を全部取り直して重くなるため。2026-10-20）
+    const sig = rowsSig(j.rows);
+    if (quiet && sig === shownSig) return;
+    shownSig = sig;
     renderList();
     updateListHead();
   }
