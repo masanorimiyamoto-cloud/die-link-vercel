@@ -92,7 +92,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'room']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'room']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -176,11 +176,7 @@ function describe(rec) {
     // 伝票を出した後は数量を変えられない（画面でボタンを出さないため）
     amountLocked: !!f[F.slipId] || ['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消'].includes(String(f[F.progOut] || '')),
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
-    images: (Array.isArray(f[F.image]) ? f[F.image] : []).map(a => ({
-      thumb: a.thumbnails?.large?.url || a.url,
-      full: a.thumbnails?.full?.url || a.url,
-      name: a.filename || '', isImage: String(a.type || '').startsWith('image/'),
-    })),
+    images: imagesOf(f),
     closed: CLOSED_OUT.has(String(f[F.progOut] || '')),
     done,
   };
@@ -202,6 +198,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'orders') return orders(body);
   if (!who) return json({ ok: false, error: 'ログインしてください', needLogin: true }, 401);
   if (action === 'view') return view(body);
+  if (action === 'viewImages') return viewImages(body);
   if (action === 'complete') return complete(body, who.user);
   if (action === 'undo') return undo(body, who.user);
   if (action === 'cancel') return cancel(body, who.user);
@@ -211,10 +208,25 @@ export async function handleProcess(action, body, who) {
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
+// 画像（添付）の URL。Airtable の URL は数時間で切れるので保存せず、その都度返す
+function imagesOf(f) {
+  return (Array.isArray(f[F.image]) ? f[F.image] : []).map(a => ({
+    thumb: a.thumbnails?.large?.url || a.url,
+    full: a.thumbnails?.full?.url || a.url,
+    name: a.filename || '', isImage: String(a.type || '').startsWith('image/'),
+  }));
+}
+
 const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
-async function readView(viewId, formula = '') {
+// 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）
+// 画像の添付は1件ごとに大きさ違いの長い URL が3つ付き、一覧の通信量の大半を占めていた
+const LIST_FIELDS_LITE = LIST_FIELDS.filter(x => x !== F.image);
+const IMG_CACHE_MS = 5 * 60 * 1000; // 画像の URL は数時間有効。図面は滅多に変わらないので5分使い回す
+const imgCache = new Map();         // key -> { at, images }
+
+async function readView(viewId, formula = '', fields = LIST_FIELDS, map = describe) {
   const rows = [];
   let offset;
   do {
@@ -222,10 +234,10 @@ async function readView(viewId, formula = '') {
     url.searchParams.set('view', viewId);
     if (formula) url.searchParams.set('filterByFormula', formula);
     url.searchParams.set('pageSize', '100');
-    for (const f of LIST_FIELDS) url.searchParams.append('fields[]', f);
+    for (const f of fields) url.searchParams.append('fields[]', f);
     if (offset) url.searchParams.set('offset', offset);
     const j = await airtable(url);
-    (j.records || []).forEach(r => rows.push(describe(r)));
+    (j.records || []).forEach(r => rows.push(map(r)));
     offset = j.offset;
   } while (offset && rows.length < 500);
   return rows;
@@ -235,14 +247,17 @@ async function view(body) {
   // 古い画面が覚えているキー（以前の tm など）でも止めずに既定の一覧を返す
   const key = VIEWS[String(body?.view || '')] ? String(body.view) : DEFAULT_VIEW;
   const v = VIEWS[key];
-  const c = viewCache.get(key);
+  const lite = !!body?.lite;               // 画像なし（作業リストの最初の表示用）
+  const ck = key + (lite ? '|lite' : '');
+  const roomsP = roomChoices();            // 部屋の選択肢は一覧と並べて読む（以前は一覧の後に順番に読んでいた）
+  const c = viewCache.get(ck);
   if (c && Date.now() - c.at < VIEW_CACHE_MS && !body?.refresh) {
-    return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), rooms: await roomChoices(), cachedAt: c.at });
+    return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: c.at });
   }
   const byId = new Map();
   for (const src of v.sources) {
     let got;
-    try { got = await readView(src.id, src.formula); }
+    try { got = await readView(src.id, src.formula, lite ? LIST_FIELDS_LITE : LIST_FIELDS); }
     catch (e) {
       // Airtable でビューを消したり作り直したりすると ID が変わる。何が起きたか画面で分かるようにする
       const gone = /airtable (404|422)/.test(String(e?.message || ''));
@@ -261,8 +276,27 @@ async function view(body) {
   // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）
   if (v.sources.length > 1) rows.sort((a, b) => String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
   const at = Date.now();
-  viewCache.set(key, { at, rows });
-  return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomChoices(), cachedAt: at });
+  viewCache.set(ck, { at, rows });
+  return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: at });
+}
+
+// 作業リストの画像だけ（{ 受注ID: [画像…] }）。画面は一覧を出した後にこれで縮小画像を足す
+async function viewImages(body) {
+  const key = VIEWS[String(body?.view || '')] ? String(body.view) : DEFAULT_VIEW;
+  const v = VIEWS[key];
+  const c = imgCache.get(key);
+  if (c && Date.now() - c.at < IMG_CACHE_MS) return json({ ok: true, view: key, images: c.images });
+  const images = {};
+  try {
+    for (const src of v.sources) {
+      const got = await readView(src.id, src.formula, [F.image], r => ({ id: r.id, images: imagesOf(r.fields || {}) }));
+      for (const r of got) if (r.images.length) images[r.id] = r.images;
+    }
+  } catch (e) {
+    return json({ ok: false, error: '画像を読み込めませんでした' }, 502);
+  }
+  imgCache.set(key, { at: Date.now(), images });
+  return json({ ok: true, view: key, images });
 }
 
 export function publicViews() {

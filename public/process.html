@@ -757,21 +757,48 @@
   // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりビューを替えたりしたら結果を捨てる
   async function loadView(key, refresh, quiet) {
     if (!quiet) say($('listMsg'), '読み込み中…');
-    const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh });
+    // まず画像なしで一覧を出す（早い）。縮小画像は loadImages で後から足す（2026-10-20）
+    const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh, lite: true });
     if (quiet && (S.sel || S.view !== key || S.mode !== 'list')) return;
     if (!j.ok) return say($('listMsg'), j.error || '読み込めませんでした', 'err');
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     if (S.mode !== 'list') return;
     S.orders = j.rows;
+    // 前に取った画像があればすぐ付ける（自動の読み直しで画像が消えないように）
+    for (const o of S.orders) o.images = imgById.get(o.id) || [];
     renderChips();
     say($('listMsg'), j.rows.length ? `${j.rows.length}件` : 'このリストに作業はありません');
     // 自動の読み直しで中身が変わっていなければ、行も画像も作り直さない（スマホで画像を全部取り直して重くなるため。2026-10-20）
     const sig = rowsSig(j.rows);
-    if (quiet && sig === shownSig) return;
+    if (quiet && sig === shownSig) { loadImages(S.view, true); return; }
     shownSig = sig;
     renderList();
     updateListHead();
+    loadImages(S.view, quiet);
+  }
+
+  /* ---------- 縮小画像は後から ---------- */
+  // 画像の URL は数時間で切れるので、自動の読み直しのときは30分たっていれば取り直す
+  const imgById = new Map(); const imgAt = {};
+  async function loadImages(key, quiet) {
+    if (quiet && imgAt[key] && Date.now() - imgAt[key] < 30 * 60 * 1000) return;
+    await new Promise(r => setTimeout(r, 300)); // 一覧の描画を先に終わらせる
+    const j = await api({ action: 'viewImages', view: key });
+    if (!j.ok || S.view !== key || S.mode !== 'list') return;
+    imgAt[key] = Date.now();
+    for (const [id, imgs] of Object.entries(j.images || {})) imgById.set(id, imgs);
+    for (const o of S.orders) {
+      const imgs = j.images?.[o.id]; if (!imgs) continue;
+      o.images = imgs;
+      // まだ画像の無い行にだけ縮小画像を差し込む（行を作り直さないのでスクロール位置は動かない）
+      const el = document.querySelector(`#list .order[data-id="${o.id}"]`);
+      const wrap = el && el.querySelector('.orow');
+      if (wrap && !wrap.querySelector('.thumb')) { const th = thumbOf(o); if (th) wrap.append(th); }
+    }
+    // 画像が来る前に受注を開いていたら、工程カードの画像も出す
+    const cur = current();
+    if (cur && !$('stepCard').hidden && j.images?.[cur.id]) renderStepImages(cur);
   }
 
   // 見出し「作業リスト（オートン抜き）」と件数。済（青枠）の数も添える
