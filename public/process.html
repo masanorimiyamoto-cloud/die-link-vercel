@@ -604,13 +604,17 @@
     return row;
   }
 
-  function progressStrip(o) {
+  function progressStrip(o, view = '') {
     const box = document.createElement('div'); box.className = 'prog';
     const out = outFlow(o.progOut);
-    // シートの手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
-    if (o.paper && /^シート(手配済み|材料入荷済)$/.test(o.progOut)) {
+    // シート・機械貼材料の手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
+    // 機械貼材料の入荷日も 紙入荷日 に入れる（以前は連絡事項のメモに書いていた。2026-10-22）。
+    // 進行社外に機械貼材料の「手配済み」は無いので、機械貼の作業リストでは進行社外が空でも「機械貼材料 ○/○予定」と出す
+    if (o.paper) {
       const [py, pm, pd] = o.paper.split('-').map(Number);
-      out[out.length - 1].sub = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
+      const sub = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
+      if (/^(シート(手配済み|材料入荷済)|機械貼材料入荷済)$/.test(o.progOut)) out[out.length - 1].sub = sub;
+      else if (!o.progOut && view === 'kikai') out.push({ label: '機械貼材料', sub });
     }
     const ins = inFlow(o);
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
@@ -987,7 +991,7 @@
         const sm = document.createElement('small'); sm.textContent = mr.label; b.append(sm);
         info.append(b);
       }
-      info.append(it, facts(o), mt, progressStrip(o));
+      info.append(it, facts(o), mt, progressStrip(o, S.view));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
       const th = thumbOf(o); if (th) wrap.append(th);
