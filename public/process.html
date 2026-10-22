@@ -559,13 +559,23 @@
     const i = items.findIndex(x => x.label === o.progIn);
     return { items, cur: i >= 0 ? i : items.length - 1 };
   }
-  // この先の工程（2026-10-22）。工程(自動) のタグ（|オートン|Nao|機械貼|）のうち、まだ済んでいない部屋を並び順のまま返す。
-  // タグの並びは基本的に実際の作業順と同じ（ユーザー確認）
+  // この先の工程（2026-10-22）。工程(自動) のタグ（|オートン|Nao|機械貼|）のうち、まだ済んでいない部屋を作業順に返す。
   // 完了ボタンのある部屋（オートン・機械貼 など）はその工程の記録で、ボタンの無い部屋（Nao・2F_小 など）は仕上がりで済とみなす
+  // 並びは 工程(自動) ではなく ItemName の #タグの順（HSK3240-W3 #o#nao#ki → オートン → Nao → 機械貼）。
+  // 工程(自動) は数式の中の決まった順（オートン → 機械貼 → Nao）になり、実際の作業順と違うため（ユーザー指定）。
+  // どの部屋を出すかは 工程(自動) を正とし、品名から読めなかったタグは後ろに足す
+  const ITEM_TAG = { o: 'オートン', 0: 'オートン', ki: '機械貼', h: '花', ha: '花', ko: '2F_小', tk: 'たおしK判', tm: 'たおしM判',
+    cad: 'CAD', nao: 'Nao', na: 'Nao', pre: 'プレ', st: '断裁ステッチ', '断': '断裁ステッチ' }; // 工程(自動) の対応表と同じ
+  function itemTags(o) {
+    const kotei = String(o.kotei || '').split('|').filter(Boolean);
+    const fromItem = String(o.item || '').normalize('NFKC').split('#').slice(1)
+      .map(t => ITEM_TAG[t.trim().split(/\s/)[0].toLowerCase()]).filter(t => t && kotei.includes(t));
+    return [...new Set([...fromItem, ...kotei])];
+  }
   function todoRooms(o) {
     if (o.closed || o.group === '最終' || o.done.finish) return [];
     const done = new Set(doneSteps(o).map(x => x.s.key));
-    const tags = String(o.kotei || '').split('|').filter(Boolean);
+    const tags = itemTags(o);
     return tags.filter(tag => {
       const s = S.steps.find(x => x.variants.some(v => v.tag === tag));
       return !(s && done.has(s.key));
