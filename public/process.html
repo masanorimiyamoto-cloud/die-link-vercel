@@ -132,6 +132,9 @@
   .minebadge{ align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-size:15px; font-weight:700;
     color:#fff; background:#2563eb; border-radius:8px; padding:3px 10px; margin-bottom:2px }
   .minebadge small{ font-size:12px; font-weight:500; opacity:.9 }
+  /* 自分の工程はまだで、ほかの工程が済んだ受注（もうすぐ自分の番）: 黄色の太枠と「取り掛かれます」の札 */
+  .order.ready{ border:3px solid #f59e0b; background:rgba(245,158,11,.08); padding:10px 10px 10px 12px }
+  .minebadge.ready{ background:#f59e0b; color:#1f1300 }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
   .order .meta, .target .meta{ font-size:13px; color:var(--mut); font-weight:500; font-variant-numeric:tabular-nums }
@@ -250,6 +253,8 @@
   :root[data-theme=light] .order.sel{ background:#EEF4FE; border-color:#2F7DF6; box-shadow:inset 3px 0 0 #0B57D0 }
   :root[data-theme=light] .order.mine{ border-color:#0B57D0; background:#EAF2FE }
   :root[data-theme=light] .minebadge{ background:#0B57D0 }
+  :root[data-theme=light] .order.ready{ border-color:#D97706; background:#FFF8E6 }
+  :root[data-theme=light] .minebadge.ready{ background:#D97706; color:#fff }
   :root[data-theme=light] .facts .from{ color:#0B57D0 }
   :root[data-theme=light] .pc{ background:#EEF4FC; color:#4A6690 }
   :root[data-theme=light] .step{ background:#F4F8FD; color:#163A70; border-color:#D9E7FB }
@@ -286,6 +291,8 @@
   :root[data-theme=vivant] .order.sel{ background:rgba(14,32,52,.95); border-color:rgba(56,189,248,.7); box-shadow:inset 3px 0 0 #38bdf8 }
   :root[data-theme=vivant] .order.mine{ border-color:#22d3ee; background:rgba(34,211,238,.08); box-shadow:0 0 16px rgba(34,211,238,.35), inset 0 0 18px rgba(34,211,238,.06) }
   :root[data-theme=vivant] .minebadge{ background:#22d3ee; color:#00131c; box-shadow:0 0 10px rgba(34,211,238,.6) }
+  :root[data-theme=vivant] .order.ready{ border-color:#fbbf24; background:rgba(251,191,36,.07); box-shadow:0 0 16px rgba(251,191,36,.3) }
+  :root[data-theme=vivant] .minebadge.ready{ background:#fbbf24; color:#1f1300; box-shadow:0 0 10px rgba(251,191,36,.6) }
   :root[data-theme=vivant] .order .item{ color:#ecfeff }
   :root[data-theme=vivant] .facts b{ font-family:Consolas,"SF Mono","Roboto Mono",monospace; color:#e0faff; text-shadow:0 0 8px rgba(34,211,238,.45); letter-spacing:.02em }
   :root[data-theme=vivant] .facts .late b{ color:#ff6b84; text-shadow:0 0 8px rgba(255,77,109,.55) }
@@ -910,7 +917,8 @@
     $('listHeadName').textContent = `作業リスト（${v ? v.label : ''}）`;
     const n = S.orders.length;
     const done = document.querySelectorAll('#list .order.mine').length;
-    $('listHeadCnt').textContent = n ? (done ? `${n}件・済${done}` : `${n}件`) : '0件';
+    const ready = document.querySelectorAll('#list .order.ready').length;
+    $('listHeadCnt').textContent = n ? [`${n}件`, ready && `着手可${ready}`, done && `済${done}`].filter(Boolean).join('・') : '0件';
     fitHead();
   }
   // 見出しを押すと一番上の行へ戻る（見出しの高さぶん下げて、行が隠れないようにする）
@@ -966,7 +974,9 @@
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = itemShort(o);
       const md = mineDone(o, v);
+      const mr = md ? null : mineReady(o, v);
       if (md) el.classList.add('mine');
+      if (mr) el.classList.add('ready');
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
@@ -974,6 +984,12 @@
         const b = document.createElement('span'); b.className = 'minebadge';
         b.append(`✓ ${v.label} 済`);   // 「CADカット完了 済」のような重複を避け、一覧の名前で出す
         if (md.who) { const sm = document.createElement('small'); sm.textContent = md.who; b.append(sm); }
+        info.append(b);
+      }
+      if (mr) {
+        const b = document.createElement('span'); b.className = 'minebadge ready';
+        b.append('▶ 取り掛かれます');
+        const sm = document.createElement('small'); sm.textContent = mr.label + ' 済'; b.append(sm);
         info.append(b);
       }
       info.append(it, facts(o), mt, progressStrip(o));
@@ -1002,6 +1018,13 @@
     if ((v.mineValues || []).includes(o.progIn)) return { label: o.progIn, who: '' };
     if (o.group === '最終') return { label: v.label, who: '仕上がり済' };
     return null;
+  }
+  // 自分の工程はまだだが、ほかの工程がどれか済んでいる受注（2026-10-22）。もうすぐ自分の番なので黄色枠にする。
+  // 工程表発行済（印刷日時）や 抜き作業中 のような記録の無い進行、材料・在庫の状況は数えない。返すのは一番新しく済んだ工程
+  function mineReady(o, v) {
+    if (!v || !(v.mine || []).length || o.closed || mineDone(o, v)) return null;
+    const list = doneSteps(o).filter(x => x.s.group !== 'status');
+    return list.length ? { label: list[list.length - 1].s.label } : null;
   }
 
   /* ---------- 工程を選ぶ ---------- */
