@@ -613,8 +613,12 @@
     if (o.paper) {
       const [py, pm, pd] = o.paper.split('-').map(Number);
       const sub = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
-      if (/^(シート(手配済み|材料入荷済)|機械貼材料入荷済)$/.test(o.progOut)) out[out.length - 1].sub = sub;
-      else if (!o.progOut && view === 'kikai') out.push({ label: '機械貼材料', sub });
+      // 2026-10-22 支給シートは シート手配済み を選ばないので、進行社外が空でも「シート入荷 ○/○予定」を出す。
+      // 材料の段階（手配必要・手配済み・入荷済・在庫シート・機械貼材料）ならその札に添え、流れの外の知らせ（納期変更など）なら前に置く。
+      // 伝票・納品の段階を過ぎたら材料は出さない（上の決まりと同じ）
+      if ([...OUT_MAT, ...OUT_MAT1].includes(o.progOut)) out[out.length - 1].sub = sub;
+      else if (!o.progOut) out.push({ label: view === 'kikai' ? '機械貼材料' : 'シート入荷', sub });
+      else if (!OUT_SLIP.includes(o.progOut) && !OUT_END.includes(o.progOut)) out.unshift({ label: 'シート入荷', sub });
     }
     const ins = inFlow(o);
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
