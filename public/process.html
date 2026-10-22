@@ -567,7 +567,7 @@
     return { items, cur: i >= 0 ? i : items.length - 1 };
   }
   // この先の工程（2026-10-22）。工程(自動) のタグ（|オートン|Nao|機械貼|）のうち、まだ済んでいない部屋を作業順に返す。
-  // 完了ボタンのある部屋（オートン・機械貼 など）はその工程の記録で、ボタンの無い部屋（Nao・2F_小 など）は仕上がりで済とみなす
+  // 済んだかどうかは tagDone（その部屋の作業リストの「済」と同じ基準。Nao なら シール貼完了 か 仕上がりました）
   // 並びは 工程(自動) ではなく ItemName の #タグの順（HSK3240-W3 #o#nao#ki → オートン → Nao → 機械貼）。
   // 工程(自動) は数式の中の決まった順（オートン → 機械貼 → Nao）になり、実際の作業順と違うため（ユーザー指定）。
   // どの部屋を出すかは 工程(自動) を正とし、品名から読めなかったタグは後ろに足す
@@ -581,12 +581,7 @@
   }
   function todoRooms(o) {
     if (o.closed || o.group === '最終' || o.done.finish) return [];
-    const done = new Set(doneSteps(o).map(x => x.s.key));
-    const tags = itemTags(o);
-    return tags.filter(tag => {
-      const s = S.steps.find(x => x.variants.some(v => v.tag === tag));
-      return !(s && done.has(s.key));
-    }).map(tag => S.rooms.find(r => r.tag === tag)?.name || tag);
+    return itemTags(o).filter(tag => !tagDone(o, tag)).map(tag => S.rooms.find(r => r.tag === tag)?.name || tag);
   }
   function flowRow(name, cls, items, cur, todo = []) {
     const row = document.createElement('div'); row.className = 'flow ' + cls;
@@ -1019,12 +1014,32 @@
     if (o.group === '最終') return { label: v.label, who: '仕上がり済' };
     return null;
   }
-  // 自分の工程はまだだが、ほかの工程がどれか済んでいる受注（2026-10-22）。もうすぐ自分の番なので黄色枠にする。
-  // 工程表発行済（印刷日時）や 抜き作業中 のような記録の無い進行、材料・在庫の状況は数えない。返すのは一番新しく済んだ工程
+  // 作業リストが受け持つ部屋（工程(自動) のタグ）。完了ボタンのある工程はそのタグ、ボタンの無い部屋はリストのキーから
+  const VIEW_TAG = { nao: 'Nao', f2: '2F_小', dansai: '断裁ステッチ', pre: 'プレ' };
+  function viewTags(v) {
+    const tags = (v.mine || []).flatMap(k => (S.steps.find(s => s.key === k)?.variants || []).map(x => x.tag)).filter(Boolean);
+    if (VIEW_TAG[v.key]) tags.push(VIEW_TAG[v.key]);
+    return tags;
+  }
+  // その部屋の工程が済んでいるか。部屋の作業リストの「済」（青枠）と同じ基準で見る（Nao は シール貼完了 など）
+  function tagDone(o, tag) {
+    const vs = S.views.filter(x => viewTags(x).includes(tag));
+    if (vs.length) return vs.some(x => mineDone(o, x));
+    const s = S.steps.find(x => x.variants.some(v => v.tag === tag));
+    return !!(s && doneSteps(o).some(x => x.s.key === s.key));
+  }
+  // 自分の工程はまだだが、もうすぐ自分の番の受注（2026-10-22）。黄色枠にする。
+  // ・ほかの工程がどれか済んでいる。工程表発行済（印刷日時）や 抜き作業中 のような記録の無い進行、材料・在庫の状況は数えない
+  // ・品名の #タグの並びで自分より前の部屋が全部済んでいる（#o#nao#ki の機械貼は、オートンと Nao の両方が済むまで黄色にしない）
+  // 返すのは一番新しく済んだ工程
   function mineReady(o, v) {
     if (!v || !(v.mine || []).length || o.closed || mineDone(o, v)) return null;
     const list = doneSteps(o).filter(x => x.s.group !== 'status');
-    return list.length ? { label: list[list.length - 1].s.label } : null;
+    if (!list.length) return null;
+    const tags = itemTags(o), mine = viewTags(v);
+    const at = tags.findIndex(t => mine.includes(t));
+    if (at > 0 && !tags.slice(0, at).every(t => tagDone(o, t))) return null;
+    return { label: list[list.length - 1].s.label };
   }
 
   /* ---------- 工程を選ぶ ---------- */
