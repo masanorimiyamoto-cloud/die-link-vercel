@@ -70,6 +70,8 @@
     border-radius:6px; border:1px solid var(--line2); color:var(--mut) }
   .fs small{ font-size:10.5px; font-weight:500; opacity:.8; font-variant-numeric:tabular-nums }
   .farr, .fnone{ color:var(--dim); font-size:12px }
+  .fs.todo{ border-style:dashed; color:var(--dim); opacity:.7 }
+  .farr.todo{ opacity:.6 }
   .flow.in .fs.now{ border:2px solid #4ade80; color:#fff; background:rgba(34,197,94,.2); box-shadow:0 0 10px rgba(74,222,128,.55); font-weight:600 }
   .flow.out .fs.now{ border:2px solid #fbbf24; color:#fff; background:rgba(245,158,11,.18); box-shadow:0 0 10px rgba(251,191,36,.5); font-weight:600 }
   .flow .fs.now.alert{ border-color:#f87171; background:rgba(248,113,113,.2); box-shadow:0 0 10px rgba(248,113,113,.55) }
@@ -557,15 +559,34 @@
     const i = items.findIndex(x => x.label === o.progIn);
     return { items, cur: i >= 0 ? i : items.length - 1 };
   }
-  function flowRow(name, cls, items, cur) {
+  // この先の工程（2026-10-22）。工程(自動) のタグ（|オートン|Nao|機械貼|）のうち、まだ済んでいない部屋を並び順のまま返す。
+  // タグの並びは基本的に実際の作業順と同じ（ユーザー確認）
+  // 完了ボタンのある部屋（オートン・機械貼 など）はその工程の記録で、ボタンの無い部屋（Nao・2F_小 など）は仕上がりで済とみなす
+  function todoRooms(o) {
+    if (o.closed || o.group === '最終' || o.done.finish) return [];
+    const done = new Set(doneSteps(o).map(x => x.s.key));
+    const tags = String(o.kotei || '').split('|').filter(Boolean);
+    return tags.filter(tag => {
+      const s = S.steps.find(x => x.variants.some(v => v.tag === tag));
+      return !(s && done.has(s.key));
+    }).map(tag => S.rooms.find(r => r.tag === tag)?.name || tag);
+  }
+  function flowRow(name, cls, items, cur, todo = []) {
     const row = document.createElement('div'); row.className = 'flow ' + cls;
     const h = document.createElement('span'); h.className = 'fl'; h.textContent = name; row.append(h);
-    if (!items.length) { const n = document.createElement('span'); n.className = 'fnone'; n.textContent = '—'; row.append(n); return row; }
+    if (!items.length && !todo.length) { const n = document.createElement('span'); n.className = 'fnone'; n.textContent = '—'; row.append(n); return row; }
     items.forEach((it, i) => {
       if (i) { const a = document.createElement('span'); a.className = 'farr'; a.textContent = '→'; row.append(a); }
       const b = document.createElement('span'); b.className = 'fs ' + (i === cur ? 'now' : 'past') + (it.alert ? ' alert' : '');
       b.append(it.label);
       if (it.sub) { const s = document.createElement('small'); s.textContent = it.sub; b.append(s); }
+      row.append(b);
+    });
+    // まだの工程は点線の枠で暗く出す。タグの並びが実際の作業順なので → でつなぐ（→ Nao → 機械貼）
+    todo.forEach((name, i) => {
+      if (items.length || i) { const a = document.createElement('span'); a.className = 'farr todo'; a.textContent = '→'; row.append(a); }
+      const b = document.createElement('span'); b.className = 'fs todo'; b.title = 'この先の工程（未完了）';
+      b.textContent = name;
       row.append(b);
     });
     return row;
@@ -580,7 +601,7 @@
       out[out.length - 1].sub = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
     }
     const ins = inFlow(o);
-    box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur));
+    box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
     // 抜型状況。仕舞い完了があるのに「型まだ仕舞済でない」が残っていたら、古い方は出さない
     const DIE_CLASS = { '抜型照合済': 'd-check', '抜型を棚に仕舞い完了': 'd-stored', '型まだ仕舞済でない': 'd-notyet', '今回新型': 'd-new', '型修正あり': 'd-fix' };
