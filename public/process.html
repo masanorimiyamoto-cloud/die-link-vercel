@@ -984,7 +984,7 @@
       if (mr) {
         const b = document.createElement('span'); b.className = 'minebadge ready';
         b.append('▶ 取り掛かれます');
-        const sm = document.createElement('small'); sm.textContent = mr.label + ' 済'; b.append(sm);
+        const sm = document.createElement('small'); sm.textContent = mr.label; b.append(sm);
         info.append(b);
       }
       info.append(it, facts(o), mt, progressStrip(o));
@@ -1031,15 +1031,18 @@
   // 自分の工程はまだだが、もうすぐ自分の番の受注（2026-10-22）。黄色枠にする。
   // ・ほかの工程がどれか済んでいる。工程表発行済（印刷日時）や 抜き作業中 のような記録の無い進行、材料・在庫の状況は数えない
   // ・品名の #タグの並びで自分より前の部屋が全部済んでいる（#o#nao#ki の機械貼は、オートンと Nao の両方が済むまで黄色にしない）
-  // 返すのは一番新しく済んだ工程
+  // ・材料の入荷（進行社外が readyOut。機械貼は 機械貼材料入荷済、オートン・たおしは シート材料入荷済）も、工程が済んだのと同じに数える。
+  //   前の部屋が全部済んでいることは材料のときも求める
+  // 返すのは一番新しく済んだ工程（材料の入荷ならその値）
   function mineReady(o, v) {
     if (!v || !(v.mine || []).length || o.closed || mineDone(o, v)) return null;
     const list = doneSteps(o).filter(x => x.s.group !== 'status');
-    if (!list.length) return null;
+    const mat = (v.readyOut || []).includes(o.progOut) ? o.progOut : '';
+    if (!list.length && !mat) return null;
     const tags = itemTags(o), mine = viewTags(v);
     const at = tags.findIndex(t => mine.includes(t));
     if (at > 0 && !tags.slice(0, at).every(t => tagDone(o, t))) return null;
-    return { label: list[list.length - 1].s.label };
+    return { label: mat || list[list.length - 1].s.label + ' 済' };
   }
 
   /* ---------- 工程を選ぶ ---------- */
