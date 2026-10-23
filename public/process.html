@@ -12,9 +12,17 @@
   /* 見た目は Airtable を手本に整えた（2026-10-08）: 細い線・丸い札・平らな色・「小さなラベル＋大きな値」。
      太さは 本文 500／見出し・値 600 を基本にし、800 は使わない。暗い画面と大きめの文字はそのまま */
   :root{ --bg:#0f1115; --surf:#171a20; --surf2:#1e222a; --hover:#262b35;
-    --txt:#e8eaee; --mut:#9aa1ad; --dim:#737b88; --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+    --txt:#e8eaee; --mut:#9aa1ad; --dim:#8b93a1; --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
     --card:var(--surf); --a:#3b82f6; --a-soft:rgba(59,130,246,.18); --p:#8b5cf6;
-    --ok:#22c55e; --err:#f87171; --warn:#f59e0b; --r:10px; }
+    --ok:#22c55e; --err:#f87171; --warn:#f59e0b; --r:10px;
+    /* 状態の色（2026-10-23）。一覧の札・枠、社内／社外の流れ、工程ボタンで同じ意味に同じ色を使う。
+       着手できる＝緑 / 自分の工程が済＝青 / 材料・前工程待ち＝黄土 / 納期超過・要確認＝赤 / 補助＝灰。
+       Room の色・探す／生地のボタンなど、状態でない色はここに入れない */
+    --st-ready:#22c55e; --st-ready-bg:rgba(34,197,94,.10); --st-ready-badge:#15803d; --st-ready-ink:#fff;
+    --st-done:#60a5fa; --st-done-bg:rgba(59,130,246,.14); --st-done-badge:#2563eb; --st-done-ink:#fff; --st-done-txt:#bfdbfe;
+    --st-wait:#f59e0b; --st-wait-bg:rgba(245,158,11,.14); --st-wait-txt:#fde68a;
+    --st-late:#f87171; --st-late-bg:rgba(248,113,113,.16); --st-late-txt:#fecaca;
+    --st-note:#9aa1ad; --sel:#e8eaee; --focus:#93c5fd; }
   *{ box-sizing:border-box } [hidden]{ display:none !important }
   html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--txt);
     font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Noto Sans JP",Meiryo,sans-serif;
@@ -34,7 +42,8 @@
   /* 2026-10-17 sticky は実機で一緒に流れてしまったので fixed で画面の上に固定し、その高さぶん本文を下げる */
   .listhead{ position:fixed; top:0; left:0; right:0; max-width:640px; margin:0 auto; z-index:30; padding:12px 16px; border:0; border-radius:0;
     background:var(--surf); border-bottom:1px solid var(--line); color:var(--txt); text-align:left;
-    display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:18px; font-weight:600; cursor:pointer }
+    display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 8px; font-size:18px; font-weight:600; cursor:pointer }
+  .listhead > span:first-child{ flex:1 1 auto }
   .listhead .cnt{ font-size:14px; font-weight:500; color:var(--mut); white-space:nowrap }
   /* 見出しは1行に収める（長いリスト名は末尾を…で省く）。2行になると本文の下げ幅が変わり、ボタンに重なりやすい */
   .listhead > span:first-child{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
@@ -70,13 +79,10 @@
     border-radius:6px; border:1px solid var(--line2); color:var(--mut) }
   .fs small{ font-size:10.5px; font-weight:500; opacity:.8; font-variant-numeric:tabular-nums }
   .farr, .fnone{ color:var(--dim); font-size:12px }
-  .fs.todo{ border-style:dashed; color:var(--dim); opacity:.7 }
+  /* この先の工程は点線の枠と控えめな色で。半透明にすると小さい文字が読みにくくなるので透明度は下げない（2026-10-23） */
+  .fs.todo{ border-style:dashed; color:var(--dim) }
   .farr.todo{ opacity:.6 }
-  .flow.in .fs.now{ border:2px solid #4ade80; color:#fff; background:rgba(34,197,94,.2); box-shadow:0 0 10px rgba(74,222,128,.55); font-weight:600 }
-  .flow.out .fs.now{ border:2px solid #fbbf24; color:#fff; background:rgba(245,158,11,.18); box-shadow:0 0 10px rgba(251,191,36,.5); font-weight:600 }
-  .flow .fs.now.alert{ border-color:#f87171; background:rgba(248,113,113,.2); box-shadow:0 0 10px rgba(248,113,113,.55) }
-  /* 社外の材料は 手配・入荷予定 のうちは黄色、入荷したら緑（社内の今と同じ色。取り掛かれます の緑枠とそろえる 2026-10-23） */
-  .flow .fs.now.arrived{ border-color:#4ade80; background:rgba(34,197,94,.2); box-shadow:0 0 10px rgba(74,222,128,.55) }
+  /* 流れの「今」の色は下の「状態の色」の欄（社内＝済の青、社外＝待ちの黄土、入荷確認済み＝緑、知らせ＝赤） */
   .pc{ font-size:12.5px; font-weight:500; padding:2px 9px; border-radius:999px; line-height:1.55;
     background:rgba(255,255,255,.06); color:var(--mut); border:1px solid transparent }
   .memo{ font-size:13px; color:#fde68a; font-weight:500; padding:4px 8px; border-radius:6px;
@@ -128,15 +134,11 @@
   /* 受注の行は Airtable のレコードカードのように: 一段明るい面＋細い線。選ぶと青い枠と左の帯 */
   .order{ text-align:left; padding:12px 12px 12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--surf2);
     color:var(--txt); display:flex; flex-direction:column; gap:4px; font-weight:500 }
-  .order.sel{ border-color:rgba(59,130,246,.7); background:#1c2533; box-shadow:inset 3px 0 0 var(--a) }
-  /* 見ている作業リストの工程（自分の工程）が済んだ受注: 行全体を太い青枠で囲み「済」の札を付ける */
-  .order.mine{ border:3px solid #3b82f6; background:rgba(59,130,246,.10); padding:10px 10px 10px 12px }
-  .minebadge{ align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-size:15px; font-weight:700;
-    color:#fff; background:#2563eb; border-radius:8px; padding:3px 10px; margin-bottom:2px }
-  .minebadge small{ font-size:12px; font-weight:500; opacity:.9 }
-  /* 自分の工程はまだで、ほかの工程が済んだ受注（もうすぐ自分の番）: 緑の太枠（2026-10-23 黄色から変更。済の青と並べて「進んでよい」の色）と「取り掛かれます」の札 */
-  .order.ready{ border:3px solid #22c55e; background:rgba(34,197,94,.08); padding:10px 10px 10px 12px }
-  .minebadge.ready{ background:#16a34a; color:#fff }
+  /* 一覧の札（着手可・済・待ち・状態未確認・選択中）。枠と色は下の「状態の色」の欄 */
+  .badges{ display:flex; flex-wrap:wrap; gap:6px; align-items:center }
+  .minebadge{ display:inline-flex; align-items:center; gap:6px; font-size:15px; font-weight:700; border-radius:8px; padding:3px 10px; line-height:1.4 }
+  .minebadge small{ font-size:12px; font-weight:500; opacity:.95 }
+  .selmark{ font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:var(--sel); color:var(--bg) }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
   .order .meta, .target .meta{ font-size:13px; color:var(--mut); font-weight:500; font-variant-numeric:tabular-nums }
@@ -167,9 +169,11 @@
   /* グループごとに薄く色を分ける: 工程＝青み、状況＝黄土色み、Room＝紫み（2026-10-06） */
   .step.status{ background:#211c12; color:rgba(254,243,199,.88); border:1px solid rgba(245,158,11,.3) }
   .step.rec{ border:1.5px solid #fde68a; color:#fff }
-  .step.done{ background:#16a34a; color:#fff; border-color:#4ade80 }
   .step small{ font-size:11.5px; font-weight:500; letter-spacing:0; opacity:.9 }
-  .step.done.past{ background:rgba(34,197,94,.10); color:rgba(187,247,208,.8); border-color:rgba(34,197,94,.3) }
+  /* 済の工程は押しても何も起きない表示（2026-10-23）。取り消しは下の「記録を取り消す」から。ボタンの中にボタンは入れない */
+  .stepcell{ display:flex; flex-direction:column; gap:4px; min-width:0 }
+  .stepcell .step{ flex:1; border-radius:var(--r); text-align:center }
+  .undo{ padding:6px 8px; font-size:13px; font-weight:500; background:transparent; color:var(--mut); border:1px solid var(--line2) }
   /* Room: 普段の部屋（品名タグから）は明るい枠。Room に入っている部屋は Airtable の色で塗る */
   .rooms{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
   .roomhead{ color:#c4b5fd }
@@ -202,18 +206,12 @@
   :root[data-theme=light] .chips button{ background:#f1f2f4; border-color:transparent }
   :root[data-theme=light] .chips button.on{ background:#ede9fe; color:#5b21b6; border-color:#c4b5fd }
   :root[data-theme=light] .order{ background:#fff; border-color:#e1e4e8; box-shadow:0 1px 2px rgba(0,0,0,.04) }
-  :root[data-theme=light] .order.sel{ background:#f0f6ff; border-color:#93c5fd; box-shadow:inset 3px 0 0 var(--a) }
-  :root[data-theme=light] .order.mine{ border-color:#2563eb; background:#eff6ff }
-  :root[data-theme=light] .late{ color:#dc2626 }
-  :root[data-theme=light] .facts .late b{ color:#dc2626 } :root[data-theme=light] .facts .soon b{ color:#c2410c }
-  :root[data-theme=light] .facts .late .when{ background:#fee2e2; color:#b91c1c }
+  :root[data-theme=light] .late{ color:#B91C1C }
+  :root[data-theme=light] .facts .late b{ color:#B91C1C } :root[data-theme=light] .facts .soon b{ color:#c2410c }
+  :root[data-theme=light] .facts .late .when{ background:#fee2e2; color:#B91C1C }
   :root[data-theme=light] .facts .soon .when{ background:#ffedd5; color:#9a3412 }
   :root[data-theme=light] .facts .from{ color:#2563eb }
   :root[data-theme=light] .pc{ background:#f1f2f4; color:var(--mut) }
-  :root[data-theme=light] .flow.in .fs.now{ background:#dcfce7; color:#14532d; border-color:#16a34a; box-shadow:0 0 8px rgba(22,163,74,.45) }
-  :root[data-theme=light] .flow.out .fs.now{ background:#fef3c7; color:#78350f; border-color:#d97706; box-shadow:0 0 8px rgba(217,119,6,.45) }
-  :root[data-theme=light] .flow .fs.now.arrived{ background:#dcfce7; color:#14532d; border-color:#16a34a; box-shadow:0 0 8px rgba(22,163,74,.45) }
-  :root[data-theme=light] .flow .fs.now.alert{ background:#fee2e2; color:#7f1d1d; border-color:#dc2626; box-shadow:0 0 8px rgba(220,38,38,.4) }
   :root[data-theme=light] .pc.die.d-check{ background:#f3e8ff; color:#6b21a8 }
   :root[data-theme=light] .pc.die.d-stored{ background:#cffafe; color:#155e75 }
   :root[data-theme=light] .pc.die.d-notyet{ background:#db2777; color:#fff }
@@ -230,8 +228,6 @@
   :root[data-theme=light] .step.status{ background:#fffbeb; color:#78350f; border-color:#fcd9a0 }
   /* 普段の工程・部屋の印は、白の上では薄い黄色が見えないので濃いオレンジの枠に */
   :root[data-theme=light] .step.rec{ border:1.5px solid #f59e0b; color:#1f2328 }
-  :root[data-theme=light] .step.done{ background:#16a34a; color:#fff; border-color:#15803d }
-  :root[data-theme=light] .step.done.past{ background:#f0fdf4; color:#166534; border-color:#bbf7d0 }
   :root[data-theme=light] .room{ background:#faf5ff; color:#6b21a8; border-color:#e9d5ff }
   :root[data-theme=light] .room.def{ border:1.5px solid #f59e0b; color:#1f2328 }
   :root[data-theme=light] .room.on{ background:var(--rc); color:#fff; border-color:transparent }
@@ -241,26 +237,29 @@
   /* 2026-10-21 白はまぶしすぎたので青を基調に（指定色: 主 #0B57D0 / 明るい青 #2F7DF6 / 白 #FFFFFF / 青みの白 #F4F8FD /
      枠線 #D9E7FB / 文字 #163A70）。地は青みの白より一段濃くし、白は受注の行だけに使ってまぶしさを抑える。
      済＝緑・期限切れ＝赤・注意＝黄 の意味の色はそのまま */
-  :root[data-theme=light]{ --bg:#E8F0FB; --surf:#F4F8FD; --surf2:#FFFFFF; --hover:#FFFFFF;
-    --txt:#163A70; --mut:#4A6690; --dim:#7A92B5; --line:#D9E7FB; --line2:#BFD5F5; --a:#0B57D0; --a-soft:rgba(11,87,208,.12) }
+  /* 2026-10-23 落ち着いた青系に整理: 地 #EEF2F6・カード #F8FAFC（受注の行は白）・本文 #1E293B・補助 #475569。
+     補助文字 #7A92B5 は白の上で約3.2:1と薄かったので、小さいラベルにも4.5:1以上の色にした。状態の色は --st-* */
+  :root[data-theme=light]{ --bg:#EEF2F6; --surf:#F8FAFC; --surf2:#FFFFFF; --hover:#FFFFFF;
+    --txt:#1E293B; --mut:#475569; --dim:#5B6B80; --line:#D9E2EC; --line2:#C3CFDD; --a:#0B57D0; --a-soft:rgba(11,87,208,.12);
+    --st-ready:#15803D; --st-ready-bg:#EDFBF2; --st-ready-badge:#15803D; --st-ready-ink:#fff;
+    --st-done:#0B57D0; --st-done-bg:#EAF2FE; --st-done-badge:#0B57D0; --st-done-ink:#fff; --st-done-txt:#0B3D91;
+    --st-wait:#B45309; --st-wait-bg:#FFF7E6; --st-wait-txt:#7C2D12;
+    --st-late:#B91C1C; --st-late-bg:#FEE2E2; --st-late-txt:#7F1D1D;
+    --st-note:#475569; --sel:#1E293B; --focus:#0B57D0 }
   :root[data-theme=light] .bar a{ color:#0B57D0 }
-  :root[data-theme=light] .card{ background:#F4F8FD; border-color:#D9E7FB; box-shadow:0 1px 3px rgba(11,87,208,.06) }
+  :root[data-theme=light] .card{ background:#F8FAFC; border-color:#D9E2EC; box-shadow:0 1px 3px rgba(15,23,42,.06) }
   :root[data-theme=light] .listhead{ background:#0B57D0; color:#fff; border-bottom:1px solid #0A4AB2; box-shadow:0 2px 8px rgba(11,87,208,.25) }
   :root[data-theme=light] .listhead .cnt, :root[data-theme=light] .listhead .up{ color:#D9E7FB }
   :root[data-theme=light] .tabs{ background:#DCE8F8; border-color:transparent }
-  :root[data-theme=light] .tabs button{ color:#4A6690 }
+  :root[data-theme=light] .tabs button{ color:#475569 }
   :root[data-theme=light] .tabs button.on{ background:#FFFFFF; color:#0B57D0; box-shadow:0 1px 3px rgba(11,87,208,.18) }
-  :root[data-theme=light] .chips button{ background:#FFFFFF; color:#163A70; border-color:#D9E7FB }
+  :root[data-theme=light] .chips button{ background:#FFFFFF; color:#1E293B; border-color:#C3CFDD }
   :root[data-theme=light] .chips button.on{ background:#0B57D0; color:#fff; border-color:#0B57D0 }
-  :root[data-theme=light] .order{ background:#FFFFFF; border-color:#D9E7FB; box-shadow:0 1px 2px rgba(11,87,208,.06) }
-  :root[data-theme=light] .order.sel{ background:#EEF4FE; border-color:#2F7DF6; box-shadow:inset 3px 0 0 #0B57D0 }
-  :root[data-theme=light] .order.mine{ border-color:#0B57D0; background:#EAF2FE }
-  :root[data-theme=light] .minebadge{ background:#0B57D0 }
-  :root[data-theme=light] .order.ready{ border-color:#15803D; background:#EDFBF2 }
-  :root[data-theme=light] .minebadge.ready{ background:#15803D; color:#fff }
+  :root[data-theme=light] .order{ background:#FFFFFF; border-color:#D9E2EC; box-shadow:0 1px 2px rgba(15,23,42,.06) }
   :root[data-theme=light] .facts .from{ color:#0B57D0 }
-  :root[data-theme=light] .pc{ background:#EEF4FC; color:#4A6690 }
-  :root[data-theme=light] .step{ background:#F4F8FD; color:#163A70; border-color:#D9E7FB }
+  :root[data-theme=light] .pc{ background:#EEF2F6; color:#475569 }
+  :root[data-theme=light] .step{ background:#F8FAFC; color:#1E293B; border-color:#C3CFDD }
+  :root[data-theme=light] .undo{ color:#475569; border-color:#C3CFDD; background:#fff }
   :root[data-theme=light] .stephead{ color:#0B57D0 }
   :root[data-theme=light] .amtbtn.qty{ background:#EEF4FE; color:#0B57D0; border-color:#BFD5F5 }
   :root[data-theme=light] .themebtn{ color:#0B57D0; border-color:#BFD5F5; background:#FFFFFF }
@@ -270,8 +269,14 @@
      黒に近い紺の地に薄い方眼、シアンの細く光る線、大きな数字は等幅＋淡い発光。
      意味の色（済=青緑、期限切れ=赤、注意=黄）は他の配色と同じ役割のまま ===== */
   :root[data-theme=vivant]{ color-scheme:dark; --bg:#02060d; --surf:#06111d; --surf2:#0a1828; --hover:#0f2236;
-    --txt:#d6f6ff; --mut:#6fa8bf; --dim:#4b7a8f; --line:rgba(34,211,238,.18); --line2:rgba(34,211,238,.32);
-    --a:#22d3ee; --a-soft:rgba(34,211,238,.16); --p:#38bdf8; --ok:#2dd4bf; --err:#ff4d6d; --warn:#fbbf24 }
+    --txt:#d6f6ff; --mut:#7fb3c7; --dim:#6b98ab; --line:rgba(34,211,238,.18); --line2:rgba(34,211,238,.32);
+    --a:#22d3ee; --a-soft:rgba(34,211,238,.16); --p:#38bdf8; --ok:#2dd4bf; --err:#ff4d6d; --warn:#fbbf24;
+    /* 状態の色は他の配色と同じ意味。済はシアンだと着手可の緑と近いので青に寄せる（2026-10-23） */
+    --st-ready:#4ade80; --st-ready-bg:rgba(74,222,128,.09); --st-ready-badge:#4ade80; --st-ready-ink:#00170a;
+    --st-done:#60a5fa; --st-done-bg:rgba(96,165,250,.12); --st-done-badge:#60a5fa; --st-done-ink:#00131c; --st-done-txt:#bfdbfe;
+    --st-wait:#fbbf24; --st-wait-bg:rgba(251,191,36,.12); --st-wait-txt:#fde68a;
+    --st-late:#ff6b84; --st-late-bg:rgba(255,77,109,.16); --st-late-txt:#ffd1da;
+    --st-note:#8fb3c4; --sel:#ecfeff; --focus:#67e8f9 }
   :root[data-theme=vivant] body{
     background:
       radial-gradient(120% 70% at 50% -10%, rgba(34,211,238,.10), transparent 60%),
@@ -291,20 +296,51 @@
   :root[data-theme=vivant] .chips button{ background:rgba(10,24,40,.9); border-color:rgba(34,211,238,.22); color:#a5f3fc }
   :root[data-theme=vivant] .chips button.on{ background:rgba(34,211,238,.18); color:#ecfeff; border-color:#22d3ee; box-shadow:0 0 10px rgba(34,211,238,.4) }
   :root[data-theme=vivant] .order{ background:rgba(8,20,34,.92); border-color:rgba(34,211,238,.20) }
-  :root[data-theme=vivant] .order.sel{ background:rgba(14,32,52,.95); border-color:rgba(56,189,248,.7); box-shadow:inset 3px 0 0 #38bdf8 }
-  :root[data-theme=vivant] .order.mine{ border-color:#22d3ee; background:rgba(34,211,238,.08); box-shadow:0 0 16px rgba(34,211,238,.35), inset 0 0 18px rgba(34,211,238,.06) }
-  :root[data-theme=vivant] .minebadge{ background:#22d3ee; color:#00131c; box-shadow:0 0 10px rgba(34,211,238,.6) }
-  :root[data-theme=vivant] .order.ready{ border-color:#4ade80; background:rgba(74,222,128,.07); box-shadow:0 0 16px rgba(74,222,128,.3) }
-  :root[data-theme=vivant] .minebadge.ready{ background:#4ade80; color:#00170a; box-shadow:0 0 10px rgba(74,222,128,.6) }
   :root[data-theme=vivant] .order .item{ color:#ecfeff }
-  :root[data-theme=vivant] .facts b{ font-family:Consolas,"SF Mono","Roboto Mono",monospace; color:#e0faff; text-shadow:0 0 8px rgba(34,211,238,.45); letter-spacing:.02em }
-  :root[data-theme=vivant] .facts .late b{ color:#ff6b84; text-shadow:0 0 8px rgba(255,77,109,.55) }
-  :root[data-theme=vivant] .facts .soon b{ color:#fcd34d; text-shadow:0 0 8px rgba(251,191,36,.45) }
+  /* 2026-10-23 数字・文字の発光は読みにくさの原因になるので弱める（雰囲気は地の方眼と細い線で残す） */
+  :root[data-theme=vivant] .facts b{ font-family:Consolas,"SF Mono","Roboto Mono",monospace; color:#ecfeff; text-shadow:none; letter-spacing:.02em }
+  :root[data-theme=vivant] .facts .late b{ color:#ff6b84; text-shadow:none }
+  :root[data-theme=vivant] .facts .soon b{ color:#fcd34d; text-shadow:none }
   :root[data-theme=vivant] .order .meta, :root[data-theme=vivant] .target .meta{ font-family:Consolas,"SF Mono","Roboto Mono",monospace; color:#7fb8cc }
   :root[data-theme=vivant] .btn{ background:linear-gradient(135deg,#0891b2,#22d3ee); color:#00131c }
   :root[data-theme=vivant] .step{ background:rgba(8,20,34,.95); border-color:rgba(34,211,238,.25); color:#bdf4ff }
-  :root[data-theme=vivant] .step.done{ background:linear-gradient(135deg,#0e7490,#22d3ee); color:#00131c; border-color:#a5f3fc; box-shadow:0 0 14px rgba(34,211,238,.5) }
   :root[data-theme=vivant] .themebtn{ border-color:rgba(34,211,238,.5); color:#67e8f9; box-shadow:0 0 8px rgba(34,211,238,.25) }
+  :root[data-theme=vivant] .listhead #listHeadName{ text-shadow:0 0 4px rgba(34,211,238,.3) }
+  :root[data-theme=vivant] .chips button.on{ box-shadow:0 0 6px rgba(34,211,238,.25) }
+
+  /* ===== 状態の色（全配色共通。色は各配色の --st-* で決まる。2026-10-23）=====
+     配色ごとの .order / .step の指定より後ろに置き、:root を付けて必ずこちらが効くようにする */
+  /* 着手できる: 一番目立たせる（太い緑枠＋薄い緑の地＋塗りの札） */
+  :root .order.ready{ border:3px solid var(--st-ready); background:var(--st-ready-bg); padding:10px 10px 10px 12px }
+  :root .minebadge.ready{ background:var(--st-ready-badge); color:var(--st-ready-ink) }
+  /* 自分の工程が済: 青い札は残し、枠は左の帯だけにして控えめに */
+  :root .order.mine{ border-left:5px solid var(--st-done); padding-left:10px }
+  :root .minebadge.done{ background:var(--st-done-badge); color:var(--st-done-ink) }
+  /* 材料・前工程待ち: 黄土色の線の札と左の帯 */
+  :root .order.wait{ border-left:5px solid var(--st-wait); padding-left:10px }
+  :root .minebadge.wait{ background:var(--st-wait-bg); color:var(--st-wait-txt); border:1.5px solid var(--st-wait); font-size:14px }
+  /* 判定できない: 灰色の点線の札（目立たせない） */
+  :root .minebadge.note{ background:transparent; color:var(--st-note); border:1px dashed var(--line2); font-size:13px; font-weight:500 }
+  /* 選択中: 状態の枠・地は変えず、外側の枠と「選択中」の札で分ける */
+  :root .order.sel{ outline:3px solid var(--sel); outline-offset:2px }
+  /* 進行の流れの今: 社内＝済の青、社外＝待ちの黄土、材料の入荷確認済み・在庫シート＝緑、流れの外の知らせ＝赤 */
+  :root .flow.in .fs.now{ border:2px solid var(--st-done); color:var(--st-done-txt); background:var(--st-done-bg); font-weight:600 }
+  :root .flow.out .fs.now{ border:2px solid var(--st-wait); color:var(--st-wait-txt); background:var(--st-wait-bg); font-weight:600 }
+  :root .flow .fs.now.arrived{ border-color:var(--st-ready); color:var(--txt); background:var(--st-ready-bg) }
+  :root .flow .fs.now.alert{ border-color:var(--st-late); color:var(--st-late-txt); background:var(--st-late-bg) }
+  /* 工程ボタンの済: 一覧の「済」と同じ青。最後に記録した工程は塗り、それより前は薄く */
+  :root .steps .step.done{ background:var(--st-done-badge); color:var(--st-done-ink); border:1px solid var(--st-done) }
+  :root .steps .step.done.past{ background:var(--st-done-bg); color:var(--st-done-txt); border-color:var(--st-done) }
+  /* 一覧の鮮度（見出しの2行目） */
+  .listhead .fresh{ flex-basis:100%; font-size:12.5px; font-weight:500; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .listhead .fresh.err{ color:var(--st-late); font-weight:600 }
+  :root[data-theme=light] .listhead .fresh{ color:#D9E7FB }
+  :root[data-theme=light] .listhead .fresh.err{ color:#FFE08A }
+  /* 状態の絞り込み */
+  .chips.filt button[aria-pressed=true]{ background:var(--sel); color:var(--bg); border-color:var(--sel); font-weight:600 }
+  .chips.filt .lbl{ font-size:12.5px; color:var(--mut); margin-right:2px }
+  /* キーボードで動かしたときの位置が分かるように */
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible{ outline:3px solid var(--focus); outline-offset:2px }
 </style>
 </head>
 <body>
@@ -313,6 +349,7 @@
   <button type="button" class="listhead" id="listHead" aria-label="一覧の一番上へ戻る" hidden>
     <span><span id="listHeadName">作業リスト</span> <span class="cnt" id="listHeadCnt"></span></span>
     <span class="up">↑ 先頭へ</span>
+    <span class="fresh" id="listFresh" role="status" title="Airtable から一覧を読んだ時刻です（サーバーで最大20秒使い回します）。Airtable 側で最後に変わった時刻ではありません"></span>
   </button>
   <div class="bar"><a href="/">← トップ</a><span class="barr"><button type="button" class="themebtn" id="themeBtn"></button><span id="who"></span></span></div>
   <nav class="tabs" role="tablist">
@@ -323,7 +360,10 @@
   <!-- 作業リスト（Airtable のビューをそのまま表示） -->
   <section class="card" id="listCard" hidden>
     <div class="chips" id="viewChips"></div>
-    <div class="msg" id="listMsg" role="status"></div>
+    <!-- 状態の絞り込み（取得済みの一覧を画面の中で絞る。Airtable のビュー・並び順は変えない）2026-10-23 -->
+    <div class="chips filt" id="filtChips" role="group" aria-label="状態で絞り込む" hidden></div>
+    <div class="row"><div class="msg" id="listMsg" role="status" style="flex:1"></div>
+      <button type="button" class="btn ghost" id="listRetry" hidden>もう一度読む</button></div>
     <div id="list" style="display:flex;flex-direction:column;gap:8px"></div>
   </section>
 
@@ -386,7 +426,9 @@
   if (!me) return;
   $('who').innerHTML = ''; const b = document.createElement('b'); b.textContent = me.name; $('who').append(b, ' さん');
 
-  const S = { orders: [], steps: [], views: [], rooms: [], view: '', mode: 'list', sel: null, pendingStep: null };
+  // filter: 状態の絞り込み（all / ready / wait / done）。listAt: 一覧を反映した時刻（サーバーが Airtable を読んだ時刻）。listFail: 最後の読み込みが失敗
+  const S = { orders: [], steps: [], views: [], rooms: [], view: '', mode: 'list', sel: null, pendingStep: null,
+    filter: 'all', listAt: 0, listFail: false };
 
   // Book は Ko / Ta / Yo から選ぶ。QR に別の値が来たときだけ選択肢を足す
   function setBook(v) {
@@ -400,12 +442,19 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
 
+  // 電波が切れて応答が無いときも例外で止めず { ok:false, network:true } を返す（2026-10-23）。
+  // 送ったかどうか分からない更新は、ここでは送り直さない（二重記録を避ける）
   async function api(body) {
-    const r = await fetch('/api/airtable-update-progress', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'x-csrf': await DLAuth.csrf() },
-      body: JSON.stringify(body),
-    });
+    let r;
+    try {
+      r = await fetch('/api/airtable-update-progress', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'x-csrf': await DLAuth.csrf() },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      return { ok: false, network: true, error: '通信できませんでした（電波を確認してください）' };
+    }
     const j = await r.json().catch(() => ({ ok: false, error: '通信に失敗しました' }));
     j.status = r.status;
     if (j.needLogin) location.replace(DLAuth.loginUrl());
@@ -506,7 +555,7 @@
       nb.textContent = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
       const diff = daysFromToday(o.ndate);
       const w = document.createElement('span'); w.className = 'when';
-      if (diff < 0) { n.className = 'late'; w.textContent = `${-diff}日過ぎ`; n.append(w); }
+      if (diff < 0) { n.className = 'late'; w.textContent = `！${-diff}日過ぎ`; n.append(w); }
       else if (diff === 0) { n.className = 'soon'; w.textContent = '今日'; n.append(w); }
       else if (diff === 1) { n.className = 'soon'; w.textContent = '明日'; n.append(w); }
     } else nb.textContent = '-';
@@ -521,6 +570,8 @@
 
   // 「佐藤 2026-10-03 14:20」→「佐藤 10/03」
   const shortStamp = (t) => { const m = /^(.*?)\s+\d{4}-(\d\d)-(\d\d)/.exec(t || ''); return m ? `${m[1]} ${m[2]}/${m[3]}` : (t || ''); };
+  // 「佐藤 2026-10-03 14:20」→「佐藤 10/03 14:20」（工程の済の表示で、記録者と日時を見せる）
+  const fullStamp = (t) => { const m = /^(.*?)\s+\d{4}-(\d\d)-(\d\d)(?:[ T](\d\d:\d\d))?/.exec(t || ''); return m ? `${m[1]} ${m[2]}/${m[3]}${m[4] ? ' ' + m[4] : ''}` : (t || ''); };
 
   // 記録の日時（「佐藤 2026-10-03 14:20」の日時部分）。並べ替えに使う
   // オートメーションの書く日時は「2026-10-03T14:20」形式のこともあるので T も受ける
@@ -550,6 +601,17 @@
   const OUT_MAT1 = ['在庫シート利用', '機械貼材料入荷済'];
   const OUT_SLIP = ['受領伝票発行可能', '伝票出力済'];
   const OUT_END = ['完納済', '完納（数量訂正）', '分納残'];
+  const OUT_ARRIVED = ['シート材料入荷済', '機械貼材料入荷済']; // 入荷を人が確かめた状態
+  // 紙入荷日（シート・機械貼材料の入荷日）の言い方。先の日は「予定」、今日・過ぎた日は入荷の確認待ち（予定日だけで入荷とはしない）
+  function paperNote(o) {
+    if (!o.paper || !/^\d{4}-\d\d-\d\d$/.test(o.paper)) return null;
+    const [py, pm, pd] = o.paper.split('-').map(Number);
+    const day = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})`;
+    const diff = daysFromToday(o.paper);
+    if (diff > 0) return { day, diff, text: `${day} 入荷予定` };
+    if (diff === 0) return { day, diff, text: '本日入荷予定・確認待ち' };
+    return { day, diff, text: `${day} 入荷予定日経過・要確認` };
+  }
   function outFlow(v) {
     if (!v) return [];
     let i = OUT_MAT.indexOf(v); if (i >= 0) return OUT_MAT.slice(0, i + 1).map(label => ({ label }));
@@ -593,7 +655,7 @@
     items.forEach((it, i) => {
       if (i) { const a = document.createElement('span'); a.className = 'farr'; a.textContent = '→'; row.append(a); }
       const b = document.createElement('span'); b.className = 'fs ' + (i === cur ? 'now' : 'past') + (it.alert ? ' alert' : '') + (it.arrived ? ' arrived' : '');
-      b.append(it.label);
+      b.append((it.arrived ? '✓ ' : '') + it.label);
       if (it.sub) { const s = document.createElement('small'); s.textContent = it.sub; b.append(s); }
       row.append(b);
     });
@@ -613,19 +675,21 @@
     // シート・機械貼材料の手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
     // 機械貼材料の入荷日も 紙入荷日 に入れる（以前は連絡事項のメモに書いていた。2026-10-22）。
     // 進行社外に機械貼材料の「手配済み」は無いので、機械貼の作業リストでは進行社外が空でも「機械貼材料 ○/○予定」と出す
-    if (o.paper) {
-      const [py, pm, pd] = o.paper.split('-').map(Number);
-      const sub = `${pm}/${pd}(${WD[new Date(Date.UTC(py, pm - 1, pd)).getUTCDay()]})${daysFromToday(o.paper) > 0 ? '予定' : ''}`;
-      // 2026-10-22 支給シートは シート手配済み を選ばないので、進行社外が空でも「シート入荷 ○/○予定」を出す。
-      // 材料の段階（手配必要・手配済み・入荷済・在庫シート・機械貼材料）ならその札に添え、流れの外の知らせ（納期変更など）なら前に置く。
-      // 伝票・納品の段階を過ぎたら材料は出さない（上の決まりと同じ）
-      if ([...OUT_MAT, ...OUT_MAT1].includes(o.progOut)) out[out.length - 1].sub = sub;
-      // 進行社外が空（支給シートなど）は入荷済を選ばないので、紙入荷日が今日以前になったら入荷したとみなして緑にする
-      else if (!o.progOut) out.push({ label: view === 'kikai' ? '機械貼材料' : 'シート入荷', sub, arrived: daysFromToday(o.paper) <= 0 });
-      else if (!OUT_SLIP.includes(o.progOut) && !OUT_END.includes(o.progOut)) out.unshift({ label: 'シート入荷', sub });
+    // 2026-10-22 支給シートは シート手配済み を選ばないので、進行社外が空でも「シート入荷 ○/○予定」を出す。
+    // 材料の段階（手配必要・手配済み・入荷済・機械貼材料）ならその札に添え、流れの外の知らせ（納期変更など）なら前に置く。
+    // 伝票・納品の段階を過ぎたら材料は出さない（上の決まりと同じ）
+    // 2026-10-23 予定日だけで「入荷した」とは見せない。入荷確認済み（緑）は進行社外が入荷済のときだけ。
+    // 予定日が今日・過ぎたのに入荷済になっていないものは、黄土色のまま「確認待ち」「要確認」と出す。
+    // 在庫シート利用は新しく入荷したものではないので、紙入荷日は添えない（緑の「在庫シート利用」だけ）
+    const pn = paperNote(o);
+    if (pn && o.progOut !== '在庫シート利用') {
+      if (OUT_ARRIVED.includes(o.progOut)) out[out.length - 1].sub = pn.day;
+      else if (OUT_MAT.includes(o.progOut)) out[out.length - 1].sub = pn.text;
+      else if (!o.progOut) out.push({ label: view === 'kikai' ? '機械貼材料' : 'シート入荷', sub: pn.text });
+      else if (!OUT_SLIP.includes(o.progOut) && !OUT_END.includes(o.progOut)) out.unshift({ label: 'シート入荷', sub: pn.text });
     }
-    // 材料が入ったら社外の今の札を緑にする（入荷予定・手配のうちは黄色のまま）。在庫シート利用もすぐ使えるので緑
-    if (out.length && ['シート材料入荷済', '機械貼材料入荷済', '在庫シート利用'].includes(out[out.length - 1].label)) out[out.length - 1].arrived = true;
+    // 入荷確認済み・在庫シート利用は、社外の今の札を緑にする
+    if (out.length && [...OUT_ARRIVED, '在庫シート利用'].includes(out[out.length - 1].label)) out[out.length - 1].arrived = true;
     const ins = inFlow(o);
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
@@ -830,6 +894,7 @@
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
+      if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; s.style.alignSelf = 'flex-start'; info.append(s); }
       info.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
@@ -879,18 +944,27 @@
     // まず画像なしで一覧を出す（早い）。縮小画像は loadImages で後から足す（2026-10-20）
     const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh, lite: true });
     if (quiet && (S.sel || S.view !== key || S.mode !== 'list')) return;
-    if (!j.ok) return say($('listMsg'), j.error || '読み込めませんでした', 'err');
+    if (!j.ok) {
+      // 読めなかった。前の一覧が出ていれば、それが古いことを見出しに出す（最新のようには見せない）
+      S.listFail = true; showFresh();
+      if (!S.listAt) say($('listMsg'), `一覧を取得できませんでした（${j.error || '読み込めませんでした'}）`, 'err');
+      else if (!quiet) say($('listMsg'), `${j.error || '読み込めませんでした'}。以前の一覧を表示しています`, 'err');
+      $('listRetry').hidden = false;
+      return;
+    }
+    // ビューを切り替えたら、前のリストの絞り込みは持ち越さない
+    if ((j.view || j.views[0].key) !== S.view) S.filter = 'all';
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     if (S.mode !== 'list') return;
     S.orders = j.rows;
+    S.listAt = j.cachedAt || Date.now(); S.listFail = false; $('listRetry').hidden = true;
     // 前に取った画像があればすぐ付ける（自動の読み直しで画像が消えないように）
     for (const o of S.orders) o.images = imgById.get(o.id) || [];
     renderChips();
-    say($('listMsg'), j.rows.length ? `${j.rows.length}件` : 'このリストに作業はありません');
     // 自動の読み直しで中身が変わっていなければ、行も画像も作り直さない（スマホで画像を全部取り直して重くなるため。2026-10-20）
     const sig = rowsSig(j.rows);
-    if (quiet && sig === shownSig) { loadImages(S.view, true); return; }
+    if (quiet && sig === shownSig) { showFresh(); loadImages(S.view, true); return; }
     shownSig = sig;
     renderList();
     updateListHead();
@@ -920,14 +994,26 @@
     if (cur && !$('stepCard').hidden && j.images?.[cur.id]) renderStepImages(cur);
   }
 
-  // 見出し「作業リスト（オートン抜き）」と件数。済（青枠）の数も添える
+  // 見出し「作業リスト（オートン抜き）」と件数。着手可・済の数も添える。絞り込み中は「表示5件／全24件」
   function updateListHead() {
     const v = S.views.find(x => x.key === S.view);
     $('listHeadName').textContent = `作業リスト（${v ? v.label : ''}）`;
-    const n = S.orders.length;
-    const done = document.querySelectorAll('#list .order.mine').length;
-    const ready = document.querySelectorAll('#list .order.ready').length;
-    $('listHeadCnt').textContent = n ? [`${n}件`, ready && `着手可${ready}`, done && `済${done}`].filter(Boolean).join('・') : '0件';
+    const n = S.orders.length, c = S.counts || {};
+    $('listHeadCnt').textContent = !n ? '0件'
+      : S.filter !== 'all' ? `表示${S.shown ?? n}件／全${n}件`
+      : [`${n}件`, c.ready && `着手可${c.ready}`, c.done && `済${c.done}`].filter(Boolean).join('・');
+    showFresh();
+    fitHead();
+  }
+  // 一覧の鮮度（2026-10-23）。一覧を画面に反映した時刻だけを出す（画像を取った時刻ではない）。
+  // 時刻はサーバーが Airtable を読んだ時刻（最大20秒の使い回しを含む）で、Airtable 側で最後に変わった時刻ではない
+  const hhmm = (t) => new Date(t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+  function showFresh() {
+    const el = $('listFresh');
+    if (S.listFail && S.listAt) { el.textContent = `⚠ 更新失敗・以前の情報を表示中（${hhmm(S.listAt)} の一覧）`; el.className = 'fresh err'; }
+    else if (S.listFail) { el.textContent = '⚠ 一覧を取得できませんでした'; el.className = 'fresh err'; }
+    else if (S.listAt) { el.textContent = `一覧更新 ${hhmm(S.listAt)}`; el.className = 'fresh'; }
+    else { el.textContent = ''; el.className = 'fresh'; }
     fitHead();
   }
   // 見出しを押すと一番上の行へ戻る（見出しの高さぶん下げて、行が隠れないようにする）
@@ -972,35 +1058,112 @@
     const r = document.createElement('button'); r.type = 'button'; r.textContent = '更新';
     r.onclick = () => loadView(S.view, true); box.append(r);
   }
+  $('listRetry').onclick = () => loadView(S.view || store.get('process.view') || '', true);
 
+
+  /* ---------- 状態の絞り込み（2026-10-23） ---------- */
+  // 取得済みの一覧を画面の中で絞るだけ。並び順は Airtable のビューのまま（着手可順に並べ替えない）
+  const FILTERS = [['all', 'すべて'], ['ready', '着手可'], ['wait', '待ち'], ['done', '自工程済']];
+  const hasMine = (v) => !!(v && (v.mine || []).length);
+  function renderFilter(counts) {
+    const box = $('filtChips'); box.textContent = '';
+    const v = S.views.find(x => x.key === S.view);
+    // 自分の工程の決まりが無いリスト（全件・Recent・Fax）では出さず、絞り込みも残さない
+    if (!hasMine(v) || !S.orders.length) { box.hidden = true; if (!hasMine(v)) S.filter = 'all'; return; }
+    box.hidden = false;
+    const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '状態:'; box.append(l);
+    for (const [k, label] of FILTERS) {
+      const b = document.createElement('button'); b.type = 'button';
+      b.textContent = k === 'all' ? `${label} ${S.orders.length}` : `${label} ${counts[k] || 0}`;
+      b.setAttribute('aria-pressed', String(S.filter === k));
+      b.onclick = () => { S.filter = k; renderList(); };
+      box.append(b);
+    }
+  }
+
+  // 作業リストでの受注の状態。判定は mineDone（済）と mineReady（着手可）をそのまま使う。
+  // 待ちは理由（waitReason）が言えるものだけにし、どれにも当たらなければ「状態未確認」。
+  // 自分の工程の決まりが無いリスト・閉じた受注は状態を出さない
+  function rowState(o, v) {
+    if (!hasMine(v)) return { kind: '' };
+    const md = mineDone(o, v); if (md) return { kind: 'done', md };
+    if (o.closed) return { kind: '' };
+    const mr = mineReady(o, v); if (mr) return { kind: 'ready', mr };
+    const w = waitReason(o, v); if (w) return { kind: 'wait', ...w };
+    return { kind: 'unknown' };
+  }
+  // 着手できない理由（確かな根拠があるときだけ。mineReady が null のときに呼ぶ）。
+  // ・品名タグの並びで自分より前の部屋が済んでいない → 一番先に済ませる工程を1つ（残りは札の説明と社内の流れで見える）
+  //   ただし、それより後ろの部屋が済んでいるなら記録の付け忘れかもしれないので「前工程の完了記録を確認」
+  // ・前に部屋が無く、まだ何の工程も済んでいない → 材料（進行社外・紙入荷日）が分かるときだけ材料待ち
+  const roomLabel = (tag) => S.rooms.find(r => r.tag === tag)?.name || tag;
+  function waitReason(o, v) {
+    const tags = itemTags(o), mine = viewTags(v);
+    const at = tags.findIndex(t => mine.includes(t));
+    if (at > 0) {
+      const left = tags.slice(0, at).filter(t => !tagDone(o, t));
+      if (left.length) {
+        const i = tags.indexOf(left[0]);
+        const title = '先に済ませる工程: ' + left.map(roomLabel).join(' → ');
+        if (tags.slice(i + 1).some(t => tagDone(o, t))) return { text: '前工程の完了記録を確認', title: title + '（後ろの工程は済になっています）' };
+        const s = S.steps.find(x => x.variants.some(y => y.tag === left[0]));
+        return { text: (s ? s.label.replace(/完了$/, '') : roomLabel(left[0]) + 'の作業') + '待ち', title };
+      }
+    }
+    if (!(v.readyOut || []).length || doneSteps(o).some(x => x.s.group !== 'status')) return null;
+    if (o.progOut === 'シート手配必要') return { text: 'シートの手配待ち' };
+    const pn = paperNote(o);
+    if (o.progOut === 'シート手配済み' || (!o.progOut && pn)) {
+      if (!pn) return { text: '材料の入荷待ち' };
+      return { text: pn.diff > 0 ? `材料 ${pn.text}` : '材料の入荷確認待ち', title: '紙入荷日 ' + pn.text };
+    }
+    return null;
+  }
+  function stateBadge(st, v) {
+    const b = document.createElement('span'); b.className = 'minebadge';
+    const sm = document.createElement('small');
+    if (st.kind === 'done') {
+      // 「CADカット完了 済」のような重複を避け、一覧の名前で出す。仕上がり済で済とみなしたものはそう書く
+      b.classList.add('done'); b.append(`✓ ${v.label} 済`);
+      if (st.md.who) { sm.textContent = st.md.who; b.append(sm); }
+    } else if (st.kind === 'ready') {
+      b.classList.add('ready'); b.append('▶ 着手できます');
+      sm.textContent = st.mr.label; b.append(sm);
+    } else if (st.kind === 'wait') {
+      b.classList.add('wait'); b.append('◷ ' + st.text);
+      if (st.title) b.title = st.title;
+    } else if (st.kind === 'unknown') {
+      b.classList.add('note'); b.append('状態未確認');
+      b.title = '着手できるか・何を待っているかを判断できる記録がありません';
+    } else return null;
+    return b;
+  }
 
   function renderList() {
     const box = $('list'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
-    for (const o of S.orders) {
+    const states = new Map(S.orders.map(o => [o.id, rowState(o, v)]));
+    const counts = {};
+    for (const st of states.values()) counts[st.kind] = (counts[st.kind] || 0) + 1;
+    renderFilter(counts);
+    const shown = S.filter === 'all' ? S.orders : S.orders.filter(o => states.get(o.id).kind === S.filter);
+    S.counts = counts; S.shown = shown.length;
+    for (const o of shown) {
+      const st = states.get(o.id);
       const row = document.createElement('div'); row.className = 'lrow';
       const el = document.createElement('button'); el.type = 'button';
       el.className = 'order' + (S.sel === o.id ? ' sel' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = itemShort(o);
-      const md = mineDone(o, v);
-      const mr = md ? null : mineReady(o, v);
-      if (md) el.classList.add('mine');
-      if (mr) el.classList.add('ready');
+      if (st.kind === 'done') el.classList.add('mine');
+      if (st.kind === 'ready') el.classList.add('ready');
+      if (st.kind === 'wait') el.classList.add('wait');
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
-      if (md) {
-        const b = document.createElement('span'); b.className = 'minebadge';
-        b.append(`✓ ${v.label} 済`);   // 「CADカット完了 済」のような重複を避け、一覧の名前で出す
-        if (md.who) { const sm = document.createElement('small'); sm.textContent = md.who; b.append(sm); }
-        info.append(b);
-      }
-      if (mr) {
-        const b = document.createElement('span'); b.className = 'minebadge ready';
-        b.append('▶ 取り掛かれます');
-        const sm = document.createElement('small'); sm.textContent = mr.label; b.append(sm);
-        info.append(b);
-      }
+      const bd = document.createElement('div'); bd.className = 'badges';
+      const sb = stateBadge(st, v); if (sb) bd.append(sb);
+      if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; bd.append(s); }
+      if (bd.childNodes.length) info.append(bd);
       info.append(it, facts(o), mt, progressStrip(o, S.view));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
@@ -1010,6 +1173,14 @@
       el.onclick = () => selectOrder(o.id);
       row.append(el);
       box.append(row);
+    }
+    // 件数の案内。リスト自体が0件と、絞り込みで0件を分けて言う
+    const n = S.orders.length, fl = FILTERS.find(x => x[0] === S.filter)?.[1] || '';
+    if (S.listAt || n) {
+      if (!n) say($('listMsg'), 'このリストに作業はありません');
+      else if (S.filter !== 'all' && !shown.length) say($('listMsg'), `「${fl}」に当たる受注はありません（全${n}件）`);
+      else if (S.filter !== 'all') say($('listMsg'), `「${fl}」で絞り込み中: 表示${shown.length}件／全${n}件`);
+      else say($('listMsg'), `${n}件`);
     }
     if (S.views.length) updateListHead(); // 済の数が変わったら見出しにも反映
   }
@@ -1087,20 +1258,30 @@
         h.textContent = s.group === 'status' ? '状況（材料・在庫）' : '工程の完了';
         box.append(h); lastGroup = s.group;
       }
-      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step' + (s.group === 'status' ? ' status' : '');
-      if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
       const done = o.done[s.key];
       // Airtable で直接入れた（記録者なし）の完了も済として扱う
       const byProg = !done && s.variants.some(v => v.value === o.progIn);
-      if (done || byProg) btn.classList.add('done', s.key === lastKey ? 'now' : 'past');
-      btn.append(document.createTextNode(s.label));
       if (done || byProg) {
+        // 2026-10-23 済の工程は押せない表示（工程名・済・記録者・日時）にし、取り消しは下の「記録を取り消す」に分ける。
+        // 以前は済のボタンをもう一度押すと取り消しの確認になり、確かめるつもりで押して取り消しに進みやすかった
+        const cell = document.createElement('div'); cell.className = 'stepcell';
+        const st = document.createElement('div');
+        st.className = 'step done ' + (s.key === lastKey ? 'now' : 'past') + (s.group === 'status' ? ' status' : '');
+        st.append(document.createTextNode('✓ ' + s.label));
         const sm = document.createElement('small');
-        sm.textContent = (done ? '済 ' + shortStamp(done) : '済（記録者なし）') + ' ・ 押すと取消';
-        btn.append(sm);
+        sm.textContent = done ? '済 ' + fullStamp(done) : '済（記録者なし）';
+        st.append(sm);
+        const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '記録を取り消す';
+        un.setAttribute('aria-label', `「${s.label}」の記録を取り消す`);
+        un.onclick = () => cancelStep(s, done);
+        cell.append(st, un);
+        box.append(cell);
+        continue;
       }
-      // 済の工程をもう一度押すと取り消し（以前は上書きの確認だった）
-      btn.onclick = () => (done || byProg) ? cancelStep(s, done) : chooseStep(s);
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step' + (s.group === 'status' ? ' status' : '');
+      if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
+      btn.append(document.createTextNode(s.label));
+      btn.onclick = () => chooseStep(s);
       box.append(btn);
     }
     $('variants').hidden = true;
@@ -1165,14 +1346,16 @@
     if (!force && o.group === '最終' && s.key !== 'finish' &&
         !confirm(`この受注はもう「${o.progIn}」です。\n${v.value} にしてよいですか？`)) return;
     say($('stepMsg'), '記録しています…');
-    document.querySelectorAll('.step, .variants button').forEach(b => b.disabled = true);
+    document.querySelectorAll('.step, .undo, .variants button').forEach(b => b.disabled = true);
     const j = await api({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
-    document.querySelectorAll('.step, .variants button').forEach(b => b.disabled = false);
+    document.querySelectorAll('.step, .undo, .variants button').forEach(b => b.disabled = false);
     if (j.conflict) {
       // 他の人が先に記録していた。上書きはせず、最新の状態を見せる
-      say($('stepMsg'), `${j.error}。取り消すときは、もう一度そのボタンを押してください`, 'warn');
+      say($('stepMsg'), `${j.error}。取り消すときは「記録を取り消す」を押してください`, 'warn');
       return refreshCurrent();
     }
+    // 応答が無かった: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
+    if (j.network) return say($('stepMsg'), '通信が途切れ、記録できたか確認できません。もう一度押す前に、一覧の「更新」で記録の有無を確かめてください', 'err');
     if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
     o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
     navigator.vibrate?.([40, 40, 40]);
@@ -1185,9 +1368,10 @@
     const o = current(); if (!o) return;
     if (!confirm(`「${s.label}」${done ? `の記録（${done}）` : ''}を取り消しますか？\n進行社内は、この工程を記録する前の状態に戻します。`)) return;
     say($('stepMsg'), '取り消しています…');
-    document.querySelectorAll('.step').forEach(b => b.disabled = true);
+    document.querySelectorAll('.step, .undo').forEach(b => b.disabled = true);
     const j = await api({ action: 'cancel', id: o.id, step: s.key });
-    document.querySelectorAll('.step').forEach(b => b.disabled = false);
+    document.querySelectorAll('.step, .undo').forEach(b => b.disabled = false);
+    if (j.network) return say($('stepMsg'), '通信が途切れ、取り消せたか確認できません。一覧の「更新」で記録の有無を確かめてください', 'err');
     if (!j.ok) {
       say($('stepMsg'), j.error || '取り消せませんでした', 'err');
       if (j.stale) await refreshCurrent();
@@ -1205,7 +1389,14 @@
     renderOrders();
     const msgEl = S.mode === 'list' ? $('listMsg') : $('findMsg');
     const row = document.querySelector(`.order[data-id="${id}"]`);
-    if (!row) { say(msgEl, `${text}（この受注は一覧から外れました）`, cls); S.sel = null; return; }
+    if (!row) {
+      // 一覧にはあるが絞り込みで隠れた（着手可 → 自工程済 になった等）のか、ビューの条件で一覧から消えたのかを分けて言う
+      const fl = FILTERS.find(x => x[0] === S.filter)?.[1];
+      const why = S.mode === 'list' && S.filter !== 'all' && S.orders.some(x => x.id === id)
+        ? `この受注は「${fl}」の絞り込みから外れました。「すべて」で表示できます` : 'この受注は一覧から外れました';
+      S.sel = null; renderOrders();
+      say(msgEl, `${text}（${why}）`, cls); return;
+    }
     say(msgEl, text, cls);
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
