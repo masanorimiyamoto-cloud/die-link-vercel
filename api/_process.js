@@ -106,10 +106,10 @@ export const VIEWS = {
   cad:    { label: 'CAD',          mine: ['cad'], sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
   // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る
   omamori: { label: 'お守箔焼印',   mine: ['finish'], sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
-  auton:   { label: 'オートン抜き', mine: ['o'], readyOut: ['シート材料入荷済'], sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
+  auton:   { label: 'オートン抜き', mine: ['o'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
   kikai:   { label: '機械貼',       mine: ['kikai'], readyOut: ['機械貼材料入荷済'], sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },   // Grid 機械貼
   // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
-  taoshi:  { label: 'たおし抜き',   mine: ['tk', 'tm'], readyOut: ['シート材料入荷済'], sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
+  taoshi:  { label: 'たおし抜き',   mine: ['tk', 'tm'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
   // 2026-10-05 ビューが作り直されてIDが変わった（旧 viw2w8DzG6PNmJ3Iy は VIEW_ID_NOT_FOUND）
   tebari:  { label: '手貼り',       mine: ['tebari'], mineValues: ['(神)貼り完了', '(花)貼り完了'], sources: [{ id: 'viwK1jk2LXPw45fU9', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
