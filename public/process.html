@@ -75,6 +75,8 @@
   .flow.in .fs.now{ border:2px solid #4ade80; color:#fff; background:rgba(34,197,94,.2); box-shadow:0 0 10px rgba(74,222,128,.55); font-weight:600 }
   .flow.out .fs.now{ border:2px solid #fbbf24; color:#fff; background:rgba(245,158,11,.18); box-shadow:0 0 10px rgba(251,191,36,.5); font-weight:600 }
   .flow .fs.now.alert{ border-color:#f87171; background:rgba(248,113,113,.2); box-shadow:0 0 10px rgba(248,113,113,.55) }
+  /* 社外の材料は 手配・入荷予定 のうちは黄色、入荷したら緑（社内の今と同じ色。取り掛かれます の緑枠とそろえる 2026-10-23） */
+  .flow .fs.now.arrived{ border-color:#4ade80; background:rgba(34,197,94,.2); box-shadow:0 0 10px rgba(74,222,128,.55) }
   .pc{ font-size:12.5px; font-weight:500; padding:2px 9px; border-radius:999px; line-height:1.55;
     background:rgba(255,255,255,.06); color:var(--mut); border:1px solid transparent }
   .memo{ font-size:13px; color:#fde68a; font-weight:500; padding:4px 8px; border-radius:6px;
@@ -210,6 +212,7 @@
   :root[data-theme=light] .pc{ background:#f1f2f4; color:var(--mut) }
   :root[data-theme=light] .flow.in .fs.now{ background:#dcfce7; color:#14532d; border-color:#16a34a; box-shadow:0 0 8px rgba(22,163,74,.45) }
   :root[data-theme=light] .flow.out .fs.now{ background:#fef3c7; color:#78350f; border-color:#d97706; box-shadow:0 0 8px rgba(217,119,6,.45) }
+  :root[data-theme=light] .flow .fs.now.arrived{ background:#dcfce7; color:#14532d; border-color:#16a34a; box-shadow:0 0 8px rgba(22,163,74,.45) }
   :root[data-theme=light] .flow .fs.now.alert{ background:#fee2e2; color:#7f1d1d; border-color:#dc2626; box-shadow:0 0 8px rgba(220,38,38,.4) }
   :root[data-theme=light] .pc.die.d-check{ background:#f3e8ff; color:#6b21a8 }
   :root[data-theme=light] .pc.die.d-stored{ background:#cffafe; color:#155e75 }
@@ -589,7 +592,7 @@
     if (!items.length && !todo.length) { const n = document.createElement('span'); n.className = 'fnone'; n.textContent = '—'; row.append(n); return row; }
     items.forEach((it, i) => {
       if (i) { const a = document.createElement('span'); a.className = 'farr'; a.textContent = '→'; row.append(a); }
-      const b = document.createElement('span'); b.className = 'fs ' + (i === cur ? 'now' : 'past') + (it.alert ? ' alert' : '');
+      const b = document.createElement('span'); b.className = 'fs ' + (i === cur ? 'now' : 'past') + (it.alert ? ' alert' : '') + (it.arrived ? ' arrived' : '');
       b.append(it.label);
       if (it.sub) { const s = document.createElement('small'); s.textContent = it.sub; b.append(s); }
       row.append(b);
@@ -617,9 +620,12 @@
       // 材料の段階（手配必要・手配済み・入荷済・在庫シート・機械貼材料）ならその札に添え、流れの外の知らせ（納期変更など）なら前に置く。
       // 伝票・納品の段階を過ぎたら材料は出さない（上の決まりと同じ）
       if ([...OUT_MAT, ...OUT_MAT1].includes(o.progOut)) out[out.length - 1].sub = sub;
-      else if (!o.progOut) out.push({ label: view === 'kikai' ? '機械貼材料' : 'シート入荷', sub });
+      // 進行社外が空（支給シートなど）は入荷済を選ばないので、紙入荷日が今日以前になったら入荷したとみなして緑にする
+      else if (!o.progOut) out.push({ label: view === 'kikai' ? '機械貼材料' : 'シート入荷', sub, arrived: daysFromToday(o.paper) <= 0 });
       else if (!OUT_SLIP.includes(o.progOut) && !OUT_END.includes(o.progOut)) out.unshift({ label: 'シート入荷', sub });
     }
+    // 材料が入ったら社外の今の札を緑にする（入荷予定・手配のうちは黄色のまま）
+    if (out.length && ['シート材料入荷済', '機械貼材料入荷済'].includes(out[out.length - 1].label)) out[out.length - 1].arrived = true;
     const ins = inFlow(o);
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
