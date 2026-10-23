@@ -6,7 +6,12 @@
 <title>工程の完了を記録</title>
 <script>
   // 背景の白／黒は端末ごとに覚える。描く前に決めて、黒→白のちらつきを出さない
-  try { const t = localStorage.getItem('dl.theme'); if (t === 'light' || t === 'vivant') document.documentElement.dataset.theme = t; } catch {}
+  // SHELF は白の上に重ねる配色（白で直した読みやすさをそのまま使い、色と形だけ替える）
+  try {
+    const t = localStorage.getItem('dl.theme');
+    if (t === 'light' || t === 'vivant') document.documentElement.dataset.theme = t;
+    if (t === 'shelf') { document.documentElement.dataset.theme = 'light'; document.documentElement.dataset.skin = 'shelf'; }
+  } catch {}
 </script>
 <style>
   /* 見た目は Airtable を手本に整えた（2026-10-08）: 細い線・丸い札・平らな色・「小さなラベル＋大きな値」。
@@ -308,6 +313,66 @@
   :root[data-theme=vivant] .listhead #listHeadName{ text-shadow:0 0 4px rgba(34,211,238,.3) }
   :root[data-theme=vivant] .chips button.on{ box-shadow:0 0 6px rgba(34,211,238,.25) }
 
+  /* ===== SHELF（2026-10-23）: 300円ショップの箱を棚に並べたような見た目。白がまぶしいとき用。
+     マットなグレーの箱に、角の丸い生成りのラベル。線画のような細い線、枠で囲んだ小見出し、字間を空けた細身の英字。
+     白（data-theme=light）の上に data-skin=shelf で重ね、白で直した読みやすさはそのまま使う。
+     状態の色は意味を変えず、生成りに合う落ち着いた濃さ（どれも生成りの上で 4.5:1 以上）===== */
+  :root[data-skin=shelf]{ --bg:#A5A7AA; --surf:#EFEEEA; --surf2:#F7F6F3; --hover:#F7F6F3;
+    --txt:#2B2C2E; --mut:#4A4B4E; --dim:#5C5E62; --line:#C9C9C6; --line2:#9C9EA1; --a:#4A4B4E; --a-soft:rgba(74,75,78,.14);
+    --ok:#2F6B3F; --err:#A3302A; --warn:#8A5A14; --r:6px;
+    --st-ready:#2F6B3F; --st-ready-bg:#E6EFE6; --st-ready-badge:#2F6B3F; --st-ready-ink:#fff;
+    --st-done:#2D4F86; --st-done-bg:#E4EAF3; --st-done-badge:#2D4F86; --st-done-ink:#fff; --st-done-txt:#22406F;
+    --st-wait:#8A5A14; --st-wait-bg:#F3EBDD; --st-wait-txt:#5E3D0C;
+    --st-late:#A3302A; --st-late-bg:#F5E1DE; --st-late-txt:#6E1F1A;
+    --st-note:#4A4B4E; --sel:#2B2C2E; --focus:#2D4F86;
+    --shelf-font:"Century Gothic","Futura","Avenir Next","Avenir",system-ui,sans-serif }
+  :root[data-skin=shelf] body{ background:var(--bg) }
+  :root[data-skin=shelf] .bar a{ color:#2B2C2E; text-decoration:underline; text-underline-offset:3px }
+  :root[data-skin=shelf] .bar{ color:#2B2C2E }
+  /* 見出しは箱の濃いグレーの帯に生成りの字。字間を空けて箱の英字の雰囲気に */
+  :root[data-skin=shelf] .listhead{ background:#5F6165; color:#F7F6F3; border-bottom:1px solid #F7F6F3; box-shadow:none; letter-spacing:.03em; font-weight:500 }
+  :root[data-skin=shelf] .listhead.stuck{ box-shadow:0 4px 10px rgba(0,0,0,.18) }
+  :root[data-skin=shelf] .listhead .cnt, :root[data-skin=shelf] .listhead .up{ color:#EFEEEA; font-family:var(--shelf-font); letter-spacing:.04em }
+  :root[data-theme][data-skin=shelf] .listhead .fresh{ color:#EFEEEA; font-family:var(--shelf-font); letter-spacing:.04em }
+  :root[data-theme][data-skin=shelf] .listhead .fresh.err{ color:#FFE7A3 }
+  /* 角の丸い生成りのラベル（箱の説明面） */
+  :root[data-skin=shelf] .card{ background:#EFEEEA; border:0; border-radius:20px; box-shadow:0 1px 0 rgba(0,0,0,.06) }
+  :root[data-skin=shelf] .tabs{ background:#EFEEEA; border:1px solid #9C9EA1; border-radius:8px }
+  :root[data-skin=shelf] .tabs button{ color:#4A4B4E; border-radius:5px; letter-spacing:.06em }
+  :root[data-skin=shelf] .tabs button.on{ background:#4A4B4E; color:#F7F6F3; box-shadow:none }
+  /* 切替の札は説明欄の「枠で囲んだ見出し」の形（細い線の四角）。選んだものは塗る */
+  :root[data-skin=shelf] .chips button{ background:transparent; color:#2B2C2E; border:1px solid #4A4B4E; border-radius:3px; letter-spacing:.04em }
+  :root[data-skin=shelf] .chips button.on{ background:#4A4B4E; color:#F7F6F3; border-color:#4A4B4E }
+  :root[data-skin=shelf] .themebtn{ background:#EFEEEA; color:#2B2C2E; border:1px solid #4A4B4E; border-radius:3px; font-family:var(--shelf-font); letter-spacing:.06em }
+  /* 受注の行は棚に並んだ箱: 平らで細い線、影なし */
+  :root[data-skin=shelf] .order{ background:#F7F6F3; border:1px solid #9C9EA1; border-radius:12px; box-shadow:none }
+  :root[data-skin=shelf] .order .item{ color:#2B2C2E }
+  :root[data-skin=shelf] .facts{ color:#4A4B4E }
+  :root[data-skin=shelf] .facts b{ color:#2B2C2E; font-family:var(--shelf-font); font-weight:600 }
+  :root[data-skin=shelf] .facts .from{ color:#2D4F86 }
+  :root[data-skin=shelf] .order .meta, :root[data-skin=shelf] .target .meta{ font-family:var(--shelf-font); color:#4A4B4E; letter-spacing:.03em }
+  :root[data-skin=shelf] .pc{ background:#E9E8E4; color:#4A4B4E }
+  :root[data-skin=shelf] .flow .fl{ border:1px solid #4A4B4E; border-radius:2px; padding:0 4px; flex:0 0 auto; color:#2B2C2E; letter-spacing:.1em }
+  :root[data-skin=shelf] .fs{ border-color:#9C9EA1; color:#4A4B4E; border-radius:3px }
+  :root[data-skin=shelf] .memo{ color:#5E3D0C; background:#F3EBDD; border-left-color:#8A5A14 }
+  /* 工程カードの見出しも枠で囲んだ形に */
+  :root[data-skin=shelf] .stephead, :root[data-skin=shelf] .roomhead{ justify-self:start; align-self:flex-start; border:1px solid #4A4B4E; border-radius:2px; padding:3px 12px; color:#2B2C2E; letter-spacing:.1em }
+  :root[data-skin=shelf] .stephead.status{ color:#5E3D0C; border-color:#8A5A14 }
+  :root[data-skin=shelf] .roomhead small{ color:#4A4B4E }
+  :root[data-skin=shelf] .step{ background:#F7F6F3; color:#2B2C2E; border:1px solid #9C9EA1 }
+  :root[data-skin=shelf] .step.status{ background:#F6F1E7; color:#5E3D0C; border-color:#C9B48F }
+  :root[data-skin=shelf] .step.rec{ border:1.5px solid #8A5A14 }
+  :root[data-skin=shelf] .room{ background:#F5F2F7; color:#4F3570; border-color:#CDC2DA }
+  :root[data-skin=shelf] .undo{ background:#F7F6F3; color:#4A4B4E; border-color:#9C9EA1 }
+  :root[data-skin=shelf] .btn{ background:#4A4B4E; color:#F7F6F3 }
+  :root[data-skin=shelf] .ghost{ background:#F7F6F3; color:#2B2C2E; border:1px solid #4A4B4E }
+  :root[data-skin=shelf] .amtbtn.qty{ background:#E4EAF3; color:#22406F; border-color:#A9B8D0 }
+  :root[data-skin=shelf] .amtbtn.date{ background:#F3EBDD; color:#5E3D0C; border-color:#CDB58A }
+  :root[data-skin=shelf] input, :root[data-skin=shelf] select{ background:#F7F6F3; color:#2B2C2E; border-color:#9C9EA1 }
+  :root[data-skin=shelf] .facts .late .when{ background:var(--st-late-bg); color:var(--st-late-txt) }
+  :root[data-skin=shelf] .facts .late b, :root[data-skin=shelf] .late{ color:var(--st-late) }
+  :root[data-skin=shelf] .facts .soon b{ color:#8A4B0F } :root[data-skin=shelf] .facts .soon .when{ background:#F3EBDD; color:#5E3D0C }
+
   /* ===== 状態の色（全配色共通。色は各配色の --st-* で決まる。2026-10-23）=====
      配色ごとの .order / .step の指定より後ろに置き、:root を付けて必ずこちらが効くようにする */
   /* 着手できる: 一番目立たせる（太い緑枠＋薄い緑の地＋塗りの札） */
@@ -409,14 +474,17 @@
   const $ = (id) => document.getElementById(id);
   const say = (el, t, cls) => { el.textContent = t || ''; el.className = 'msg ' + (cls || ''); };
 
-  // 配色の切替: 黒 → 白 → VIVANT → 黒。ボタンには「押すとなる方」を出す（端末ごとに覚える）
-  const THEMES = ['dark', 'light', 'vivant'];
-  const THEME_LABEL = { dark: '☾ 黒に', light: '☀ 白に', vivant: '◈ VIVANT' };
-  const curTheme = () => document.documentElement.dataset.theme || 'dark';
+  // 配色の切替: 黒 → 白 → VIVANT → SHELF → 黒。ボタンには「押すとなる方」を出す（端末ごとに覚える）
+  const THEMES = ['dark', 'light', 'vivant', 'shelf'];
+  const THEME_LABEL = { dark: '☾ 黒に', light: '☀ 白に', vivant: '◈ VIVANT', shelf: '▭ SHELF' };
+  const root = document.documentElement;
+  const curTheme = () => root.dataset.skin || root.dataset.theme || 'dark';
   function showTheme() { $('themeBtn').textContent = THEME_LABEL[THEMES[(THEMES.indexOf(curTheme()) + 1) % THEMES.length]]; }
   $('themeBtn').onclick = () => {
     const next = THEMES[(THEMES.indexOf(curTheme()) + 1) % THEMES.length];
-    if (next === 'dark') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = next;
+    delete root.dataset.theme; delete root.dataset.skin;
+    if (next === 'shelf') { root.dataset.theme = 'light'; root.dataset.skin = 'shelf'; }
+    else if (next !== 'dark') root.dataset.theme = next;
     try { localStorage.setItem('dl.theme', next); } catch {}
     showTheme();
   };
