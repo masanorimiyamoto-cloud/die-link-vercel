@@ -624,8 +624,8 @@
       else if (!o.progOut) out.push({ label: view === 'kikai' ? '機械貼材料' : 'シート入荷', sub, arrived: daysFromToday(o.paper) <= 0 });
       else if (!OUT_SLIP.includes(o.progOut) && !OUT_END.includes(o.progOut)) out.unshift({ label: 'シート入荷', sub });
     }
-    // 材料が入ったら社外の今の札を緑にする（入荷予定・手配のうちは黄色のまま）
-    if (out.length && ['シート材料入荷済', '機械貼材料入荷済'].includes(out[out.length - 1].label)) out[out.length - 1].arrived = true;
+    // 材料が入ったら社外の今の札を緑にする（入荷予定・手配のうちは黄色のまま）。在庫シート利用もすぐ使えるので緑
+    if (out.length && ['シート材料入荷済', '機械貼材料入荷済', '在庫シート利用'].includes(out[out.length - 1].label)) out[out.length - 1].arrived = true;
     const ins = inFlow(o);
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
