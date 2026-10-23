@@ -102,7 +102,7 @@ const hasTag = (row, tag) => String(row.kotei || '').includes('|' + tag + '|');
 export const VIEWS = {
   // mine: この一覧を見る人にとっての「自分の工程」。どれかが済んでいれば行を青枠＋「済」にする（2026-10-17）
   // mineValues: 旧い選択肢名など、進行社内がこの値なら済とみなすもの
-  // readyOut: 進行社外がこの値（材料の入荷）なら、前の工程が済んだのと同じく「取り掛かれます」（黄色枠）にする（2026-10-22）
+  // readyOut: 進行社外がこの値（材料の入荷）なら、前の工程が済んだのと同じく「取り掛かれます」（緑枠）にする（2026-10-22）
   cad:    { label: 'CAD',          mine: ['cad'], sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
   // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る
   omamori: { label: 'お守箔焼印',   mine: ['finish'], sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
