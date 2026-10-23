@@ -637,7 +637,8 @@
   // 工程(自動) は数式の中の決まった順（オートン → 機械貼 → Nao）になり、実際の作業順と違うため（ユーザー指定）。
   // どの部屋を出すかは 工程(自動) を正とし、品名から読めなかったタグは後ろに足す
   const ITEM_TAG = { o: 'オートン', 0: 'オートン', ki: '機械貼', h: '花', ha: '花', ko: '2F_小', tk: 'たおしK判', tm: 'たおしM判',
-    cad: 'CAD', nao: 'Nao', na: 'Nao', pre: 'プレ', st: '断裁ステッチ', '断': '断裁ステッチ' }; // 工程(自動) の対応表と同じ
+    cad: 'CAD', nao: 'Nao', na: 'Nao', pre: 'プレ', st: '断裁ステッチ', '断': '断裁ステッチ',
+    '福祉': '福祉' }; // 工程(自動) の対応表と同じ（2026-10-23 #福祉 を追加）
   function itemTags(o) {
     const kotei = String(o.kotei || '').split('|').filter(Boolean);
     const fromItem = String(o.item || '').normalize('NFKC').split('#').slice(1)

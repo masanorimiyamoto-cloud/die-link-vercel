@@ -38,7 +38,8 @@ const F = {
 // 急ぎで別の部屋に応援を頼むときに、その部屋を Room に足す。
 // 2026-10-06 Room の 花 を「手貼(花 神)」に改名し 神 を廃止。タグは今も 花 なので対応表で結ぶ。
 // ここに無い部屋は、部屋名とタグ名が同じ（機械貼・CAD など）。
-const ROOM_TAG = { '手貼(花 神)': '花' };
+// 2026-10-23 工程(自動) に #福祉 → 福祉 を追加。Room の選択肢名は「福祉　内職」（全角スペース入り）
+const ROOM_TAG = { '手貼(花 神)': '花', '福祉　内職': '福祉' };
 const ROOM_FALLBACK = [
   ['機械貼', 'blueLight2'], ['手貼(花 神)', 'pinkBright'], ['2F_小', 'yellowLight2'], ['オートン', 'cyanLight2'],
   ['たおしM判', 'tealLight2'], ['たおしK判', 'redLight2'], ['CAD', 'orangeLight2'], ['プレ', 'redLight2'],
