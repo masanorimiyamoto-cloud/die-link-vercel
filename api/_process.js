@@ -93,7 +93,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'room']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'room', 'stock']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -207,6 +207,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'amount') return changeAmount(body, who.user);
   if (action === 'ndate') return changeNdate(body, who.user);
   if (action === 'room') return setRoom(body, who.user);
+  if (action === 'stock') return setStock(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -497,6 +498,54 @@ async function setRoom(body, user) {
     detail: `${room} を${on ? '追加' : '外した'}（Room: ${cur.join('、') || '空白'} → ${next.join('、') || '空白'}）`,
   });
   return json({ ok: true, room: next });
+}
+
+// ---- 進行社外「在庫シート利用」（2026-10-23）----
+// 工程カードの「状況」から入れる。進行社外は伝票発行の判定に使うので、生地照合（airtable-update-progress.js の fabric）と
+// 同じく、空白か材料待ち（シート手配必要／シート手配済み）のときだけ書く。受領伝票発行可能・伝票出力済・完納済・
+// 納期変更 などは上書きしない（8/7 の事故の再発防止）。選択肢は既にあるので typecast は使わない。
+// on=false は取り消し: 進行社外が在庫シート利用のままなら、入れる前の値（作業ログの「前の進行社外: ○○」）へ戻す
+const STOCK_OUT = '在庫シート利用';
+const STOCK_REPLACEABLE = new Set(['', 'シート手配必要', 'シート手配済み']);
+async function findPrevOut(rec) {
+  const f = rec.fields || {};
+  const target = `OR({受注ID}='${esc(rec.id)}',AND({受注ID}='',{Book}='${esc(f[F.book] || '')}',{WorkCord}='${esc(f[F.wc] ?? '')}'))`;
+  const url = new URL(WORKLOG_API);
+  url.searchParams.set('filterByFormula', `AND({操作}='進行社外変更',FIND('${STOCK_OUT}（',{内容})=1,${target})`);
+  url.searchParams.set('sort[0][field]', '日時');
+  url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('maxRecords', '1');
+  try {
+    const j = await airtable(url);
+    const m = /前の進行社外: (.+?)）/.exec(j.records?.[0]?.fields?.['内容'] || '');
+    // 戻すのは材料待ちの値だけ（ログが読めない・想定外の値なら空白に戻す）
+    return m && STOCK_REPLACEABLE.has(m[1]) ? m[1] : '';
+  } catch { return ''; }
+}
+async function setStock(body, user) {
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const f = rec.fields || {};
+  const cur = String(f[F.progOut] || '').trim();
+  const base = { recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '' };
+  if (body?.on !== false) {
+    if (cur === STOCK_OUT) return json({ ok: true, progOut: cur, unchanged: true });
+    if (!STOCK_REPLACEABLE.has(cur)) {
+      return json({ ok: false, error: `進行社外が「${cur}」なので、在庫シート利用には変えられません` }, 409);
+    }
+    await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.progOut]: STOCK_OUT } }] }) });
+    viewCache.clear();
+    await writeWorkLog(user, { ...base, action: '進行社外変更', detail: `${STOCK_OUT}（前の進行社外: ${cur || '空白'}）` });
+    return json({ ok: true, progOut: STOCK_OUT, prev: cur });
+  }
+  if (cur !== STOCK_OUT) {
+    return json({ ok: false, error: '進行社外はもう在庫シート利用ではありません（誰かが先に変えた可能性があります）', stale: true }, 409);
+  }
+  const prev = await findPrevOut(rec);
+  await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.progOut]: prev || null } }] }) });
+  viewCache.clear();
+  await writeWorkLog(user, { ...base, action: '進行社外変更', detail: `${STOCK_OUT} を取り消し。進行社外は ${prev || '空白'} に戻した` });
+  return json({ ok: true, progOut: prev });
 }
 
 async function undo(body, user) {

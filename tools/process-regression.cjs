@@ -197,8 +197,8 @@ test('R3 書き込みは1回だけ送る（結果不明でも送り直さない�
   await env.api({ action: 'complete' });
   assert.equal(sends, 1);
 });
-test('R3 完了・取消・数量・納期・Room の書き込みは、どれも結果不明の扱い（markUnsure）を通る', async () => {
-  for (const [fn, key] of [['doComplete', 'complete'], ['cancelStep', 'cancel'], ['amountEditor', 'amount'], ['ndateEditor', 'ndate'], ['toggleRoom', 'room']]) {
+test('R3 完了・取消・数量・納期・Room・在庫シート利用 の書き込みは、どれも結果不明の扱い（markUnsure）を通る', async () => {
+  for (const [fn, key] of [['doComplete', 'complete'], ['cancelStep', 'cancel'], ['amountEditor', 'amount'], ['ndateEditor', 'ndate'], ['toggleRoom', 'room'], ['setStockOut', 'stock']]) {
     const body = extract(fn);
     assert.match(body, new RegExp(`write\\(\\{ action: '${key}'`), `${fn} は write() で送る`);
     assert.match(body, /outcomeUnknown\(j, /, `${fn} は結果不明を見分ける`);
