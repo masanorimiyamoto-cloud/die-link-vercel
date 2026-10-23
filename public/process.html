@@ -179,6 +179,10 @@
   .stepcell{ display:flex; flex-direction:column; gap:4px; min-width:0 }
   .stepcell .step{ flex:1; border-radius:var(--r); text-align:center }
   .undo{ padding:6px 8px; font-size:13px; font-weight:500; background:transparent; color:var(--mut); border:1px solid var(--line2) }
+  /* 結果を確かめられなかった書き込みの案内（要確認＝赤の系統） */
+  .unsure{ display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r);
+    border:2px solid var(--st-late); background:var(--st-late-bg); color:var(--st-late-txt); font-size:14px; line-height:1.5 }
+  .unsure .btn{ align-self:flex-start }
   /* Room: 普段の部屋（品名タグから）は明るい枠。Room に入っている部屋は Airtable の色で塗る */
   .rooms{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
   .roomhead{ color:#c4b5fd }
@@ -453,6 +457,12 @@
 
   <!-- 2. 工程を選んで完了 -->
   <section class="card" id="stepCard" hidden>
+    <div class="row"><button type="button" class="btn ghost" id="closeDetail">← 一覧へ戻る</button></div>
+    <!-- 書き込みの結果を確かめられなかったとき。確認が済むまでこの受注の記録・変更ボタンは押せない（2026-10-23） -->
+    <div class="unsure" id="unsureBox" role="alert" hidden>
+      <span id="unsureText"></span>
+      <button type="button" class="btn" id="unsureBtn">記録の状態を確認</button>
+    </div>
     <div class="target" id="target"></div>
     <div class="imgs" id="stepImgs"></div>
     <div class="steps" id="steps"></div>
@@ -510,7 +520,9 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
 
-  // 電波が切れて応答が無いときも例外で止めず { ok:false, network:true } を返す（2026-10-23）。
+  // 電波が切れて応答が無いときも例外で止めず { ok:false, unknown:true } を返す（2026-10-23）。
+  // unknown は「サーバーで処理されたか分からない」。送れなかった（network）だけでなく、応答の本文が途中で切れた・
+  // JSON として読めないときも含める。サーバーが JSON で返した拒否（入力の誤りなど）は unknown にしない。
   // 送ったかどうか分からない更新は、ここでは送り直さない（二重記録を避ける）
   async function api(body) {
     let r;
@@ -521,12 +533,26 @@
         body: JSON.stringify(body),
       });
     } catch {
-      return { ok: false, network: true, error: '通信できませんでした（電波を確認してください）' };
+      return { ok: false, network: true, unknown: true, error: '通信できませんでした（電波を確認してください）' };
     }
-    const j = await r.json().catch(() => ({ ok: false, error: '通信に失敗しました' }));
+    let j;
+    try {
+      j = JSON.parse(await r.text());
+      if (!j || typeof j !== 'object') throw new Error('not an object');
+    } catch {
+      return { ok: false, unknown: true, status: r.status, error: '応答を読み取れませんでした' };
+    }
     j.status = r.status;
     if (j.needLogin) location.replace(DLAuth.loginUrl());
     return j;
+  }
+  // 書き込みの結果を確かめられないか。応答が読めない、または成功と言いながら必要な値が欠けている（need が false）
+  const outcomeUnknown = (j, need) => !!j.unknown || (j.ok && !need(j));
+  // 書き込み中（記録・取消・数量・納期・Room）。この間は一覧を自動で読み直さない
+  let writing = 0;
+  async function write(body) {
+    writing++;
+    try { return await api(body); } finally { writing--; }
   }
 
   /* ---------- QR ---------- */
@@ -831,8 +857,9 @@
         if (cur > 0 && (next > cur * 1.5 || next < cur / 1.5) &&
             !confirm(`数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} に変えます。よろしいですか？`)) return;
         save.disabled = true;
-        const j = await api({ action: 'amount', id: o.id, amount: next });
+        const j = await write({ action: 'amount', id: o.id, amount: next });
         save.disabled = false;
+        if (outcomeUnknown(j, x => Number.isFinite(x.amount))) return markUnsure(o, '数量の変更');
         if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
         if (!o.amountFrom) o.amountFrom = String(cur);
         o.amount = j.amount; o.amountLog = j.line || o.amountLog;
@@ -869,8 +896,9 @@
         // 過ぎた日にするのは打ち間違いのことが多いので確認する
         if (daysFromToday(next) < 0 && !confirm(`納期を過ぎた日（${label}）にします。よろしいですか？`)) return;
         save.disabled = true;
-        const j = await api({ action: 'ndate', id: o.id, ndate: next });
+        const j = await write({ action: 'ndate', id: o.id, ndate: next });
         save.disabled = false;
+        if (outcomeUnknown(j, x => /^\d{4}-\d\d-\d\d$/.test(String(x.ndate || '')))) return markUnsure(o, '納期の変更');
         if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
         if (!o.ndateFrom) o.ndateFrom = o.ndate || '空白';
         const before = o.ndate ? fmtDate(o.ndate) : '空白';
@@ -978,7 +1006,10 @@
   /* ---------- タブ ---------- */
   function setMode(m) {
     S.mode = m; store.set('process.mode', m);
+    // 読み込み途中の一覧の応答は、切り替えた後の画面には使わない
+    listGen++; listBusy = 0;
     $('tabList').classList.toggle('on', m === 'list'); $('tabFind').classList.toggle('on', m === 'find');
+    $('tabList').setAttribute('aria-selected', String(m === 'list')); $('tabFind').setAttribute('aria-selected', String(m === 'find'));
     $('listCard').hidden = m !== 'list'; $('findCard').hidden = m !== 'find';
     $('listHead').hidden = m !== 'list';
     document.body.classList.toggle('has-head', m === 'list');
@@ -990,8 +1021,11 @@
   $('tabList').onclick = () => setMode('list');
   $('tabFind').onclick = () => setMode('find');
 
-  // 作業リストの自動の読み直し。受注を開いて操作している間と画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない
-  const canAutoLoad = () => S.mode === 'list' && !S.sel && $('viewer').hidden && !document.hidden;
+  // 作業リストの自動の読み直し。受注を開いて操作している間・書き込み中・画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない。
+  // 2026-10-23 以前は「行を選んでいる（S.sel）」で止めていたため、記録して一覧に戻った後（行の選択表示は残る）も止まったままだった。
+  // 止める条件は「受注のカードを開いている」に変えた（選んだ行の表示とは別）
+  const detailOpen = () => !$('stepCard').hidden;
+  const canAutoLoad = () => S.mode === 'list' && !detailOpen() && !writing && $('viewer').hidden && !document.hidden;
   // スリープや別のアプリから戻ったら読み直す（2026-10-14）。サーバーの20秒の使い回しに乗せて、スマホで待たないようにする（2026-10-20）
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
@@ -1007,25 +1041,34 @@
   // 一覧の中身の比較用。画像の URL は取るたびに署名が変わるので、ファイル名だけで比べる
   const rowsSig = rows => JSON.stringify(rows.map(o => ({ ...o, images: (o.images || []).map(a => a.name) })));
   let shownSig = '';
-  // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりビューを替えたりしたら結果を捨てる
+  // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりしたら結果を捨てる。
+  // 2026-10-23 応答の順番が入れ替わっても古い応答で画面を戻さないよう、読み込みごとに番号を振り、最後に始めたものだけを使う
+  // （機械貼→たおし抜き と続けて押してたおし抜きが先に返った、自動の読み直しが手動の更新より後に返った、など）。
+  // 手動の読み込み中は自動の読み直しを重ねない。読み取りだけなので、古い要求は結果を捨てるだけで中断はしない。
+  // 返り値: 一覧に反映できたら true
+  let listGen = 0, listBusy = 0;
   async function loadView(key, refresh, quiet) {
-    if (!quiet) say($('listMsg'), '読み込み中…');
+    if (quiet && listBusy) return false;
+    const gen = ++listGen;
+    if (!quiet) { listBusy = gen; say($('listMsg'), '読み込み中…'); }
     // まず画像なしで一覧を出す（早い）。縮小画像は loadImages で後から足す（2026-10-20）
     const j = await api({ action: 'view', view: key || 'cad', refresh: !!refresh, lite: true });
-    if (quiet && (S.sel || S.view !== key || S.mode !== 'list')) return;
-    if (!j.ok) {
+    if (listBusy === gen) listBusy = 0;
+    if (gen !== listGen || S.mode !== 'list') return false; // 後から始めた読み込みがある／品番で探すに切り替えた
+    if (quiet && !canAutoLoad()) return false;
+    if (!j.ok || !Array.isArray(j.rows) || !Array.isArray(j.views) || !j.views.length) {
       // 読めなかった。前の一覧が出ていれば、それが古いことを見出しに出す（最新のようには見せない）
       S.listFail = true; showFresh();
-      if (!S.listAt) say($('listMsg'), `一覧を取得できませんでした（${j.error || '読み込めませんでした'}）`, 'err');
-      else if (!quiet) say($('listMsg'), `${j.error || '読み込めませんでした'}。以前の一覧を表示しています`, 'err');
+      const err = j.ok ? '一覧の応答が正しくありません' : (j.error || '読み込めませんでした');
+      if (!S.listAt) { say($('listMsg'), `一覧を取得できませんでした（${err}）`, 'err'); S.listMsgErr = true; }
+      else if (!quiet) { say($('listMsg'), `${err}。以前の一覧を表示しています`, 'err'); S.listMsgErr = true; }
       $('listRetry').hidden = false;
-      return;
+      return false;
     }
     // ビューを切り替えたら、前のリストの絞り込みは持ち越さない
     if ((j.view || j.views[0].key) !== S.view) S.filter = 'all';
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
-    if (S.mode !== 'list') return;
     S.orders = j.rows;
     S.listAt = j.cachedAt || Date.now(); S.listFail = false; $('listRetry').hidden = true;
     // 前に取った画像があればすぐ付ける（自動の読み直しで画像が消えないように）
@@ -1033,11 +1076,13 @@
     renderChips();
     // 自動の読み直しで中身が変わっていなければ、行も画像も作り直さない（スマホで画像を全部取り直して重くなるため。2026-10-20）
     const sig = rowsSig(j.rows);
-    if (quiet && sig === shownSig) { showFresh(); loadImages(S.view, true); return; }
+    // ただし前の読み込みの失敗の案内が本文に残っていれば、件数の案内に戻す（見出しと本文を食い違わせない）
+    if (quiet && sig === shownSig) { showFresh(); if (S.listMsgErr) showListMsg(); loadImages(S.view, true); return true; }
     shownSig = sig;
     renderList();
     updateListHead();
     loadImages(S.view, quiet);
+    return true;
   }
 
   /* ---------- 縮小画像は後から ---------- */
@@ -1120,12 +1165,15 @@
     for (const v of S.views) {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
       if (v.key === S.view) b.classList.add('on');
+      b.setAttribute('aria-pressed', String(v.key === S.view));
       b.onclick = () => { S.sel = null; $('stepCard').hidden = true; loadView(v.key); };
       box.append(b);
     }
     const sp = document.createElement('span'); sp.className = 'sp'; box.append(sp);
     const r = document.createElement('button'); r.type = 'button'; r.textContent = '更新';
-    r.onclick = () => loadView(S.view, true); box.append(r);
+    // 手で押した更新は、開いている受注のカードも最新にする（自動の読み直しはカードを開いている間は動かない）
+    r.onclick = async () => { if (await loadView(S.view, true)) syncDetail('一覧と開いている受注を最新の状態にしました'); };
+    box.append(r);
   }
   $('listRetry').onclick = () => loadView(S.view || store.get('process.view') || '', true);
 
@@ -1174,9 +1222,11 @@
       if (left.length) {
         const i = tags.indexOf(left[0]);
         const title = '先に済ませる工程: ' + left.map(roomLabel).join(' → ');
-        if (tags.slice(i + 1).some(t => tagDone(o, t))) return { text: '前工程の完了記録を確認', title: title + '（後ろの工程は済になっています）' };
+        // sub は札の中に小さく出す補足（スマホでは title が見えないので、工程名は札に書く）
+        if (tags.slice(i + 1).some(t => tagDone(o, t))) return { text: '前工程の完了記録を確認', sub: left.map(roomLabel).join('・'), title: title + '（後ろの工程は済になっています）' };
         const s = S.steps.find(x => x.variants.some(y => y.tag === left[0]));
-        return { text: (s ? s.label.replace(/完了$/, '') : roomLabel(left[0]) + 'の作業') + '待ち', title };
+        return { text: (s ? s.label.replace(/完了$/, '') : roomLabel(left[0]) + 'の作業') + '待ち',
+          sub: left.length > 1 ? 'ほか ' + left.slice(1).map(roomLabel).join('・') : '', title };
       }
     }
     if (!(v.readyOut || []).length || doneSteps(o).some(x => x.s.group !== 'status')) return null;
@@ -1200,6 +1250,7 @@
       sm.textContent = st.mr.label; b.append(sm);
     } else if (st.kind === 'wait') {
       b.classList.add('wait'); b.append('◷ ' + st.text);
+      if (st.sub) { sm.textContent = st.sub; b.append(sm); }
       if (st.title) b.title = st.title;
     } else if (st.kind === 'unknown') {
       b.classList.add('note'); b.append('状態未確認');
@@ -1243,15 +1294,18 @@
       row.append(el);
       box.append(row);
     }
-    // 件数の案内。リスト自体が0件と、絞り込みで0件を分けて言う
-    const n = S.orders.length, fl = FILTERS.find(x => x[0] === S.filter)?.[1] || '';
-    if (S.listAt || n) {
-      if (!n) say($('listMsg'), 'このリストに作業はありません');
-      else if (S.filter !== 'all' && !shown.length) say($('listMsg'), `「${fl}」に当たる受注はありません（全${n}件）`);
-      else if (S.filter !== 'all') say($('listMsg'), `「${fl}」で絞り込み中: 表示${shown.length}件／全${n}件`);
-      else say($('listMsg'), `${n}件`);
-    }
+    showListMsg();
     if (S.views.length) updateListHead(); // 済の数が変わったら見出しにも反映
+  }
+  // 件数の案内。リスト自体が0件と、絞り込みで0件を分けて言う。一覧の読み込み失敗の案内もこれで消える
+  function showListMsg() {
+    const n = S.orders.length, shown = S.shown ?? n, fl = FILTERS.find(x => x[0] === S.filter)?.[1] || '';
+    if (!S.listAt && !n) return;
+    S.listMsgErr = false;
+    if (!n) say($('listMsg'), 'このリストに作業はありません');
+    else if (S.filter !== 'all' && !shown) say($('listMsg'), `「${fl}」に当たる受注はありません（全${n}件）`);
+    else if (S.filter !== 'all') say($('listMsg'), `「${fl}」で絞り込み中: 表示${shown}件／全${n}件`);
+    else say($('listMsg'), `${n}件`);
   }
 
   // 見ている作業リストの工程（自分の工程）が済んでいるか。済なら { label, who } を返す
@@ -1304,9 +1358,70 @@
   const hasTag = (o, tag) => !!tag && String(o.kotei || '').includes('|' + tag + '|');
 
   function selectOrder(id) {
-    S.sel = id; S.pendingStep = null; renderOrders(); renderSteps();
+    S.sel = id; S.pendingStep = null; renderOrders(); renderSteps(); showCloseLabel();
     $('stepCard').hidden = false; say($('stepMsg'), '');
     $('stepCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // 記録せずに一覧へ戻る（2026-10-23）。選んだ行の表示は残し、その行まで戻る。閉じたので自動の読み直しも再開する
+  $('closeDetail').onclick = () => {
+    const id = S.sel;
+    $('stepCard').hidden = true; $('variants').hidden = true; S.pendingStep = null;
+    renderOrders();
+    const row = id && document.querySelector(`.order[data-id="${id}"]`);
+    if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.focus({ preventScroll: true }); }
+  };
+  function showCloseLabel() { $('closeDetail').textContent = S.mode === 'list' ? '← 一覧へ戻る' : '← 閉じる'; }
+
+  /* ---------- 書き込みの結果が分からないとき（2026-10-23） ---------- */
+  // 通信が切れた・応答が読めない書き込みは、保存されたかもしれないし、されていないかもしれない。
+  // 送り直しはせず、この受注の記録・変更ボタンを止めて「記録の状態を確認」（読み取りだけ）を案内する
+  function markUnsure(o, what) {
+    S.unsure = { id: o.id, what };
+    renderSteps();
+    say($('stepMsg'), '');
+    $('unsureBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function applyUnsure(o) {
+    const on = !!(S.unsure && o && S.unsure.id === o.id);
+    $('unsureBox').hidden = !on;
+    if (!on) return;
+    $('unsureText').textContent = `通信が途切れ、${S.unsure.what}が保存されたか確認できません（保存されなかったとは限りません）。` +
+      'もう一度押す前に「記録の状態を確認」で最新の状態を読み込んでください。確認できるまで、この受注のボタンは押せません。';
+    $('stepCard').querySelectorAll('.step, .undo, .room, .amtbtn, .variants button').forEach(b => { b.disabled = true; });
+  }
+  // 最新の状態を読み込む（読み取りだけ）。読めたときだけ「確認できた」とし、開いている受注のカードも作り直す
+  $('unsureBtn').onclick = async () => {
+    const o = current(); if (!o) return;
+    $('unsureBtn').disabled = true;
+    say($('stepMsg'), '最新の状態を読み込んでいます…');
+    const ok = S.mode === 'list' ? await loadView(S.view, true) : await reloadFind(o);
+    $('unsureBtn').disabled = false;
+    if (!ok) return say($('stepMsg'), '読み込めなかったので、まだ確認できていません。電波を確かめてもう一度押してください', 'err');
+    syncDetail('最新の状態を読み込みました。記録・変更が反映されているか確かめてください');
+  };
+  // 品番で探す画面の受注を読み直す（読み取りだけ）
+  async function reloadFind(o) {
+    const j = await api({ action: 'orders', book: o.book, wc: String(o.wc) });
+    if (!j.ok || !Array.isArray(j.orders)) return false;
+    S.orders = j.orders; S.steps = j.steps || S.steps; S.rooms = j.rooms || S.rooms;
+    renderOrders();
+    return true;
+  }
+  // 手で最新を読んだ後に、開いている受注のカードを合わせる。受注が一覧から外れていたら閉じて知らせる。
+  // 自動の読み直しでは呼ばない（入力中の数量・納期を消さないため）
+  function syncDetail(text) {
+    if ($('stepCard').hidden || !S.sel) return;
+    const id = S.sel;
+    if (S.unsure && S.unsure.id === id) S.unsure = null;
+    if (!current()) {
+      $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
+      renderOrders();
+      say(S.mode === 'list' ? $('listMsg') : $('findMsg'), `${text}（開いていた受注はこの一覧から外れました）`, 'warn');
+      return;
+    }
+    renderSteps();
+    say($('stepMsg'), text, 'ok');
   }
 
   function renderSteps() {
@@ -1379,15 +1494,17 @@
       btn.onclick = () => toggleRoom(o, r.name, !on);
       box.append(btn);
     }
+    applyUnsure(o); // 工程カードの最後に描くので、結果不明のときのボタン止めもここでまとめて掛ける
   }
   async function toggleRoom(o, room, on) {
     if (!on && !confirm(`Room から「${room}」を外しますか？`)) return;
     say($('stepMsg'), on ? `Room に ${room} を入れています…` : `Room から ${room} を外しています…`);
     document.querySelectorAll('.room').forEach(b => b.disabled = true);
-    const j = await api({ action: 'room', id: o.id, room, on });
+    const j = await write({ action: 'room', id: o.id, room, on });
     document.querySelectorAll('.room').forEach(b => b.disabled = false);
+    if (outcomeUnknown(j, x => Array.isArray(x.room))) return markUnsure(o, `Room（${room}）の変更`);
     if (!j.ok) return say($('stepMsg'), j.error || 'Room を変えられませんでした', 'err');
-    o.room = j.room || [];
+    o.room = j.room;
     navigator.vibrate?.(40);
     say($('stepMsg'), on ? `Room に「${room}」を入れました` : `Room から「${room}」を外しました`, on ? 'ok' : 'warn');
     renderRooms(o); renderOrders();
@@ -1416,15 +1533,15 @@
         !confirm(`この受注はもう「${o.progIn}」です。\n${v.value} にしてよいですか？`)) return;
     say($('stepMsg'), '記録しています…');
     document.querySelectorAll('.step, .undo, .variants button').forEach(b => b.disabled = true);
-    const j = await api({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
+    const j = await write({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
     document.querySelectorAll('.step, .undo, .variants button').forEach(b => b.disabled = false);
     if (j.conflict) {
       // 他の人が先に記録していた。上書きはせず、最新の状態を見せる
       say($('stepMsg'), `${j.error}。取り消すときは「記録を取り消す」を押してください`, 'warn');
       return refreshCurrent();
     }
-    // 応答が無かった: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
-    if (j.network) return say($('stepMsg'), '通信が途切れ、記録できたか確認できません。もう一度押す前に、一覧の「更新」で記録の有無を確かめてください', 'err');
+    // 応答が無い・読めない・必要な値が欠けている: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
+    if (outcomeUnknown(j, x => !!x.stamp && !!x.value)) return markUnsure(o, `「${v.value}」の記録`);
     if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
     o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
     navigator.vibrate?.([40, 40, 40]);
@@ -1438,15 +1555,15 @@
     if (!confirm(`「${s.label}」${done ? `の記録（${done}）` : ''}を取り消しますか？\n進行社内は、この工程を記録する前の状態に戻します。`)) return;
     say($('stepMsg'), '取り消しています…');
     document.querySelectorAll('.step, .undo').forEach(b => b.disabled = true);
-    const j = await api({ action: 'cancel', id: o.id, step: s.key });
+    const j = await write({ action: 'cancel', id: o.id, step: s.key });
     document.querySelectorAll('.step, .undo').forEach(b => b.disabled = false);
-    if (j.network) return say($('stepMsg'), '通信が途切れ、取り消せたか確認できません。一覧の「更新」で記録の有無を確かめてください', 'err');
+    if (outcomeUnknown(j, x => typeof x.progIn === 'string')) return markUnsure(o, `「${s.label}」の取り消し`);
     if (!j.ok) {
       say($('stepMsg'), j.error || '取り消せませんでした', 'err');
       if (j.stale) await refreshCurrent();
       return;
     }
-    delete o.done[s.key]; o.progIn = j.progIn || '';
+    delete o.done[s.key]; o.progIn = j.progIn;
     if (o.group === '最終' && o.progIn !== '仕上がりました') o.group = '';
     if (S.mode === 'list') await loadView(S.view, true);
     backToRow(o.id, `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
