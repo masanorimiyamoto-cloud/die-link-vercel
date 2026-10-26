@@ -1266,7 +1266,10 @@
     const counts = {};
     for (const st of states.values()) counts[st.kind] = (counts[st.kind] || 0) + 1;
     renderFilter(counts);
-    const shown = S.filter === 'all' ? S.orders : S.orders.filter(o => states.get(o.id).kind === S.filter);
+    // 並びは 緑枠（着手可）→ 無印（待ち・未確認など）→ 青枠（済）。同じ枠の中は納品日順（空は最後）（2026-10-26）
+    const band = (o) => ({ ready: 0, done: 2 })[states.get(o.id).kind] ?? 1;
+    const shown = (S.filter === 'all' ? S.orders : S.orders.filter(o => states.get(o.id).kind === S.filter)).slice()
+      .sort((a, b) => (band(a) - band(b)) || String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
     S.counts = counts; S.shown = shown.length;
     for (const o of shown) {
       const st = states.get(o.id);
