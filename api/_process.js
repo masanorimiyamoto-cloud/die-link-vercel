@@ -80,8 +80,8 @@ const CHOICES = [
   { key: 'kikai',  value: '機械貼完了',           tag: '機械貼' },
   { key: 'seal',   value: 'シール貼完了' },
   { key: 'finish', value: '仕上がりました' },
-  { key: 'zairyo', value: '貼り材料入りました', group: 'status' },
-  { key: 'hansei', value: '半製品あり',         group: 'status' },
+  // 2026-10-27 Airtable に合わせる: 半製品あり → 抜き半製品あり（記録欄も改名）。貼り材料入りました は選択肢が無くなったのでボタンも外す
+  { key: 'hansei', value: '抜き半製品あり',     group: 'status' },
   { key: 'zaiko',  value: '製品在庫から',       group: 'status' },
 ];
 // 以前の形（工程の中に種類 variants）を保ったまま、1工程1種類で表す。画面とAPIの作りを変えずに済む。
@@ -103,14 +103,15 @@ const hasTag = (row, tag) => String(row.kotei || '').includes('|' + tag + '|');
 export const VIEWS = {
   // mine: この一覧を見る人にとっての「自分の工程」。どれかが済んでいれば行を青枠＋「済」にする（2026-10-17）
   // mineValues: 旧い選択肢名など、進行社内がこの値なら済とみなすもの
+  //   抜き半製品あり は抜いた半製品が既にあるので、オートン・たおしの抜きは済とみなす（2026-10-27）
   // readyOut: 進行社外がこの値（材料の入荷）なら、前の工程が済んだのと同じく「取り掛かれます」（緑枠）にする（2026-10-22）
   cad:    { label: 'CAD',          mine: ['cad'], sources: [{ id: 'viwIPW4eEsp6mo271', steps: ['cad'] }] },
   // お守箔焼印は 生地カット → 抜き → 仕上がり。抜きの種類は品名タグから出る
   omamori: { label: 'お守箔焼印',   mine: ['finish'], sources: [{ id: 'viw2WoKluKqUBPwwk', steps: ['kiji', 'finish'] }] },
-  auton:   { label: 'オートン抜き', mine: ['o'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
+  auton:   { label: 'オートン抜き', mine: ['o'], mineValues: ['抜き半製品あり'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwAy9jACXxhh37NH', steps: ['o'] }] },       // Grid オートン抜き
   kikai:   { label: '機械貼',       mine: ['kikai'], readyOut: ['機械貼材料入荷済'], sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },   // Grid 機械貼
   // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
-  taoshi:  { label: 'たおし抜き',   mine: ['tk', 'tm'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
+  taoshi:  { label: 'たおし抜き',   mine: ['tk', 'tm'], mineValues: ['抜き半製品あり'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
   // 2026-10-05 ビューが作り直されてIDが変わった（旧 viw2w8DzG6PNmJ3Iy は VIEW_ID_NOT_FOUND）
   tebari:  { label: '手貼り',       mine: ['tebari'], mineValues: ['(神)貼り完了', '(花)貼り完了'], sources: [{ id: 'viwK1jk2LXPw45fU9', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
