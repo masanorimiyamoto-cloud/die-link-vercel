@@ -200,7 +200,7 @@ function resolveStep(step, variant) {
 export async function handleProcess(action, body, who) {
   if (action === 'orders') return orders(body);
   if (!who) return json({ ok: false, error: 'ログインしてください', needLogin: true }, 401);
-  if (action === 'view') return view(body);
+  if (action === 'view') return view(body, who.user);
   if (action === 'viewImages') return viewImages(body);
   if (action === 'complete') return complete(body, who.user);
   if (action === 'undo') return undo(body, who.user);
@@ -247,7 +247,7 @@ async function readView(viewId, formula = '', fields = LIST_FIELDS, map = descri
   return rows;
 }
 
-async function view(body) {
+async function view(body, user) {
   // 古い画面が覚えているキー（以前の tm など）でも止めずに既定の一覧を返す
   const key = VIEWS[String(body?.view || '')] ? String(body.view) : DEFAULT_VIEW;
   const v = VIEWS[key];
@@ -277,11 +277,35 @@ async function view(body) {
     }
   }
   let rows = [...byId.values()];
+  await autoSheetWait(rows, user);
   // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）
   if (v.sources.length > 1) rows.sort((a, b) => String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
   const at = Date.now();
   viewCache.set(ck, { at, rows });
   return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: at });
+}
+
+// ---- 進行社外が空白のシート待ち → 「シート手配待ち」（2026-10-29）----
+// オートン・たおしの抜きはシートが要る。進行社外が空白のままだと、後の部屋の一覧で「オートン抜き待ち」と出て
+// シートが揃っているように見えてしまう（ユーザー指摘）。作業リストを読んだときに、まだ何も済んでいない行
+// （進行社内が空白か工程表発行済で、工程の記録も無い）の空白を シート手配待ち にする。
+// 在庫のシートを使うなら、工程カードの「在庫シート利用」で変える（シート手配待ちからも変えられる）
+const SHEET_WAIT = 'シート手配待ち';
+const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
+const needsSheetWait = (r) => !r.progOut && !r.closed && SHEET_TAGS.some(t => hasTag(r, t))
+  && ['', '工程表発行済'].includes(r.progIn) && !Object.keys(r.done).length;
+async function autoSheetWait(rows, user) {
+  const need = rows.filter(needsSheetWait);
+  for (let i = 0; i < need.length; i += 10) {
+    const part = need.slice(i, i + 10);
+    try {
+      await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: part.map(r => ({ id: r.id, fields: { [F.progOut]: SHEET_WAIT } })) }) });
+    } catch { return; } // 書けなくても一覧は出す（次に開いたときにまた試す）
+    for (const r of part) r.progOut = SHEET_WAIT;
+    viewCache.clear();
+    await writeWorkLog(user, part.map(r => ({ recordIds: [r.id], book: r.book, wc: r.wc,
+      action: '進行社外変更', detail: `${SHEET_WAIT}（自動。進行社外が空白だったため）` })));
+  }
 }
 
 // 作業リストの画像だけ（{ 受注ID: [画像…] }）。画面は一覧を出した後にこれで縮小画像を足す
@@ -503,11 +527,12 @@ async function setRoom(body, user) {
 
 // ---- 進行社外「在庫シート利用」（2026-10-23）----
 // 工程カードの「状況」から入れる。進行社外は伝票発行の判定に使うので、生地照合（airtable-update-progress.js の fabric）と
-// 同じく、空白か材料待ち（シート手配必要／シート手配済み）のときだけ書く。受領伝票発行可能・伝票出力済・完納済・
+// 同じく、空白か材料待ち（シート手配待ち／シート手配済み）のときだけ書く。受領伝票発行可能・伝票出力済・完納済・
 // 納期変更 などは上書きしない（8/7 の事故の再発防止）。選択肢は既にあるので typecast は使わない。
 // on=false は取り消し: 進行社外が在庫シート利用のままなら、入れる前の値（作業ログの「前の進行社外: ○○」）へ戻す
 const STOCK_OUT = '在庫シート利用';
-const STOCK_REPLACEABLE = new Set(['', 'シート手配必要', 'シート手配済み']);
+// 2026-10-29 Airtable の選択肢 シート手配必要 が シート手配待ち に変わったので合わせる
+const STOCK_REPLACEABLE = new Set(['', 'シート手配待ち', 'シート手配済み']);
 async function findPrevOut(rec) {
   const f = rec.fields || {};
   const target = `OR({受注ID}='${esc(rec.id)}',AND({受注ID}='',{Book}='${esc(f[F.book] || '')}',{WorkCord}='${esc(f[F.wc] ?? '')}'))`;

@@ -12,7 +12,7 @@
 //    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加（「型まだ仕舞済でない」は除去）
 //             ＋ 抜型仕舞済(checkbox) → ON
 //    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
-//             ＋ 進行社外が空白か材料待ち（シート手配必要／シート手配済み）のときだけ → シート材料入荷済
+//             ＋ 進行社外が空白か材料待ち（シート手配待ち／シート手配済み）のときだけ → シート材料入荷済
 //               （受領伝票発行可能・伝票出力済・完納済・納期変更 などが入っていれば触らない）
 //             同一 Book/WorkCord の受注が複数あっても1行だけ更新する（pickOne）。
 //             伝票済の行は除き、未照合 → 納期が近い → 作成が古い の順で選ぶ。
@@ -95,12 +95,13 @@ const ACTION_PROGRESS_IN = {
 // 進行社外は伝票発行の判定に使うので、それ以外の値（受領伝票発行可能・伝票出力済・完納済 など）は
 // 絶対に上書きしない（8/7 の事故の再発防止）。
 // 2026-10-07 空白のときだけ → 材料待ち（シート手配必要／シート手配済み）も書き換えるよう広げた。
+// 2026-10-29 Airtable の選択肢 シート手配必要 が シート手配待ち に変わったので合わせる。
 // 生地が届いて照合できた＝材料は入った、なので手配中の表示を残す理由がない。
 const ACTION_PROGRESS_OUT_IF_EMPTY = {
   fabric: process.env.PROGRESS_OUT_LABEL_FABRIC || 'シート材料入荷済',
 };
 const PROGRESS_OUT_REPLACEABLE = new Set(
-  (process.env.PROGRESS_OUT_REPLACEABLE_LABELS || 'シート手配必要,シート手配済み')
+  (process.env.PROGRESS_OUT_REPLACEABLE_LABELS || 'シート手配待ち,シート手配済み')
     .split(',').map(s => s.trim()).filter(Boolean)
 );
 // action ごとに併せてチェックする checkbox フィールド（進行が後工程で上書きされても照合履歴が残る）

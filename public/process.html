@@ -691,7 +691,7 @@
   /* ---------- 進行の流れ（上段 社外／下段 社内。今の段階だけ光る四角で囲む）2026-10-14 ---------- */
   // 進行社外は変わった日時の記録が無いので、決まった流れの中で今どこかを出す。前の段階は「通ったはず」として薄く出す。
   // 材料の段階を過ぎたら、どの材料の道（シート手配／在庫シート／機械貼材料）を通ったか分からないので材料は出さない
-  const OUT_MAT = ['シート手配必要', 'シート手配済み', 'シート材料入荷済'];
+  const OUT_MAT = ['シート手配待ち', 'シート手配済み', 'シート材料入荷済'];
   const OUT_MAT1 = ['在庫シート利用', '機械貼材料入荷済'];
   const OUT_SLIP = ['受領伝票発行可能', '伝票出力済'];
   const OUT_END = ['完納済', '完納（数量訂正）', '分納残'];
@@ -1213,6 +1213,9 @@
   // ・品名タグの並びで自分より前の部屋が済んでいない → 一番先に済ませる工程を1つ（残りは札の説明と社内の流れで見える）
   //   ただし、それより後ろの部屋が済んでいるなら記録の付け忘れかもしれないので「前工程の完了記録を確認」
   // ・前に部屋が無く、まだ何の工程も済んでいない → 材料（進行社外・紙入荷日）が分かるときだけ材料待ち
+  // 進行社外が空白のシートの要る受注は、作業リストを読んだときにサーバーが シート手配待ち にする（2026-10-29）
+  const SHEET_WAIT = 'シート手配待ち';
+  const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
   const roomLabel = (tag) => S.rooms.find(r => r.tag === tag)?.name || tag;
   function waitReason(o, v) {
     const tags = itemTags(o), mine = viewTags(v);
@@ -1225,12 +1228,17 @@
         // sub は札の中に小さく出す補足（スマホでは title が見えないので、工程名は札に書く）
         if (tags.slice(i + 1).some(t => tagDone(o, t))) return { text: '前工程の完了記録を確認', sub: left.map(roomLabel).join('・'), title: title + '（後ろの工程は済になっています）' };
         const s = S.steps.find(x => x.variants.some(y => y.tag === left[0]));
+        // 先に済ませるのがシートの要る抜き（オートン・たおし）で、進行社外が シート手配待ち なら、抜きより先にシートを待っている。
+        // 在庫シート利用・入荷済なら今までどおり「オートン抜き待ち」（2026-10-29 ユーザー指定）
+        if (o.progOut === SHEET_WAIT && SHEET_TAGS.includes(left[0])) {
+          return { text: SHEET_WAIT, sub: 'その後 ' + left.map(roomLabel).join('・'), title };
+        }
         return { text: (s ? s.label.replace(/完了$/, '') : roomLabel(left[0]) + 'の作業') + '待ち',
           sub: left.length > 1 ? 'ほか ' + left.slice(1).map(roomLabel).join('・') : '', title };
       }
     }
     if (!(v.readyOut || []).length || doneSteps(o).some(x => x.s.group !== 'status')) return null;
-    if (o.progOut === 'シート手配必要') return { text: 'シートの手配待ち' };
+    if (o.progOut === SHEET_WAIT) return { text: SHEET_WAIT };
     const pn = paperNote(o);
     if (o.progOut === 'シート手配済み' || (!o.progOut && pn)) {
       if (!pn) return { text: '材料の入荷待ち' };
@@ -1478,9 +1486,9 @@
 
   /* ---------- 状況: 進行社外「在庫シート利用」（2026-10-23） ---------- */
   // 他の状況ボタンは 進行社内 に書くが、これは 進行社外 に書く。伝票発行の判定に使う欄なので、
-  // 空白か材料待ち（シート手配必要／シート手配済み）のときだけ押せる（サーバーも同じ決まりで弾く）
+  // 空白か材料待ち（シート手配待ち／シート手配済み）のときだけ押せる（サーバーも同じ決まりで弾く）
   const STOCK_OUT = '在庫シート利用';
-  const STOCK_REPLACEABLE = ['', 'シート手配必要', 'シート手配済み'];
+  const STOCK_REPLACEABLE = ['', 'シート手配待ち', 'シート手配済み'];
   function stockCell(o) {
     if (o.progOut === STOCK_OUT) {
       const cell = document.createElement('div'); cell.className = 'stepcell';
