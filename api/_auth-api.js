@@ -16,6 +16,7 @@ import {
   isLocalReq, checkCsrf, findStaffByNo, listStaff, updateStaff, getStaffById,
   getSessionUser, forgetStaffCache, writeWorkLog,
 } from './_auth.js';
+import { runIncentive } from './_incentive.js';
 
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
@@ -30,6 +31,7 @@ export async function handleAuth(req) {
   try {
     if (req.method === 'GET' && action === 'me') return await me(req, dev);
     if (req.method === 'GET' && action === 'staff') return await staffList(req);
+    if (req.method === 'GET' && action === 'incentive') return await incentive(req);
     if (req.method !== 'POST') return json({ ok: false, error: 'Method Not Allowed' }, 405);
     if (!checkCsrf(req)) return json({ ok: false, error: 'CSRF invalid' }, 403);
     if (action === 'login') return await login(req, dev);
@@ -98,6 +100,20 @@ async function logout(req, dev) {
   const s = await getSessionUser(req).catch(() => null);
   if (s) await writeWorkLog(s.user, { action: 'logout' });
   return json({ ok: true }, 200, { 'set-cookie': clearSessionCookie({ dev }) });
+}
+
+// インセンティブの日別件数を作り直す（_incentive.js）。毎晩の Vercel Cron か、管理者がブラウザで開いたときに動く。
+// Cron は CRON_SECRET を設定していれば Authorization: Bearer で確かめる。未設定なら Vercel Cron の UA だけ受ける
+// （何度動いても同じ結果になる処理で、返すのは件数の合計だけ）。&full=1 で 2026-10-08 から全部作り直す。
+async function incentive(req) {
+  const secret = process.env.CRON_SECRET || '';
+  const auth = req.headers.get('authorization') || '';
+  const ua = req.headers.get('user-agent') || '';
+  const fromCron = secret ? auth === `Bearer ${secret}` : /vercel-cron/i.test(ua);
+  if (!fromCron) { const a = await requireAdmin(req); if (a.err) return a.err; }
+  const full = new URL(req.url).searchParams.get('full') === '1';
+  const r = await runIncentive({ full });
+  return json({ ok: true, ...r });
 }
 
 async function requireAdmin(req) {

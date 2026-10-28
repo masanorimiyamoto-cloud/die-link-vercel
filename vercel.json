@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/session?action=incentive", "schedule": "50 14 * * *" }
+  ]
+}
