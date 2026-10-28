@@ -290,21 +290,27 @@ async function view(body, user) {
 // シートが揃っているように見えてしまう（ユーザー指摘）。作業リストを読んだときに、まだ何も済んでいない行
 // （進行社内が空白か工程表発行済で、工程の記録も無い）の空白を シート手配待ち にする。
 // 在庫のシートを使うなら、工程カードの「在庫シート利用」で変える（シート手配待ちからも変えられる）
+// 紙入荷日が入っていて今日（日本時間）以前なら、シート手配待ちではなく シート材料入荷済 にする（ユーザー指定）。
+// シート手配待ち・シート手配済み のまま紙入荷日を迎えたものは、Airtable のオートメーション（毎日11:00）が入荷済にする
 const SHEET_WAIT = 'シート手配待ち';
+const SHEET_ARRIVED = 'シート材料入荷済';
+const todayJST = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
 const needsSheetWait = (r) => !r.progOut && !r.closed && SHEET_TAGS.some(t => hasTag(r, t))
   && ['', '工程表発行済'].includes(r.progIn) && !Object.keys(r.done).length;
 async function autoSheetWait(rows, user) {
-  const need = rows.filter(needsSheetWait);
+  const today = todayJST();
+  const need = rows.filter(needsSheetWait).map(r => ({ r,
+    to: /^\d{4}-\d\d-\d\d$/.test(r.paper) && r.paper <= today ? SHEET_ARRIVED : SHEET_WAIT }));
   for (let i = 0; i < need.length; i += 10) {
     const part = need.slice(i, i + 10);
     try {
-      await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: part.map(r => ({ id: r.id, fields: { [F.progOut]: SHEET_WAIT } })) }) });
+      await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: part.map(x => ({ id: x.r.id, fields: { [F.progOut]: x.to } })) }) });
     } catch { return; } // 書けなくても一覧は出す（次に開いたときにまた試す）
-    for (const r of part) r.progOut = SHEET_WAIT;
+    for (const x of part) x.r.progOut = x.to;
     viewCache.clear();
-    await writeWorkLog(user, part.map(r => ({ recordIds: [r.id], book: r.book, wc: r.wc,
-      action: '進行社外変更', detail: `${SHEET_WAIT}（自動。進行社外が空白だったため）` })));
+    await writeWorkLog(user, part.map(({ r, to }) => ({ recordIds: [r.id], book: r.book, wc: r.wc, action: '進行社外変更',
+      detail: to === SHEET_ARRIVED ? `${to}（自動。進行社外が空白で、紙入荷日 ${r.paper} を過ぎていたため）` : `${to}（自動。進行社外が空白だったため）` })));
   }
 }
 
