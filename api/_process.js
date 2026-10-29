@@ -124,7 +124,8 @@ export const VIEWS = {
   // 2026-10-05 全件のビュー。絞り込みが無く9割がアーカイブ済で、500件の上限で途中が切れるため
   // アーカイブ済だけはここで外す（Grid view は他でも使うので Airtable 側は変えない）
   all:     { label: '全件',         sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [], formula: 'NOT({アーカイブ済})' }] }, // Grid view
-  recent:  { label: 'Recent 1day',  sources: [{ id: 'viwgFO3k8bRAhJVNw', steps: [] }] },          // Grid Recent 1day
+  // keepOrder: 画面で納品日順に並べ替えず、ビューの並び（Recent は 最終更新 の新しい順 Z→A）のまま出す（2026-10-29 ユーザー指定）
+  recent:  { label: 'Recent 1day',  keepOrder: true, sources: [{ id: 'viwgFO3k8bRAhJVNw', steps: [] }] },          // Grid Recent 1day
   fax:     { label: 'Fax',          sources: [{ id: 'viwvqPJgm9s9BAlvR', steps: [] }] },          // Grid FromFAX 承認待ち
 };
 const DEFAULT_VIEW = 'cad';
@@ -336,7 +337,7 @@ async function viewImages(body) {
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [], readyOut: v.readyOut || [] }));
+  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [], readyOut: v.readyOut || [], keepOrder: !!v.keepOrder }));
 }
 
 async function orders(body) {
