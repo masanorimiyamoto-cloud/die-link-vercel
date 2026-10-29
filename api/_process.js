@@ -536,12 +536,12 @@ async function setRoom(body, user) {
 // 同じく、空白か材料待ち（シート手配待ち／シート手配済み）のときだけ書く。受領伝票発行可能・伝票出力済・完納済・
 // 納期変更 などは上書きしない（8/7 の事故の再発防止）。選択肢は既にあるので typecast は使わない。
 // on=false は取り消し: 進行社外がその値のままなら、入れる前の値（作業ログの「前の進行社外: ○○」）へ戻す
-// シート材料入荷済 は入荷を人が確かめた報告なので、作業ログを「状況報告」（実績対象）で残しインセンティブに数える。
+// シート材料入荷済・機械貼材料入荷済（2026-10-29）は入荷を人が確かめた報告なので、作業ログを「状況報告」（実績対象）で残しインセンティブに数える。
 // 取り消しは「状況報告取消」で、_incentive.js が 受注ID＋工程 の最後の状態で数え直す（工程完了と同じ）。
 // 在庫シート利用 は数えない（進行社外変更）。
 const STOCK_OUT = '在庫シート利用';
-const SHEET_ARRIVED_OUT = 'シート材料入荷済';
-const OUT_BUTTONS = new Set([STOCK_OUT, SHEET_ARRIVED_OUT]);
+const ARRIVED_OUTS = new Set(['シート材料入荷済', '機械貼材料入荷済']);
+const OUT_BUTTONS = new Set([STOCK_OUT, ...ARRIVED_OUTS]);
 // 2026-10-29 Airtable の選択肢 シート手配必要 が シート手配待ち に変わったので合わせる
 const STOCK_REPLACEABLE = new Set(['', 'シート手配待ち', 'シート手配済み']);
 async function findPrevOut(rec, out) {
@@ -566,7 +566,7 @@ async function setStock(body, user) {
   const cur = String(f[F.progOut] || '').trim();
   const out = body?.out === undefined ? STOCK_OUT : String(body.out);
   if (!OUT_BUTTONS.has(out)) return json({ ok: false, error: '進行社外の指定が正しくありません' }, 400);
-  const report = out === SHEET_ARRIVED_OUT;
+  const report = ARRIVED_OUTS.has(out);
   const base = { recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '' };
   if (body?.on !== false) {
     if (cur === out) return json({ ok: true, progOut: cur, unchanged: true });

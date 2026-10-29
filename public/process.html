@@ -1479,17 +1479,18 @@
       btn.onclick = () => chooseStep(s);
       box.append(btn);
     }
-    box.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, STOCK_OUT));
+    box.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, KIKAI_ARRIVED_OUT), stockCell(o, STOCK_OUT));
     $('variants').hidden = true;
     renderRooms(o);
   }
 
-  /* ---------- 状況: 進行社外「シート材料入荷済」「在庫シート利用」（2026-10-23 / 10-29） ---------- */
+  /* ---------- 状況: 進行社外「シート材料入荷済」「機械貼材料入荷済」「在庫シート利用」（2026-10-23 / 10-29） ---------- */
   // 他の状況ボタンは 進行社内 に書くが、これらは 進行社外 に書く。伝票発行の判定に使う欄なので、
   // 空白か材料待ち（シート手配待ち／シート手配済み）のときだけ押せる（サーバーも同じ決まりで弾く）
-  // シート材料入荷済 は入荷を確かめた報告としてインセンティブに数える（取り消せば数えない）
+  // シート材料入荷済・機械貼材料入荷済 は入荷を確かめた報告としてインセンティブに数える（取り消せば数えない）
   const STOCK_OUT = '在庫シート利用';
   const SHEET_ARRIVED_OUT = 'シート材料入荷済';
+  const KIKAI_ARRIVED_OUT = '機械貼材料入荷済';
   const STOCK_REPLACEABLE = ['', 'シート手配待ち', 'シート手配済み'];
   function stockCell(o, out) {
     if (o.progOut === out) {
