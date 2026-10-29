@@ -531,19 +531,24 @@ async function setRoom(body, user) {
   return json({ ok: true, room: next });
 }
 
-// ---- 進行社外「在庫シート利用」（2026-10-23）----
+// ---- 進行社外「在庫シート利用」「シート材料入荷済」（2026-10-23 / 10-29）----
 // 工程カードの「状況」から入れる。進行社外は伝票発行の判定に使うので、生地照合（airtable-update-progress.js の fabric）と
 // 同じく、空白か材料待ち（シート手配待ち／シート手配済み）のときだけ書く。受領伝票発行可能・伝票出力済・完納済・
 // 納期変更 などは上書きしない（8/7 の事故の再発防止）。選択肢は既にあるので typecast は使わない。
-// on=false は取り消し: 進行社外が在庫シート利用のままなら、入れる前の値（作業ログの「前の進行社外: ○○」）へ戻す
+// on=false は取り消し: 進行社外がその値のままなら、入れる前の値（作業ログの「前の進行社外: ○○」）へ戻す
+// シート材料入荷済 は入荷を人が確かめた報告なので、作業ログを「状況報告」（実績対象）で残しインセンティブに数える。
+// 取り消しは「状況報告取消」で、_incentive.js が 受注ID＋工程 の最後の状態で数え直す（工程完了と同じ）。
+// 在庫シート利用 は数えない（進行社外変更）。
 const STOCK_OUT = '在庫シート利用';
+const SHEET_ARRIVED_OUT = 'シート材料入荷済';
+const OUT_BUTTONS = new Set([STOCK_OUT, SHEET_ARRIVED_OUT]);
 // 2026-10-29 Airtable の選択肢 シート手配必要 が シート手配待ち に変わったので合わせる
 const STOCK_REPLACEABLE = new Set(['', 'シート手配待ち', 'シート手配済み']);
-async function findPrevOut(rec) {
+async function findPrevOut(rec, out) {
   const f = rec.fields || {};
   const target = `OR({受注ID}='${esc(rec.id)}',AND({受注ID}='',{Book}='${esc(f[F.book] || '')}',{WorkCord}='${esc(f[F.wc] ?? '')}'))`;
   const url = new URL(WORKLOG_API);
-  url.searchParams.set('filterByFormula', `AND({操作}='進行社外変更',FIND('${STOCK_OUT}（',{内容})=1,${target})`);
+  url.searchParams.set('filterByFormula', `AND(OR({操作}='進行社外変更',{操作}='状況報告'),FIND('${esc(out)}（',{内容})=1,${target})`);
   url.searchParams.set('sort[0][field]', '日時');
   url.searchParams.set('sort[0][direction]', 'desc');
   url.searchParams.set('maxRecords', '1');
@@ -559,24 +564,31 @@ async function setStock(body, user) {
   if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
   const f = rec.fields || {};
   const cur = String(f[F.progOut] || '').trim();
+  const out = body?.out === undefined ? STOCK_OUT : String(body.out);
+  if (!OUT_BUTTONS.has(out)) return json({ ok: false, error: '進行社外の指定が正しくありません' }, 400);
+  const report = out === SHEET_ARRIVED_OUT;
   const base = { recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '' };
   if (body?.on !== false) {
-    if (cur === STOCK_OUT) return json({ ok: true, progOut: cur, unchanged: true });
+    if (cur === out) return json({ ok: true, progOut: cur, unchanged: true });
     if (!STOCK_REPLACEABLE.has(cur)) {
-      return json({ ok: false, error: `進行社外が「${cur}」なので、在庫シート利用には変えられません` }, 409);
+      return json({ ok: false, error: `進行社外が「${cur}」なので、${out}には変えられません` }, 409);
     }
-    await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.progOut]: STOCK_OUT } }] }) });
+    await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.progOut]: out } }] }) });
     viewCache.clear();
-    await writeWorkLog(user, { ...base, action: '進行社外変更', detail: `${STOCK_OUT}（前の進行社外: ${cur || '空白'}）` });
-    return json({ ok: true, progOut: STOCK_OUT, prev: cur });
+    const detail = `${out}（前の進行社外: ${cur || '空白'}）`;
+    await writeWorkLog(user, report ? { ...base, action: '状況報告', step: out, credit: true, detail }
+      : { ...base, action: '進行社外変更', detail });
+    return json({ ok: true, progOut: out, prev: cur });
   }
-  if (cur !== STOCK_OUT) {
-    return json({ ok: false, error: '進行社外はもう在庫シート利用ではありません（誰かが先に変えた可能性があります）', stale: true }, 409);
+  if (cur !== out) {
+    return json({ ok: false, error: `進行社外はもう${out}ではありません（誰かが先に変えた可能性があります）`, stale: true }, 409);
   }
-  const prev = await findPrevOut(rec);
+  const prev = await findPrevOut(rec, out);
   await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.progOut]: prev || null } }] }) });
   viewCache.clear();
-  await writeWorkLog(user, { ...base, action: '進行社外変更', detail: `${STOCK_OUT} を取り消し。進行社外は ${prev || '空白'} に戻した` });
+  const detail = `${out} を取り消し。進行社外は ${prev || '空白'} に戻した`;
+  await writeWorkLog(user, report ? { ...base, action: '状況報告取消', step: out, detail }
+    : { ...base, action: '進行社外変更', detail });
   return json({ ok: true, progOut: prev });
 }
 

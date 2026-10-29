@@ -5,6 +5,7 @@
 // 数え方:
 //  ・工程完了／工程取消／工程完了取消 は 受注ID＋工程 ごとに時刻順に並べ、最後が「完了」ならその完了をした人に1件、
 //    最後が取消なら0件（押し間違いの取消、別の人がやり直した場合はやり直した人に付く）。
+//  ・状況報告／状況報告取消（工程カードの「シート材料入荷済」。2026-10-29）も同じく 受注ID＋工程 の最後の状態で数える。
 //  ・探す（抜型照合）・仕舞う（抜型仕舞い）・知る（生地照合）は、実績対象 が付いた行を1件ずつ数える（取消は無い）。
 //  ・社員番号が無いログ（10/7 以前）は数えない。対象は 2026-10-08（日本時間）以降。
 //  ・日付は記録した時刻の日本時間の日。
@@ -24,7 +25,10 @@ const D = { key: 'fldCqMq8twEDgwn3a', date: 'fld9QfTWCVyARS1KA', no: 'fldZOZLQTi
 
 export const START_DATE = '2026-10-08';     // 社員番号がログに残り始めた翌日
 const WINDOW_DAYS = 45;
-const PROCESS_ACTIONS = new Set(['工程完了', '工程取消', '工程完了取消']);
+// 取り消しのある操作。受注ID＋工程 ごとに最後の操作が DONE_ACTIONS（実績対象つき）なら1件
+const PROCESS_ACTIONS = new Set(['工程完了', '工程取消', '工程完了取消', '状況報告', '状況報告取消']);
+const DONE_ACTIONS = new Set(['工程完了', '状況報告']);
+const CANCEL_ACTIONS = [...PROCESS_ACTIONS].filter(a => !DONE_ACTIONS.has(a));
 
 const jstDate = (iso) => new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const daysAgoJST = (n) => new Date(Date.now() + 9 * 3600 * 1000 - n * 86400000).toISOString().slice(0, 10);
@@ -66,7 +70,7 @@ export function countDaily(logs) {
     if (PROCESS_ACTIONS.has(x.action)) {
       if (!x.orderId || !x.step) continue;
       const k = `${x.orderId}|${x.step}`;
-      last.set(k, x.action === '工程完了' && x.credit ? x : null);
+      last.set(k, DONE_ACTIONS.has(x.action) && x.credit ? x : null);
     } else if (x.credit && x.step) {
       winners.push(x);            // 抜型照合・抜型仕舞い・生地照合（新しく済んだときだけ実績対象が付いている）
     }
@@ -88,7 +92,7 @@ export async function runIncentive({ full = false } = {}) {
   const from = full ? START_DATE : [START_DATE, daysAgoJST(WINDOW_DAYS)].sort().pop();
   // 取消の相手（その前の完了）を見落とさないよう、ログは常に START_DATE の前日から読む
   const logs = await readAll(WORKLOG,
-    `AND(IS_AFTER({${WL.at}}, '2026-10-07T00:00:00.000Z'), OR({${WL.credit}}, {${WL.action}}='工程取消', {${WL.action}}='工程完了取消'))`,
+    `AND(IS_AFTER({${WL.at}}, '2026-10-07T00:00:00.000Z'), OR({${WL.credit}}, ${CANCEL_ACTIONS.map(a => `{${WL.action}}='${a}'`).join(', ')}))`,
     Object.values(WL));
   const counts = countDaily(logs);
   const want = [...counts.values()].filter(c => c.date >= from);
