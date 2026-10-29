@@ -8,6 +8,7 @@
 //   action=complete { id, step, variant, force } … 工程完了を記録（ログイン必須）
 //   action=undo     { id, step, prev, prevRecord } … 直前の完了記録を取り消す（本人か管理者）
 //   action=ndate    { id, ndate }                … 納期（Ndate）を変える（ログイン必須）
+//   action=paper    { id, paper }                … 紙入荷日（シート・機械貼材料の入荷日）を入れる／消す（ログイン必須）
 //   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
 //
 // 完了の記録は2か所に書く:
@@ -93,7 +94,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'room', 'stock']);
+export const PROCESS_ACTIONS = new Set(['orders', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -207,6 +208,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'cancel') return cancel(body, who.user);
   if (action === 'amount') return changeAmount(body, who.user);
   if (action === 'ndate') return changeNdate(body, who.user);
+  if (action === 'paper') return changePaper(body, who.user);
   if (action === 'room') return setRoom(body, who.user);
   if (action === 'stock') return setStock(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
@@ -506,6 +508,35 @@ async function changeNdate(body, user) {
     action: '納期変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: line,
   });
   return json({ ok: true, ndate: next, line });
+}
+
+// ---- 紙入荷日の入力（2026-10-29）----
+// シートの入荷日（自社手配・先方支給）と機械貼材料の入荷日を兼ねる1つの欄。今まで Airtable の直打ちだけだった。
+// 空にして消すこともできる。納期と同じく伝票発行後は変えない・今日の前後1年の外は打ち間違いとして弾く。
+// 欄に履歴は無いので、作業ログ（紙入荷日変更）にだけ残す。インセンティブには数えない
+async function changePaper(body, user) {
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const f = rec.fields || {};
+  const next = String(body?.paper ?? '').trim();
+  if (next) {
+    const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(next);
+    const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    if (!m || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return json({ ok: false, error: '紙入荷日の日付が正しくありません' }, 400);
+    const today = Date.parse(nowJST().slice(0, 10) + 'T00:00:00Z');
+    if (Math.abs(d.getTime() - today) > 366 * 86400000) return json({ ok: false, error: '紙入荷日は今日の前後1年の中で入れてください' }, 400);
+  }
+  if (f[F.slipId] || SLIP_DONE_OUT.has(String(f[F.progOut] || ''))) {
+    return json({ ok: false, error: '受領伝票を発行した後なので、ここでは紙入荷日を変えられません' }, 409);
+  }
+  const cur = String(f[F.paper] || '');
+  if (cur === next) return json({ ok: true, paper: next, unchanged: true });
+  await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.paper]: next || null } }] }) });
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: '紙入荷日変更', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: `${cur || '空白'}→${next || '空白'}`,
+  });
+  return json({ ok: true, paper: next });
 }
 
 // ---- Room に応援先を足す／外す ----

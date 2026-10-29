@@ -910,6 +910,49 @@
     return box;
   }
 
+  /* ---------- 紙入荷日（2026-10-29） ---------- */
+  // シート（自社手配・先方支給）と機械貼材料の入荷日を兼ねる。空にして消すこともできる。伝票発行後は出さない
+  function paperEditor(o) {
+    const box = document.createElement('div'); box.className = 'amt';
+    if (o.amountLocked) return box;
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn date';
+    open.textContent = o.paper ? `紙入荷日 ${fmtDate(o.paper)} を変える` : '紙入荷日を入れる';
+    const n = document.createElement('span'); n.className = 'note'; n.textContent = 'シート（自社手配・先方支給）・機械貼材料の入荷日';
+    box.append(open, n);
+    open.onclick = () => {
+      box.textContent = '';
+      const inp = document.createElement('input'); inp.type = 'date'; inp.value = o.paper || '';
+      inp.setAttribute('aria-label', '紙入荷日');
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
+      box.append(inp, save, cancel);
+      if (o.paper) {
+        const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'amtbtn'; clear.textContent = '消す';
+        clear.onclick = () => { if (confirm('紙入荷日を消しますか？')) send(''); };
+        box.append(clear);
+      }
+      inp.focus();
+      cancel.onclick = () => renderSteps();
+      save.onclick = () => {
+        if (!/^\d{4}-\d\d-\d\d$/.test(inp.value)) return say($('stepMsg'), '紙入荷日の日付を選んでください', 'err');
+        send(inp.value);
+      };
+      async function send(next) {
+        if (next === (o.paper || '')) return renderSteps();
+        box.querySelectorAll('button').forEach(b => b.disabled = true);
+        const j = await write({ action: 'paper', id: o.id, paper: next });
+        box.querySelectorAll('button').forEach(b => b.disabled = false);
+        if (outcomeUnknown(j, x => typeof x.paper === 'string')) return markUnsure(o, '紙入荷日の変更');
+        if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
+        const before = o.paper ? fmtDate(o.paper) : '空白';
+        o.paper = j.paper;
+        say($('stepMsg'), `紙入荷日を ${before} → ${o.paper ? fmtDate(o.paper) : '空白'} にしました`, 'ok');
+        renderSteps(); renderOrders();
+      }
+    };
+    return box;
+  }
+
   /* ---------- 画像 ---------- */
   // Airtable の画像URLは数時間で切れる。切れていたら一覧を取り直すよう案内する
   function imgFail(img) {
@@ -1441,7 +1484,7 @@
     const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
     const mt = document.createElement('div'); mt.className = 'meta';
     mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, facts(o), mt, goBar(o), amountEditor(o), ndateEditor(o));
+    t.append(it, facts(o), mt, goBar(o), amountEditor(o), ndateEditor(o), paperEditor(o));
     renderStepImages(o);
 
     const box = $('steps'); box.textContent = '';
