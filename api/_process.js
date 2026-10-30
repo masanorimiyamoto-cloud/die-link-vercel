@@ -3,6 +3,7 @@
 // api/airtable-update-progress.js から呼ばれる（Vercel Hobby の関数数を増やさないため）。
 //
 //   action=orders   { book, wc }                 … その品番の受注一覧（ログイン不要の読み取り）
+//   action=items    { k1, k2, archived }         … ItemName にキーワード（2つまで・両方含む）がある受注の一覧（ログイン必須）。archived でアーカイブ済も含む
 //   action=view     { view }                     … 作業リスト。Airtable のビューをそのまま読む（ログイン必須）
 //                   絞り込みと並び順はビュー側の設定が効くので、条件を変えたいときは Airtable でビューを直す。
 //   action=complete { id, step, variant, force } … 工程完了を記録（ログイン必須）
@@ -10,6 +11,7 @@
 //   action=ndate    { id, ndate }                … 納期（Ndate）を変える（ログイン必須）
 //   action=paper    { id, paper }                … 紙入荷日（シート・機械貼材料の入荷日）を入れる／消す（ログイン必須）
 //   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
+//   action=neworder { id, amount, ndate, memo, force } … その受注と同じ品目で新規受注を作る（ログイン必須）
 //
 // 完了の記録は2か所に書く:
 //   進行社内      … 既存の選択肢（オートン抜き完了 など）。進行社内グループの計算式や
@@ -94,7 +96,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -202,6 +204,7 @@ function resolveStep(step, variant) {
 export async function handleProcess(action, body, who) {
   if (action === 'orders') return orders(body);
   if (!who) return json({ ok: false, error: 'ログインしてください', needLogin: true }, 401);
+  if (action === 'items') return items(body);
   if (action === 'view') return view(body, who.user);
   if (action === 'viewImages') return viewImages(body);
   if (action === 'complete') return complete(body, who.user);
@@ -212,6 +215,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'paper') return changePaper(body, who.user);
   if (action === 'room') return setRoom(body, who.user);
   if (action === 'stock') return setStock(body, who.user);
+  if (action === 'neworder') return newOrder(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -355,6 +359,45 @@ async function orders(body) {
   const list = (j.records || []).map(describe).sort((a, b) =>
     (a.closed - b.closed) || String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
   return json({ ok: true, orders: list, steps: publicSteps(), rooms: await roomChoices() });
+}
+
+// ---- 品名（ItemName）で探す（2026-10-30）----
+// キーワードは2つまで。両方を含む受注を返す（大文字小文字は区別しない）。アーカイブ済は品番で探すと同じく外す。
+// archived=true（画面の「アーカイブ済も含む」）なら外さない。アーカイブ済は閉じた受注として薄く出す。
+// 件数が多いと Airtable の読み取りが重いので MAX_ITEMS で打ち切り、打ち切ったことを画面に伝える。
+// 打ち切るときに新しい受注が残るよう、Airtable からは納期の新しい順に読む
+const MAX_ITEMS = 200;
+async function items(body) {
+  const keys = [body?.k1, body?.k2].map(k => String(k ?? '').trim()).filter(Boolean);
+  if (!keys.length) return json({ ok: false, error: 'キーワードを入れてください' }, 400);
+  const finds = keys.map(k => `FIND(LOWER('${esc(k)}'),LOWER({${F.item}}&''))`);
+  if (!body?.archived) finds.push(`{${F.archived}}!=TRUE()`);
+  const rows = [];
+  let offset;
+  do {
+    const url = new URL(API);
+    url.searchParams.set('filterByFormula', `AND(${finds.join(',')})`);
+    url.searchParams.set('sort[0][field]', F.ndate);
+    url.searchParams.set('sort[0][direction]', 'desc');
+    url.searchParams.set('pageSize', '100');
+    url.searchParams.set('maxRecords', String(MAX_ITEMS + 1));
+    for (const f of [...LIST_FIELDS, F.archived]) url.searchParams.append('fields[]', f);
+    if (offset) url.searchParams.set('offset', offset);
+    const j = await airtable(url);
+    (j.records || []).forEach(r => {
+      const o = describe(r);
+      o.archived = !!r.fields?.[F.archived];
+      if (o.archived) o.closed = true;
+      rows.push(o);
+    });
+    offset = j.offset;
+  } while (offset && rows.length <= MAX_ITEMS);
+  const more = rows.length > MAX_ITEMS;
+  // 未完了が先で納期の早い順。閉じた受注（アーカイブ済を含む）はその後に新しい順
+  const list = rows.slice(0, MAX_ITEMS).sort((a, b) => (a.closed - b.closed) || (a.closed
+    ? String(b.ndate || '').localeCompare(String(a.ndate || ''))
+    : String(a.ndate || '9999').localeCompare(String(b.ndate || '9999'))));
+  return json({ ok: true, orders: list, more, steps: publicSteps(), rooms: await roomChoices() });
 }
 
 export function publicSteps() {
@@ -622,6 +665,79 @@ async function setStock(body, user) {
   await writeWorkLog(user, report ? { ...base, action: '状況報告取消', step: out, detail }
     : { ...base, action: '進行社外変更', detail });
   return json({ ok: true, progOut: prev });
+}
+
+// ---- 同じ品目の新規受注（2026-10-30）----
+// 品名で探した受注を元に、数量・納期・連絡事項だけ入れて新しい受注を作る。FAX登録（airtable_access.py の
+// create_juchu_records）と同じく Add_from_Airtable を付けるので、Airtable_Fetch.py が Excel（S96.5）に行を足す。
+// ユーザー指定で作ったらすぐ 承認済（承認待ちに回さない）。Ko_OrderNo は空のまま。
+// 品目の情報（得意先・納品先・材料・寸法・棚・後工程 FinalProcess・図面画像）は元の受注から写す。
+// FinalProcess は同じ品目なので元の値をそのまま使う（得意先固定の規則も元の値に反映済み）。
+// 進行社内・進行社外は空のまま（FAX登録と同じ）。NAmount_Prev は数量と同じ値を入れる（changeAmount と同じ理由）。
+// typecast は使わない。型の合わない値で勝手に選択肢が増えないよう、エラーで止める。
+// Chrome は接続が切れると POST を送り直すので、同じ Book・WorkCord・納期・数量の受注が既にあれば作らない（force で作る）
+const NEW_COPY_FIELDS = ['Kname', 'DeliPlace', 'info_wscd', 'Material', 'Paper_Size', 'Cut_Size', 'Location', 'LastSeen', 'FinalProcess'];
+async function newOrder(body, user) {
+  const src = await getRecord(body?.id);
+  if (!src) return json({ ok: false, error: '元の受注が見つかりません' }, 404);
+  const f = src.fields || {};
+  const book = String(f[F.book] || '').trim();
+  const wc = f[F.wc];
+  if (!book || wc === undefined || wc === null || wc === '') return json({ ok: false, error: '元の受注に Book か WorkCord がありません' }, 400);
+  const raw = String(body?.amount ?? '').trim().replace(/[,，\s]/g, '');
+  if (!/^\d+$/.test(raw) || !(Number(raw) > 0) || !Number.isSafeInteger(Number(raw))) {
+    return json({ ok: false, error: '数量は1以上の整数で入れてください' }, 400);
+  }
+  const amount = Number(raw);
+  const ndate = String(body?.ndate ?? '').trim();
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(ndate);
+  const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (!m || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return json({ ok: false, error: '納期の日付を入れてください' }, 400);
+  const today = Date.parse(nowJST().slice(0, 10) + 'T00:00:00Z');
+  if (Math.abs(d.getTime() - today) > 366 * 86400000) return json({ ok: false, error: '納期は今日の前後1年の中で入れてください' }, 400);
+  const memo = String(body?.memo ?? '').trim().slice(0, 500);
+
+  // 同じ品番の受注（納期の新しい順）。二重登録の確認と、前回の納期（PreNdate）に使う
+  const url = new URL(API);
+  const wcExpr = Number.isFinite(Number(wc)) ? String(Number(wc)) : `'${esc(wc)}'`;
+  url.searchParams.set('filterByFormula', `AND({${F.book}}='${esc(book)}',{${F.wc}}=${wcExpr})`);
+  url.searchParams.set('sort[0][field]', F.ndate);
+  url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('pageSize', '100');
+  url.searchParams.append('fields[]', F.ndate);
+  url.searchParams.append('fields[]', F.amount);
+  const same = (await airtable(url)).records || [];
+  const dup = same.find(r => String(r.fields?.[F.ndate] || '') === ndate && Number(r.fields?.[F.amount]) === amount);
+  if (dup && !body?.force) {
+    return json({ ok: false, dup: true, existing: dup.id,
+      error: `${book} / ${wc} に 納期 ${ndate}・数量 ${amount.toLocaleString('ja-JP')} の受注が既にあります` }, 409);
+  }
+  const pre = same.map(r => String(r.fields?.[F.ndate] || '')).find(x => x && x < ndate) || '';
+
+  const fields = {
+    [F.book]: book, [F.wc]: wc, [F.amount]: amount, [F.amountPrev]: amount, [F.ndate]: ndate,
+    Add_from_Airtable: true, 承認済: true,
+  };
+  if (f[F.item]) fields[F.item] = f[F.item];
+  for (const k of NEW_COPY_FIELDS) if (f[k] !== undefined && f[k] !== null && f[k] !== '') fields[k] = f[k];
+  if (Array.isArray(f[F.image]) && f[F.image].length) fields[F.image] = f[F.image].map(a => ({ url: a.url, filename: a.filename }));
+  if (memo) fields[F.memo] = memo;
+  if (pre) fields.PreNdate = pre;
+
+  let rec;
+  try {
+    const j = await airtable(API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) });
+    rec = j.records?.[0];
+  } catch (e) {
+    return json({ ok: false, error: `新規受注を作れませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
+  }
+  if (!rec) return json({ ok: false, error: '新規受注を作れませんでした（応答に受注がありません）' }, 502);
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: '新規受注', recordIds: [rec.id], book, wc,
+    detail: `同じ品目で新規受注（元: ${src.id}）数量 ${amount} 納期 ${ndate}${memo ? ` 連絡: ${memo}` : ''}${dup ? '（同じ納期・数量の受注あり・確認して作成）' : ''}`,
+  });
+  return json({ ok: true, order: describe(rec) });
 }
 
 async function undo(body, user) {

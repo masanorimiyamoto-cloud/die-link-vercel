@@ -55,6 +55,20 @@
   .listhead .up{ font-size:13px; font-weight:500; color:var(--mut); white-space:nowrap; opacity:0; transition:opacity .2s }
   .listhead.stuck{ box-shadow:0 6px 14px rgba(0,0,0,.35) }
   .listhead.stuck .up{ opacity:1 }
+  /* 品番で探す の上に固定する検索欄（2026-10-30）。品名のキーワード2つと検索ボタン、候補を順に送る ← → を常に見える所に置く */
+  .findhead{ position:fixed; top:0; left:0; right:0; max-width:640px; margin:0 auto; z-index:30; padding:10px 14px;
+    background:var(--surf); border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:8px; box-shadow:0 6px 14px rgba(0,0,0,.25) }
+  .findhead input{ flex:1 1 0; font-size:17px; padding:9px 10px }
+  .findhead .nav{ display:flex; gap:8px; align-items:center }
+  .findhead .opt{ display:flex; align-items:center; gap:6px; font-size:14px; color:var(--mut); cursor:pointer; align-self:flex-start }
+  .findhead .opt input{ flex:none; width:20px; height:20px; padding:0; margin:0; accent-color:var(--a) }
+  .order .archmark{ align-self:flex-start; font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line2); color:var(--mut) }
+  .findhead .nav .btn{ flex:0 0 auto; padding:8px 14px }
+  .findhead .nav .pos{ flex:1; text-align:center; font-size:14px; color:var(--mut); font-variant-numeric:tabular-nums }
+  /* 同じ品目の新規受注（2026-10-30）。工程カードの一番下に置き、押すと数量・納期・連絡事項の入力が開く */
+  .newo{ border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px }
+  .newo .lbl{ font-size:13px; color:var(--mut) }
+  .newo .row input{ flex:1 1 0 }
   .row{ display:flex; gap:8px; align-items:center }
   input, select{ font:inherit; font-size:19px; padding:10px 12px; border-radius:var(--r); border:1px solid var(--line2);
     background:var(--surf2); color:var(--txt); outline:none }
@@ -420,10 +434,24 @@
     <span class="up">↑ 先頭へ</span>
     <span class="fresh" id="listFresh" role="status" title="Airtable から一覧を読んだ時刻です（サーバーで最大20秒使い回します）。Airtable 側で最後に変わった時刻ではありません"></span>
   </button>
+  <!-- 品名で探す。品番で探す のときだけページの一番上に固定する（2026-10-30） -->
+  <div class="findhead" id="findHead" role="search" hidden>
+    <div class="row">
+      <input id="ik1" placeholder="品名キーワード1" autocomplete="off" aria-label="品名キーワード1" />
+      <input id="ik2" placeholder="キーワード2（任意）" autocomplete="off" aria-label="品名キーワード2" />
+      <button class="btn" id="itemBtn" type="button">検索</button>
+    </div>
+    <label class="opt"><input type="checkbox" id="ikArch" /> アーカイブ済も含む</label>
+    <div class="nav" id="findNav" hidden>
+      <button class="btn ghost" id="navPrev" type="button">← 前</button>
+      <span class="pos" id="navPos"></span>
+      <button class="btn ghost" id="navNext" type="button">次 →</button>
+    </div>
+  </div>
   <div class="bar"><a href="/">← トップ</a><span class="barr"><button type="button" class="themebtn" id="themeBtn"></button><span id="who"></span></span></div>
   <nav class="tabs" role="tablist">
     <button type="button" id="tabList" role="tab">作業リスト</button>
-    <button type="button" id="tabFind" role="tab">品番で探す</button>
+    <button type="button" id="tabFind" role="tab">品番・品名で探す</button>
   </nav>
 
   <!-- 作業リスト（Airtable のビューをそのまま表示） -->
@@ -470,6 +498,7 @@
     <div class="rooms" id="rooms"></div>
     <div class="variants" id="variants" hidden></div>
     <div class="msg" id="stepMsg" role="status"></div>
+    <div class="newo" id="newOrder"></div>
   </section>
 </main>
 
@@ -611,6 +640,7 @@
   async function search() {
     const book = $('book').value.trim(), wc = $('wc').value.trim();
     if (!book || !wc) return say($('findMsg'), 'Book と WorkCord を入れてください', 'err');
+    S.findBy = 'wc';
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     const j = await api({ action: 'orders', book, wc });
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
@@ -622,6 +652,55 @@
     if (open.length === 1) selectOrder(open[0].id);
   }
   $('searchBtn').onclick = search;
+
+  // 品名（ItemName）で探す（2026-10-30）。キーワードは2つまでで、両方を含む受注が候補になる。
+  // 候補は下に並べ、上の ← → で1件ずつ工程カードを開いて順に見られる
+  // keys: 記録の後などに同じ条件で探し直すとき（入力欄が書き換えられていても前の条件で読む）
+  async function itemSearch(keys) {
+    const { k1, k2, archived } = keys || { k1: $('ik1').value.trim(), k2: $('ik2').value.trim(), archived: $('ikArch').checked };
+    if (!k1 && !k2) return say($('findMsg'), '品名のキーワードを入れてください', 'err');
+    S.findBy = 'item'; S.findKeys = { k1, k2, archived };
+    $('ik1').blur(); $('ik2').blur(); // スマホのキーボードを閉じて候補を見やすくする
+    say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
+    S.orders = []; updateNav();
+    const j = await api({ action: 'items', k1, k2, archived });
+    if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
+    S.orders = j.orders; S.steps = j.steps; S.rooms = j.rooms || [];
+    const words = [k1, k2].filter(Boolean).map(k => `「${k}」`).join('');
+    if (!j.orders.length) { updateNav(); return say($('findMsg'), `品名に${words}を含む受注は見つかりません${archived ? '' : '（アーカイブ済は含めていません）'}`, 'err'); }
+    const open = j.orders.filter(o => !o.closed).length;
+    say($('findMsg'), `品名に${words}を含む受注が${j.orders.length}件${open !== j.orders.length ? `（未完了${open}件）` : ''}。` +
+      (j.more ? `${j.orders.length}件で打ち切りました。キーワードを足して絞ってください` : '選ぶか、上の ← → で順に見られます'), j.more ? 'warn' : '');
+    renderOrders();
+    if (j.orders.length === 1) selectOrder(j.orders[0].id);
+  }
+  $('itemBtn').onclick = () => itemSearch();
+  ['ik1', 'ik2'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') itemSearch(); }));
+  // 切り替えたら、もう探していればすぐ同じキーワードで探し直す。選んだ状態は端末に覚える
+  $('ikArch').checked = store.get('process.itemArch') === '1';
+  $('ikArch').onchange = () => {
+    store.set('process.itemArch', $('ikArch').checked ? '1' : '0');
+    if (S.findBy === 'item' && ($('ik1').value.trim() || $('ik2').value.trim())) itemSearch();
+  };
+  // 候補を順に送る。まだ選んでいなければ「次」で先頭、「前」で最後を開く
+  function stepCandidate(d) {
+    const n = S.orders.length; if (!n) return;
+    const i = S.orders.findIndex(o => o.id === S.sel);
+    const next = i < 0 ? (d > 0 ? 0 : n - 1) : i + d;
+    if (next < 0 || next >= n) return;
+    selectOrder(S.orders[next].id);
+  }
+  $('navPrev').onclick = () => stepCandidate(-1);
+  $('navNext').onclick = () => stepCandidate(1);
+  function updateNav() {
+    const n = S.mode === 'find' ? S.orders.length : 0;
+    $('findNav').hidden = n < 2;
+    if (n < 2) return;
+    const i = S.orders.findIndex(o => o.id === S.sel);
+    $('navPos').textContent = i < 0 ? `候補 ${n}件` : `${i + 1} / ${n}件目`;
+    $('navPrev').disabled = i === 0;
+    $('navNext').disabled = i === n - 1;
+  }
   $('wc').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
 
   function fmtDate(d) { return d ? d.slice(5).replace('-', '/') : '-'; }
@@ -1026,6 +1105,7 @@
 
   function renderOrders() {
     if (S.mode === 'list') return renderList();
+    updateNav();
     const box = $('orders'); box.textContent = '';
     for (const o of S.orders) {
       const el = document.createElement('button'); el.type = 'button';
@@ -1035,6 +1115,7 @@
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       const info = document.createElement('div'); info.className = 'info';
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; s.style.alignSelf = 'flex-start'; info.append(s); }
+      if (o.archived) { const s = document.createElement('span'); s.className = 'archmark'; s.textContent = 'アーカイブ済'; info.append(s); }
       info.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
@@ -1055,7 +1136,8 @@
     $('tabList').setAttribute('aria-selected', String(m === 'list')); $('tabFind').setAttribute('aria-selected', String(m === 'find'));
     $('listCard').hidden = m !== 'list'; $('findCard').hidden = m !== 'find';
     $('listHead').hidden = m !== 'list';
-    document.body.classList.toggle('has-head', m === 'list');
+    $('findHead').hidden = m !== 'find';
+    document.body.classList.toggle('has-head', m === 'list' || m === 'find');
     fitHead();
     $('stepCard').hidden = true; S.sel = null; $('variants').hidden = true;
     if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
@@ -1186,12 +1268,12 @@
   };
   // 固定した見出しの高さぶん、本文を下げる（文字の大きさや改行で高さが変わるので毎回測る）
   function fitHead() {
-    const h = $('listHead'); if (!h || h.hidden) return;
+    const h = [$('listHead'), $('findHead')].find(x => x && !x.hidden); if (!h) return;
     document.documentElement.style.setProperty('--headh', h.offsetHeight + 'px');
   }
   window.addEventListener('resize', fitHead);
   // 配色の切替や件数の桁で見出しの高さが変わっても、本文の下げ幅を自動で合わせる（VIVANT で見出しがボタンに重なった）
-  if (window.ResizeObserver) new ResizeObserver(fitHead).observe($('listHead'));
+  if (window.ResizeObserver) { const ro = new ResizeObserver(fitHead); ro.observe($('listHead')); ro.observe($('findHead')); }
   // 作業リストのときは本文（.wrap）が、それ以外はページがスクロールする
   const scroller = () => (document.body.classList.contains('has-head') ? document.querySelector('.wrap') : window);
   const scrollTopOf = (sc) => (sc === window ? window.scrollY : sc.scrollTop);
@@ -1457,7 +1539,8 @@
   };
   // 品番で探す画面の受注を読み直す（読み取りだけ）
   async function reloadFind(o) {
-    const j = await api({ action: 'orders', book: o.book, wc: String(o.wc) });
+    const j = S.findBy === 'item' ? await api({ action: 'items', ...S.findKeys })
+      : await api({ action: 'orders', book: o.book, wc: String(o.wc) });
     if (!j.ok || !Array.isArray(j.orders)) return false;
     S.orders = j.orders; S.steps = j.steps || S.steps; S.rooms = j.rooms || S.rooms;
     renderOrders();
@@ -1525,7 +1608,62 @@
     }
     box.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, KIKAI_ARRIVED_OUT), stockCell(o, STOCK_OUT));
     $('variants').hidden = true;
+    renderNewOrder(o);
     renderRooms(o);
+  }
+
+  /* ---------- 同じ品目の新規受注（2026-10-30） ---------- */
+  // 品目の情報（品名・得意先・納品先・材料・後工程・図面）は元の受注からサーバーが写す。ここで入れるのは数量・納期・連絡事項だけ。
+  // 作るとすぐ承認済になり、Airtable_Fetch.py が Excel に行を足す
+  function renderNewOrder(o) {
+    const box = $('newOrder'); box.textContent = '';
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '＋ この品目で新規受注';
+    open.style.alignSelf = 'flex-start';
+    box.append(open);
+    open.onclick = () => {
+      box.textContent = '';
+      const head = document.createElement('div'); head.className = 'lbl';
+      head.textContent = `同じ品目で新規受注（${o.book} / ${o.wc}）。品名・得意先・納品先・後工程・図面は今の受注から写します。作るとすぐ承認済になり Excel に入ります`;
+      const amt = document.createElement('input'); amt.inputMode = 'numeric'; amt.placeholder = '数量'; amt.autocomplete = 'off'; amt.setAttribute('aria-label', '数量');
+      const nd = document.createElement('input'); nd.type = 'date'; nd.setAttribute('aria-label', '納期');
+      const r1 = document.createElement('div'); r1.className = 'row'; r1.append(amt, nd);
+      const memo = document.createElement('input'); memo.placeholder = '連絡事項（任意）'; memo.autocomplete = 'off'; memo.setAttribute('aria-label', '連絡事項');
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '登録する';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
+      const r2 = document.createElement('div'); r2.className = 'row'; r2.append(save, cancel);
+      box.append(head, r1, memo, r2);
+      amt.focus();
+      cancel.onclick = () => renderNewOrder(o);
+      save.onclick = async () => {
+        const n = amt.value.trim().replace(/[,，\s]/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+        if (!/^\d+$/.test(n) || !(Number(n) > 0)) return say($('stepMsg'), '数量は1以上の整数で入れてください', 'err');
+        if (!/^\d{4}-\d\d-\d\d$/.test(nd.value)) return say($('stepMsg'), '納期を選んでください', 'err');
+        const [y, m, d] = nd.value.split('-').map(Number);
+        const label = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+        if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}\n数量 ${Number(n).toLocaleString('ja-JP')}・納期 ${label}\n\nこの内容で新規受注を作りますか？`)) return;
+        const send = async (force) => {
+          save.disabled = true; say($('stepMsg'), '新規受注を作っています…');
+          const j = await write({ action: 'neworder', id: o.id, amount: n, ndate: nd.value, memo: memo.value.trim(), force });
+          save.disabled = false;
+          return j;
+        };
+        let j = await send(false);
+        // 同じ納期・数量の受注が既にある（二度押し・通信の送り直しのことが多い）。本当に別の注文のときだけ作る
+        if (j.dup) {
+          if (!confirm(`${j.error}。\n二度押しでなく、別の注文として作りますか？`)) return say($('stepMsg'), '作りませんでした（同じ受注が既にあります）', 'warn');
+          j = await send(true);
+        }
+        // 作れたか分からないときは送り直さない（二重登録を避ける）。品名で探し直せば確かめられる
+        if (j.unknown) return say($('stepMsg'), '通信が途切れ、新規受注が作られたか確認できません。もう一度押す前に、品名で探し直して確かめてください', 'err');
+        if (!j.ok || !j.order) return say($('stepMsg'), j.error || '新規受注を作れませんでした', 'err');
+        navigator.vibrate?.([40, 40, 40]);
+        const no = j.order;
+        const text = `新規受注を作りました（${no.book} / ${no.wc}・数量 ${Number(no.amount).toLocaleString('ja-JP')}・納期 ${label}）。Excel には次の取り込みで入ります`;
+        // 探した結果の一覧に足して、その受注のカードを開く（作業リストはビューの条件次第なので足さない）
+        if (S.mode === 'find') { S.orders.unshift(no); selectOrder(no.id); say($('stepMsg'), text, 'ok'); }
+        else { renderNewOrder(o); say($('stepMsg'), text, 'ok'); }
+      };
+    };
   }
 
   /* ---------- 状況: 進行社外「シート材料入荷済」「機械貼材料入荷済」「在庫シート利用」（2026-10-23 / 10-29） ---------- */
@@ -1697,7 +1835,7 @@
   // 一覧を取り直し、選んでいた受注がまだあれば選び直す
   async function refreshCurrent() {
     const id = S.sel;
-    if (S.mode === 'list') await loadView(S.view, true); else await search();
+    if (S.mode === 'list') await loadView(S.view, true); else await (S.findBy === 'item' ? itemSearch(S.findKeys) : search());
     if (id && S.orders.some(x => x.id === id)) selectOrder(id); else { $('stepCard').hidden = true; S.sel = null; }
   }
 
