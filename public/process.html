@@ -69,6 +69,7 @@
   .newo{ border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px }
   .newo .lbl{ font-size:13px; color:var(--mut) }
   .newo .row input{ flex:1 1 0 }
+  .delbtn{ align-self:flex-start; padding:7px 12px; font-size:14px; font-weight:500; background:transparent; color:var(--err); border:1px solid var(--err) }
   .row{ display:flex; gap:8px; align-items:center }
   input, select{ font:inherit; font-size:19px; padding:10px 12px; border-radius:var(--r); border:1px solid var(--line2);
     background:var(--surf2); color:var(--txt); outline:none }
@@ -499,6 +500,7 @@
     <div class="variants" id="variants" hidden></div>
     <div class="msg" id="stepMsg" role="status"></div>
     <div class="newo" id="newOrder"></div>
+    <div class="row" id="delOrder"></div>
   </section>
 </main>
 
@@ -1497,7 +1499,21 @@
   function selectOrder(id) {
     S.sel = id; S.pendingStep = null; renderOrders(); renderSteps(); showCloseLabel();
     $('stepCard').hidden = false; say($('stepMsg'), '');
-    $('stepCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollToCard($('stepCard'));
+  }
+  // 工程カードを見出しのすぐ下まで動かす（2026-10-30）。Android の Chrome では scrollIntoView のなめらかな動きが、
+  // キーボードが閉じるときの高さの変化や画像の読み込みで途中で止まり、カードまで下りないことがあった。
+  // スクロールする箱を自分で計算して動かし、少し待ってもカードが見出しの下に来ていなければ一気に飛ぶ
+  function scrollToCard(el) {
+    const sc = scroller();
+    const head = [$('listHead'), $('findHead')].find(x => x && !x.hidden);
+    const want = () => (sc === window ? 0 : sc.getBoundingClientRect().top) + (head ? head.offsetHeight : 0) + 8;
+    const go = (behavior) => {
+      const y = el.getBoundingClientRect().top - want() + scrollTopOf(sc);
+      sc.scrollTo({ top: Math.max(0, y), behavior });
+    };
+    requestAnimationFrame(() => go('smooth'));
+    setTimeout(() => { if (!el.hidden && Math.abs(el.getBoundingClientRect().top - want()) > 40) go('auto'); }, 700);
   }
 
   // 記録せずに一覧へ戻る（2026-10-23）。選んだ行の表示は残し、その行まで戻る。閉じたので自動の読み直しも再開する
@@ -1609,7 +1625,30 @@
     box.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, KIKAI_ARRIVED_OUT), stockCell(o, STOCK_OUT));
     $('variants').hidden = true;
     renderNewOrder(o);
+    renderDelete(o);
     renderRooms(o);
+  }
+
+  /* ---------- 受注の削除（2026-10-30） ---------- */
+  // Excel にまだ入っていない受注（新規受注・FAX登録の直後）で、工程の記録が無いものだけ消せる。サーバーも同じ決まりで弾く
+  function renderDelete(o) {
+    $('delOrder').textContent = '';
+    if (!o.addPending || Object.keys(o.done || {}).length || !['', '工程表発行済'].includes(o.progIn) || o.amountLocked) return;
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'delbtn'; btn.textContent = 'この受注を削除（Excel に入る前だけ）';
+    $('delOrder').append(btn);
+    btn.onclick = async () => {
+      if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を削除しますか？（元に戻せません）`)) return;
+      btn.disabled = true; say($('stepMsg'), '削除しています…');
+      const j = await write({ action: 'delete', id: o.id });
+      btn.disabled = false;
+      if (j.unknown) return say($('stepMsg'), '通信が途切れ、削除できたか確認できません。探し直して確かめてください', 'err');
+      if (!j.ok && !j.gone) return say($('stepMsg'), j.error || '削除できませんでした', 'err');
+      navigator.vibrate?.(60);
+      S.orders = S.orders.filter(x => x.id !== o.id);
+      $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
+      if (S.mode === 'list') await loadView(S.view, true); else renderOrders();
+      say(S.mode === 'list' ? $('listMsg') : $('findMsg'), `${o.book} / ${o.wc}（納期 ${o.ndate || '空白'}）の受注を削除しました`, 'ok');
+    };
   }
 
   /* ---------- 同じ品目の新規受注（2026-10-30） ---------- */

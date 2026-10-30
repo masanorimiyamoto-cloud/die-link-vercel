@@ -12,6 +12,7 @@
 //   action=paper    { id, paper }                … 紙入荷日（シート・機械貼材料の入荷日）を入れる／消す（ログイン必須）
 //   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
 //   action=neworder { id, amount, ndate, memo, force } … その受注と同じ品目で新規受注を作る（ログイン必須）
+//   action=delete   { id }                       … Excel にまだ入っていない受注を消す（ログイン必須）
 //
 // 完了の記録は2か所に書く:
 //   進行社内      … 既存の選択肢（オートン抜き完了 など）。進行社内グループの計算式や
@@ -31,7 +32,7 @@ const F = {
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
-  ndateLog: '納期変更記録', printed: '工程表印刷日時',
+  ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -96,7 +97,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -185,6 +186,8 @@ function describe(rec) {
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
     images: imagesOf(f),
     closed: CLOSED_OUT.has(String(f[F.progOut] || '')),
+    // Add_from_Airtable が ON ＝ まだ Excel に入っていない（Airtable_Fetch.py が行を足すと OFF にする）。画面はこのときだけ削除ボタンを出す
+    addPending: !!f[F.addPending],
     done,
   };
 }
@@ -216,6 +219,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'room') return setRoom(body, who.user);
   if (action === 'stock') return setStock(body, who.user);
   if (action === 'neworder') return newOrder(body, who.user);
+  if (action === 'delete') return deleteOrder(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -228,7 +232,7 @@ function imagesOf(f) {
   }));
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 // 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）
@@ -738,6 +742,42 @@ async function newOrder(body, user) {
     detail: `同じ品目で新規受注（元: ${src.id}）数量 ${amount} 納期 ${ndate}${memo ? ` 連絡: ${memo}` : ''}${dup ? '（同じ納期・数量の受注あり・確認して作成）' : ''}`,
   });
   return json({ ok: true, order: describe(rec) });
+}
+
+// ---- 受注の削除（2026-10-30）----
+// 新規受注の打ち間違い・FAX登録の誤りを、スマホから消せるようにする。消せるのは Excel にまだ入っていない受注だけ
+// （Add_from_Airtable が ON）。Excel に入った後に Airtable だけ消すと、S96.5 に RecordID の切れた行が残るため。
+// 工程の記録・伝票がある受注も消さない（作業の実績や伝票の照合が消えるため）。
+// 消した内容は作業ログ（受注削除）に残し、必要なら作り直せるようにする。
+// Chrome の自動再送で2回目が来たときは、もう無いので gone を返す（画面は消せたものとして扱う）
+const DELETE_OK_IN = new Set(['', '工程表発行済']);
+async function deleteOrder(body, user) {
+  if (!/^rec[A-Za-z0-9]{14}$/.test(String(body?.id || ''))) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  const rec = await getRecord(body.id);
+  if (!rec) return json({ ok: false, gone: true, error: 'この受注はもうありません（既に消えています）' }, 404);
+  const o = describe(rec);
+  if (!o.addPending) {
+    return json({ ok: false, error: 'この受注はもう Excel に入っているので、ここでは消せません。事務所で Excel から取り消してください' }, 409);
+  }
+  if (Object.keys(o.done).length || !DELETE_OK_IN.has(o.progIn) || rec.fields?.[F.slipId] || SLIP_DONE_OUT.has(o.progOut)) {
+    return json({ ok: false, error: '工程の記録か伝票があるので消せません。先に記録を取り消すか、事務所に頼んでください' }, 409);
+  }
+  const f = rec.fields || {};
+  const keep = {};
+  for (const k of [F.book, F.wc, F.item, F.amount, F.ndate, F.memo, F.progOut, ...NEW_COPY_FIELDS, 'Ko_OrderNo', '承認済']) {
+    if (f[k] !== undefined && f[k] !== null && f[k] !== '') keep[k] = f[k];
+  }
+  try {
+    await airtable(`${API}/${rec.id}`, { method: 'DELETE' });
+  } catch (e) {
+    return json({ ok: false, error: `消せませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
+  }
+  viewCache.clear();
+  // 受注はもう無いのでリンクは付けない（付けると書き込みが弾かれる）。受注IDは内容に残す
+  await writeWorkLog(user, {
+    action: '受注削除', book: o.book, wc: o.wc, detail: `${rec.id} を削除 ${JSON.stringify(keep)}`,
+  });
+  return json({ ok: true, id: rec.id });
 }
 
 async function undo(body, user) {
