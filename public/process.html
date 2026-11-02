@@ -62,6 +62,8 @@
   .findhead .nav{ display:flex; gap:8px; align-items:center }
   .findhead .opt{ display:flex; align-items:center; gap:6px; font-size:14px; color:var(--mut); cursor:pointer; align-self:flex-start }
   .findhead .opt input{ flex:none; width:20px; height:20px; padding:0; margin:0; accent-color:var(--a) }
+  .order .newmark{ align-self:flex-start; font-size:13px; font-weight:600; padding:2px 10px; border-radius:999px; background:var(--st-ready-badge); color:var(--st-ready-ink) }
+  .order.neworow{ border-color:var(--st-ready); box-shadow:inset 0 0 0 1px var(--st-ready) }
   .order .archmark{ align-self:flex-start; font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line2); color:var(--mut) }
   .findhead .nav .btn{ flex:0 0 auto; padding:8px 14px }
   .findhead .nav .pos{ flex:1; text-align:center; font-size:14px; color:var(--mut); font-variant-numeric:tabular-nums }
@@ -537,7 +539,9 @@
 
   // filter: 状態の絞り込み（all / ready / wait / done）。listAt: 一覧を反映した時刻（サーバーが Airtable を読んだ時刻）。listFail: 最後の読み込みが失敗
   const S = { orders: [], steps: [], views: [], rooms: [], view: '', mode: 'list', sel: null, pendingStep: null,
-    filter: 'all', listAt: 0, listFail: false };
+    filter: 'all', listAt: 0, listFail: false, newIds: new Set() };
+  // この画面で作った新規受注は、探し直しても候補の一番上に置く（2026-11-02 どこに出たか分からないとの指摘）
+  const pinNew = (list) => [...list.filter(o => S.newIds.has(o.id)), ...list.filter(o => !S.newIds.has(o.id))];
 
   // Book は Ko / Ta / Yo から選ぶ。QR に別の値が来たときだけ選択肢を足す
   function setBook(v) {
@@ -646,7 +650,7 @@
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     const j = await api({ action: 'orders', book, wc });
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
-    S.orders = j.orders; S.steps = j.steps; S.rooms = j.rooms || [];
+    S.orders = pinNew(j.orders); S.steps = j.steps; S.rooms = j.rooms || [];
     if (!j.orders.length) return say($('findMsg'), `${book} / ${wc} の受注は見つかりません`, 'err');
     const open = j.orders.filter(o => !o.closed);
     say($('findMsg'), open.length > 1 ? `受注が${open.length}件あります。どれか選んでください` : '');
@@ -667,7 +671,7 @@
     S.orders = []; updateNav();
     const j = await api({ action: 'items', k1, k2, archived });
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
-    S.orders = j.orders; S.steps = j.steps; S.rooms = j.rooms || [];
+    S.orders = pinNew(j.orders); S.steps = j.steps; S.rooms = j.rooms || [];
     const words = [k1, k2].filter(Boolean).map(k => `「${k}」`).join('');
     if (!j.orders.length) { updateNav(); return say($('findMsg'), `品名に${words}を含む受注は見つかりません${archived ? '' : '（アーカイブ済は含めていません）'}`, 'err'); }
     const open = j.orders.filter(o => !o.closed).length;
@@ -1118,6 +1122,7 @@
       const info = document.createElement('div'); info.className = 'info';
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; s.style.alignSelf = 'flex-start'; info.append(s); }
       if (o.archived) { const s = document.createElement('span'); s.className = 'archmark'; s.textContent = 'アーカイブ済'; info.append(s); }
+      if (S.newIds.has(o.id)) { const s = document.createElement('span'); s.className = 'newmark'; s.textContent = '＋ 今作成した受注'; info.prepend(s); el.classList.add('neworow'); }
       info.append(it, facts(o), mt, progressStrip(o));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
@@ -1558,7 +1563,7 @@
     const j = S.findBy === 'item' ? await api({ action: 'items', ...S.findKeys })
       : await api({ action: 'orders', book: o.book, wc: String(o.wc) });
     if (!j.ok || !Array.isArray(j.orders)) return false;
-    S.orders = j.orders; S.steps = j.steps || S.steps; S.rooms = j.rooms || S.rooms;
+    S.orders = pinNew(j.orders); S.steps = j.steps || S.steps; S.rooms = j.rooms || S.rooms;
     renderOrders();
     return true;
   }
@@ -1698,9 +1703,19 @@
         navigator.vibrate?.([40, 40, 40]);
         const no = j.order;
         const text = `新規受注を作りました（${no.book} / ${no.wc}・数量 ${Number(no.amount).toLocaleString('ja-JP')}・納期 ${label}）。Excel には次の取り込みで入ります`;
-        // 探した結果の一覧に足して、その受注のカードを開く（作業リストはビューの条件次第なので足さない）
-        if (S.mode === 'find') { S.orders.unshift(no); selectOrder(no.id); say($('stepMsg'), text, 'ok'); }
-        else { renderNewOrder(o); say($('stepMsg'), text, 'ok'); }
+        // 作った受注は候補の一番上に「今作成」の印で出し、そこまで動かして光らせる（カードは開かない）。
+        // 作業リストから作ったときは品番で探すに切り替え、新しい受注と元の受注を並べる（ビューに出るかは条件次第のため）
+        S.newIds.add(no.id);
+        if (S.mode !== 'find') {
+          setMode('find'); setBook(o.book); $('wc').value = String(o.wc); S.findBy = 'wc';
+          S.orders = [o];
+        }
+        S.orders = pinNew([no, ...S.orders.filter(x => x.id !== no.id)]);
+        $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
+        renderOrders();
+        say($('findMsg'), text, 'ok');
+        const row = document.querySelector(`#orders .order[data-id="${no.id}"]`);
+        if (row) { scrollToCard($('findMsg')); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
       };
     };
   }
