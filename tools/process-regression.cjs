@@ -353,7 +353,7 @@ test('N4 二重操作: 書き込み中は次の操作を始めない。結果不
   const env = { S: { sel: 'recA', unsure: null }, writing: 0, msgs: [], locks: 0,
     $: () => ({}), say: (el, t) => env.msgs.push(t), applyLocks: () => { env.locks++; }, hideToast() {}, updateNav() {} };
   vm.createContext(env);
-  vm.runInContext('let op = null;\n' + extract('runOp') + '\nglobalThis.runOp = runOp; globalThis.opNow = () => op;', env);
+  vm.runInContext('let op = null, listGen = 0, listBusy = 0, findGen = 0;\n' + extract('runOp') + '\nglobalThis.runOp = runOp; globalThis.opNow = () => op;', env);
   let release; let runs = 0;
   const first = env.runOp({ id: 'recA' }, () => { runs++; return new Promise(r => { release = r; }); });
   assert.equal(env.writing, 1, '書き込み中は自動の読み直しも止まる');
@@ -390,6 +390,119 @@ test('N5 保存後: 一覧の読み直しに失敗しても complete は送り�
   // 完了の送信は doComplete の write 1回だけ（afterComplete・一覧の読み直しからは送らない）
   assert.equal((extract('doComplete').match(/write\(/g) || []).length, 1);
   assert.doesNotMatch(extract('afterComplete'), /write\(|api\(/);
+});
+
+// ---- 2026-11-03 実装後レビュー（docs/claude-process-ui-review.md）----
+// 一覧の読み込み（loadView）と書き込み（runOp）を同じ作り物の画面で動かし、応答の順番を入れ替える
+function raceEnv() {
+  const d = deferredApi();
+  const e = listEnv(d.api);
+  Object.assign(e, { applyLocks() {}, hideToast() {}, updateNav() {} });
+  vm.runInContext([
+    'let op = null, findGen = 0;', line(/^  const current = .*$/m), extract('runOp'), extract('patch'),
+    'globalThis.runOp = runOp; globalThis.patch = patch; globalThis.current = current;',
+  ].join('\n'), e);
+  e.$('stepCard').hidden = false;
+  e.S.orders = [{ id: 'recA', amount: 100, ndate: '2026-11-06', room: [], done: {} }]; e.S.sel = 'recA';
+  return { d, e };
+}
+for (const [what, apply, check] of [
+  ['数量', (x) => { x.amount = 120; }, (o) => o.amount === 120],
+  ['納期', (x) => { x.ndate = '2026-11-10'; }, (o) => o.ndate === '2026-11-10'],
+  ['Room', (x) => { x.room = ['Nao']; }, (o) => o.room.includes('Nao')],
+]) {
+  test(`V1 先に始めた一覧の読み込み → ${what}を保存 → 古い一覧の応答 → 保存成功 でも、画面の受注は保存した値`, async () => {
+    const { d, e } = raceEnv();
+    const o = e.current();
+    const load = e.loadView('kikai', true); // 一覧の「更新」（応答を待たせる）
+    let release; const saved = new Promise(r => { release = r; });
+    const op = e.runOp(o, async () => { await saved; e.patch(o, apply); });
+    d.q[0].resolve(ok('kikai', [{ id: 'recA', amount: 100, ndate: '2026-11-06', room: [], done: {} }], 5)); // 保存前の値
+    assert.equal(await load, false, '書き込みより前に始めた読み込みは使わない');
+    release(); await op;
+    assert.ok(check(e.current()), '開いている受注に保存した値が入っている');
+  });
+}
+test('V1 保存の結果は、読み直しで置き換わった今の受注にも入る（操作を始めたときの ID で探す）', async () => {
+  const { e } = raceEnv();
+  const o = e.current();
+  e.S.orders = [{ id: 'recA', amount: 100, done: {} }]; // 読み直しで別のものになった
+  e.patch(o, x => { x.amount = 120; });
+  assert.equal(o.amount, 120); assert.equal(e.current().amount, 120);
+});
+test('V1 書き込みの中で始めた一覧の読み直し（完了後の再取得）は使われる', async () => {
+  const { d, e } = raceEnv();
+  const o = e.current(); let got;
+  await e.runOp(o, async () => {
+    const p = e.loadView('kikai', true);
+    d.q[0].resolve(ok('kikai', [{ id: 'recA', amount: 120, done: {} }], 7));
+    got = await p;
+  });
+  assert.equal(got, true); assert.equal(e.current().amount, 120);
+});
+test('V1 数量・納期・紙入荷日・Room・材料・完了・取消 は保存の結果を patch で入れる', () => {
+  for (const fn of ['amountEditor', 'ndateEditor', 'paperEditor', 'toggleRoom', 'setStockOut', 'doComplete', 'cancelStep']) {
+    assert.match(extract(fn), /patch\(o, x => /, fn);
+  }
+  for (const fn of ['search', 'itemSearch', 'reloadFind']) assert.match(extract(fn), /gen !== findGen/, `${fn} は古い応答を捨てる`);
+});
+// 「一覧だけ読み直す」の処理を取り出して動かす
+function toastEnv() {
+  const d = deferredApi();
+  const nodes = new Map();
+  const $ = (id) => { if (!nodes.has(id)) nodes.set(id, elem()); return nodes.get(id); };
+  const env = { $, shown: 0, S: { mode: 'list', view: 'kikai', toast: null }, busyNow: () => false, say() {} };
+  env.loadView = () => d.api({});
+  vm.createContext(env);
+  const click = source.match(/\$\('toastRetry'\)\.onclick = (async \(\) => \{[^]*?\n  \});/)[1];
+  vm.runInContext([
+    'let toastGen = 0;',
+    'function showToast(t) { toastGen++; S.toast = t; globalThis.shown++; }',
+    'function hideToast() { toastGen++; S.toast = null; }',
+    'globalThis.retry = ' + click + ';', 'globalThis.showToast = showToast; globalThis.hideToast = hideToast;',
+  ].join('\n'), env);
+  env.showToast({ head: 'Ko / 1', lines: ['保存済みです'] }); env.shown = 0;
+  return { d, env };
+}
+for (const [what, act] of [
+  ['閉じる', (env) => env.hideToast()],
+  ['別の受注を開く', (env) => env.hideToast()], // selectOrder は hideToast を呼ぶ
+  ['品番で探すに切り替える', (env) => { env.hideToast(); env.S.mode = 'find'; }],
+]) {
+  test(`V3 「一覧だけ読み直す」を待つ間に${what}と、遅れて失敗しても前の案内は戻らない`, async () => {
+    const { d, env } = toastEnv();
+    const p = env.retry();
+    act(env);
+    d.q[0].resolve(false); await p;
+    assert.equal(env.shown, 0); assert.equal(env.S.toast, null);
+  });
+}
+test('V3 待つ間に何もしなければ、失敗はその案内に出し直す', async () => {
+  const { d, env } = toastEnv();
+  const p = env.retry(); d.q[0].resolve(false); await p;
+  assert.equal(env.shown, 1);
+});
+test('V3 selectOrder・setMode・検索・ビューの切り替え・書き込みの開始は案内を消す', () => {
+  for (const fn of ['selectOrder', 'setMode', 'search', 'itemSearch', 'runOp']) assert.match(extract(fn), /hideToast\(\)/, fn);
+  assert.match(extract('renderChips'), /hideToast\(\)/);
+});
+test('V2 補助の工程・種類から記録したときは、押した領域の近くにも結果・失敗の理由を出す', () => {
+  assert.match(extract('renderStepLists'), /chooseStep\(s, \(s\.group === 'status' \? status : other\)\.parentNode\)/);
+  assert.match(extract('chooseStep'), /doComplete\(s, v, false, near\)/);
+  const dc = extract('doComplete');
+  assert.match(dc, /sayAt\(near, '記録しています…'\)/);
+  assert.match(dc, /return sayAt\(near, j\.error/);
+  assert.match(dc, /\$\('stepMsg'\)\.scrollIntoView/, '先に記録されていたときは案内の位置まで動かす');
+});
+test('V4 壊れた時差・途中で切れた日時は null。日本時間の既存の書式と正しい時差はそのまま', () => {
+  const e = planEnv();
+  assert.equal(e.recTime('2026-11-03T14:32:00+99:99'), null);
+  assert.equal(e.recTime('2026-11-03T14:32:00+09:xx'), null);
+  assert.equal(e.recTime('佐藤 2026-11-03 14:32x'), null);
+  assert.equal(e.recTime('佐藤 2026-11-03 14:32'), Date.UTC(2026, 10, 3, 5, 32));
+  assert.equal(e.recTime('2026-11-03T14:32:00.000+09:00'), Date.UTC(2026, 10, 3, 5, 32));
+  assert.equal(e.recTime('2026-11-03T05:32:00-0000'), Date.UTC(2026, 10, 3, 5, 32));
+  assert.equal(e.recTime('2026-11-03T00:32-05:00'), Date.UTC(2026, 10, 3, 5, 32));
 });
 
 (async () => {

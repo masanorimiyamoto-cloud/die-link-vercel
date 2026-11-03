@@ -477,7 +477,7 @@
   .toast .tx{ flex:1 1 60%; min-width:0; display:flex; flex-direction:column; gap:2px; overflow-wrap:anywhere }
   .toast .tx b{ font-weight:600 }
   .toast .btn{ padding:8px 12px; font-size:14px }
-  body.has-toast .wrap{ padding-bottom:170px }
+  body.has-toast .wrap{ padding-bottom:var(--toasth, 170px); scroll-padding-bottom:var(--toasth, 170px) }
 </style>
 </head>
 <body>
@@ -662,13 +662,21 @@
   // 書き込みの操作（記録・取消・材料・Room・数量・納期・紙入荷日・新規受注・削除）の開始から、画面へ反映するまで（2026-11-03）。
   // writing は自動の読み直しを止めるための数で、二重の送信は止めない。その間は別の書き込みを重ねず、受注・画面の切り替えも止める。
   // 対象は操作を始めたときの受注（o）。結果不明のままの受注には書かない
+  // 2026-11-03 レビュー1: 書き込みを始める前に送った一覧・検索の読み込みが、保存の後に古い値で受注を置き換えないよう、
+  // 書き込みの開始で読み込みの番号（listGen / findGen）を進める。完了後に操作の中から読み直すものは、新しい番号なので使われる
   let op = null;
   async function runOp(o, fn) {
     if (op) { say($('stepMsg'), '前の操作を処理しています。終わるまでお待ちください', 'warn'); return; }
     if (!o || (S.unsure && S.unsure.id === o.id)) { applyLocks(); return; }
     if (S.sel !== o.id) return; // 開いている受注が変わっていたら送らない
-    op = { id: o.id }; writing++; hideToast(); applyLocks();
+    op = { id: o.id }; writing++; listGen++; listBusy = 0; findGen++; hideToast(); applyLocks();
     try { return await fn(); } finally { op = null; writing--; applyLocks(); updateNav(); }
+  }
+  // 保存の結果を受注へ入れる。操作を始めたときの受注（o）と、今の一覧にある同じ ID の受注が別のもの（読み直しで置き換わった）なら両方へ
+  function patch(o, fn) {
+    fn(o);
+    const c = S.orders.find(x => x.id === o.id);
+    if (c && c !== o) fn(c);
   }
   // 書き込み中に、受注・リスト・画面を切り替える操作を止める（押されたら知らせるだけ）
   function busyNow() {
@@ -747,12 +755,15 @@
   $('camBtn').onclick = () => (stream ? stopCam() : startCam());
 
   /* ---------- 受注を探す ---------- */
+  let findGen = 0;
   async function search() {
     const book = $('book').value.trim(), wc = $('wc').value.trim();
     if (!book || !wc) return say($('findMsg'), 'Book と WorkCord を入れてください', 'err');
     S.findBy = 'wc'; hideToast();
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
+    const gen = ++findGen;
     const j = await api({ action: 'orders', book, wc });
+    if (gen !== findGen || S.mode !== 'find') return;
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
     S.orders = pinNew(j.orders); S.steps = j.steps; S.rooms = j.rooms || [];
     if (!j.orders.length) return say($('findMsg'), `${book} / ${wc} の受注は見つかりません`, 'err');
@@ -773,7 +784,9 @@
     $('ik1').blur(); $('ik2').blur(); // スマホのキーボードを閉じて候補を見やすくする
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     S.orders = []; updateNav();
+    const gen = ++findGen;
     const j = await api({ action: 'items', k1, k2, archived });
+    if (gen !== findGen || S.mode !== 'find') return;
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
     S.orders = pinNew(j.orders); S.steps = j.steps; S.rooms = j.rooms || [];
     const words = [k1, k2].filter(Boolean).map(k => `「${k}」`).join('');
@@ -859,12 +872,14 @@
   // 記録の日時を読む。タイムゾーンの無い記録（「佐藤 2026-10-03 14:20」「2026-10-03T14:20」）は日本時間、
   // Z や +09:00 が付いていればそれに従う。日付だけ・読めない日時は null（00:00 や今の時刻で補わない）。端末のタイムゾーンには左右されない
   function recTime(text) {
-    const m = /(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?(Z|[+-]\d\d:?\d\d)?(?![\d:])/.exec(String(text || ''));
+    // 日時の部分は 文字列の先頭か空白の後ろから始まり、文字列の終わりか空白で終わる（「+09:xx」のような壊れた時差は全体が不一致）
+    const m = /(?:^|\s)(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?(Z|[+-]\d\d:\d\d|[+-]\d{4})?(?=\s|$)/.exec(String(text || ''));
     if (!m) return null;
     const [y, mo, d, h, mi, se] = m.slice(1, 7).map(x => Number(x || 0));
     if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || se > 59) return null;
     if (new Date(Date.UTC(y, mo - 1, d)).getUTCDate() !== d) return null; // 2/30 など
     const z = m[7];
+    if (z && z !== 'Z' && (Number(z.slice(1, 3)) > 23 || Number(z.slice(-2)) > 59)) return null; // +99:99 など
     const off = !z ? 9 * 60 : z === 'Z' ? 0 : (z[0] === '-' ? -1 : 1) * (Number(z.slice(1, 3)) * 60 + Number(z.slice(-2)));
     return Date.UTC(y, mo - 1, d, h, mi, se) - off * 60000;
   }
@@ -1112,8 +1127,7 @@
           const j = await write({ action: 'amount', id: o.id, amount: next });
           if (outcomeUnknown(j, x => Number.isFinite(x.amount))) return markUnsure(o, '数量の変更');
           if (!j.ok) return sayAt(box, j.error || '変えられませんでした', 'err');
-          if (!o.amountFrom) o.amountFrom = String(cur);
-          o.amount = j.amount; o.amountLog = j.line || o.amountLog;
+          patch(o, x => { if (!x.amountFrom) x.amountFrom = String(cur); x.amount = j.amount; x.amountLog = j.line || x.amountLog; });
           say($('stepMsg'), `仕上がり数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} にしました`, 'ok');
           renderSteps(); renderOrders();
         });
@@ -1154,9 +1168,8 @@
           const j = await write({ action: 'ndate', id: o.id, ndate: next });
           if (outcomeUnknown(j, x => /^\d{4}-\d\d-\d\d$/.test(String(x.ndate || '')))) return markUnsure(o, '納期の変更');
           if (!j.ok) return sayAt(box, j.error || '変えられませんでした', 'err');
-          if (!o.ndateFrom) o.ndateFrom = o.ndate || '空白';
           const before = o.ndate ? fmtDate(o.ndate) : '空白';
-          o.ndate = j.ndate; o.ndateLog = j.line || o.ndateLog;
+          patch(o, x => { if (!x.ndateFrom) x.ndateFrom = x.ndate || '空白'; x.ndate = j.ndate; x.ndateLog = j.line || x.ndateLog; });
           say($('stepMsg'), `納期を ${before} → ${label} にしました`, 'ok');
           renderSteps(); renderOrders();
         });
@@ -1202,7 +1215,7 @@
           if (outcomeUnknown(j, x => typeof x.paper === 'string')) return markUnsure(o, '紙入荷日の変更');
           if (!j.ok) return sayAt(box, j.error || '変えられませんでした', 'err');
           const before = o.paper ? fmtDate(o.paper) : '空白';
-          o.paper = j.paper;
+          patch(o, x => { x.paper = j.paper; });
           say($('stepMsg'), `紙入荷日を ${before} → ${o.paper ? fmtDate(o.paper) : '空白'} にしました`, 'ok');
           renderSteps(); renderOrders();
         });
@@ -1502,6 +1515,8 @@
         if (S.density === k) return;
         S.density = k; store.set(DENSITY_KEY, k);
         keepTopRow(renderList);
+        // 押したボタンは作り直されるので、新しい同じボタンへフォーカスを戻す
+        [...$('densChips').querySelectorAll('button')].find(x => x.textContent === label)?.focus();
       };
       box.append(b);
     }
@@ -1775,8 +1790,10 @@
   };
   // 品番で探す画面の受注を読み直す（読み取りだけ）
   async function reloadFind(o) {
+    const gen = ++findGen;
     const j = S.findBy === 'item' ? await api({ action: 'items', ...S.findKeys })
       : await api({ action: 'orders', book: o.book, wc: String(o.wc) });
+    if (gen !== findGen || S.mode !== 'find') return false;
     if (!j.ok || !Array.isArray(j.orders)) return false;
     S.orders = pinNew(j.orders); S.steps = j.steps || S.steps; S.rooms = j.rooms || S.rooms;
     renderOrders();
@@ -1928,7 +1945,7 @@
       btn.dataset.w = '1';
       if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
       btn.append(document.createTextNode(s.label));
-      btn.onclick = () => chooseStep(s);
+      btn.onclick = () => chooseStep(s, (s.group === 'status' ? status : other).parentNode);
       (s.group === 'status' ? status : other).append(btn);
     }
     status.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, KIKAI_ARRIVED_OUT), stockCell(o, STOCK_OUT));
@@ -2096,7 +2113,7 @@
         sayAt(current() ? $('stepsStatus').parentNode : null, j.error || '進行社外を変えられませんでした', 'err');
         return;
       }
-      o.progOut = j.progOut;
+      patch(o, x => { x.progOut = j.progOut; });
       navigator.vibrate?.(40);
       // 着手可・材料の表示が変わるので、作業リストは取り直してから戻る
       if (S.mode === 'list') await loadView(S.view, true);
@@ -2140,50 +2157,54 @@
       const j = await write({ action: 'room', id: o.id, room, on });
       if (outcomeUnknown(j, x => Array.isArray(x.room))) return markUnsure(o, `Room（${room}）の変更`);
       if (!j.ok) return sayAt(near, j.error || 'Room を変えられませんでした', 'err');
-      o.room = j.room;
+      patch(o, x => { x.room = j.room; });
       navigator.vibrate?.(40);
       sayAt(near, on ? `Room に「${room}」を入れました` : `Room から「${room}」を外しました`, on ? 'ok' : 'warn');
-      renderRooms(o); renderOrders();
+      const cur = current() || o;
+      renderRooms(cur); renderOrders();
       // 一覧と同じ工程列（応援先の札）も合わせる
-      const strip = $('target').querySelector('.prog'); if (strip) strip.replaceWith(progressStrip(o, S.mode === 'list' ? S.view : ''));
+      const strip = $('target').querySelector('.prog'); if (strip) strip.replaceWith(progressStrip(cur, S.mode === 'list' ? S.view : ''));
     });
   }
 
-  function chooseStep(s) {
+  // near: 押したボタンのある補助の領域。結果・失敗の理由をそこにも出す（上部の主操作は stepMsg がすぐ下なので無し）
+  function chooseStep(s, near) {
     const o = current();
     if (!o) return;
     if (s.variants.length > 1 && $('stepCard').hidden) { selectOrder(o.id); }
-    if (s.variants.length === 1) return doComplete(s, s.variants[0]);
-    // 抜き・手貼りは種類を選ぶ。工程(自動)から分かるものを目立たせる
+    if (s.variants.length === 1) return doComplete(s, s.variants[0], false, near);
+    // 抜き・手貼りは種類を選ぶ。工程(自動)から分かるものを目立たせる。種類のボタンは押した領域に出す
     S.pendingStep = s;
     const box = $('variants'); box.textContent = ''; box.hidden = false;
+    if (near) near.append(box); else $('primary').after(box);
     for (const v of s.variants) {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label; b.dataset.w = '1';
       if (hasTag(o, v.tag)) b.classList.add('rec');
-      b.onclick = () => doComplete(s, v);
+      b.onclick = () => doComplete(s, v, false, near);
       box.append(b);
     }
     applyLocks();
-    say($('stepMsg'), `${s.label}の種類を選んでください`);
+    sayAt(near, `${s.label}の種類を選んでください`);
   }
 
-  async function doComplete(s, v, force) {
+  async function doComplete(s, v, force, near) {
     const o = current(); if (!o) return;
     if (!force && o.group === '最終' && s.key !== 'finish' &&
         !confirm(`この受注はもう「${o.progIn}」です。\n${v.value} にしてよいですか？`)) return;
     await runOp(o, async () => {
-      say($('stepMsg'), '記録しています…');
+      sayAt(near, '記録しています…');
       const j = await write({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
       if (j.conflict) {
-        // 他の人が先に記録していた。上書きはせず、最新の状態を見せる
+        // 他の人が先に記録していた。上書きはせず、最新の状態を見せる（カードを作り直すので、案内の位置まで動かす）
         await refreshCurrent();
         say($('stepMsg'), `${j.error}。取り消すときは「進行と完了記録」の「記録を取り消す」を押してください`, 'warn');
+        if (!$('stepCard').hidden) $('stepMsg').scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
       // 応答が無い・読めない・必要な値が欠けている: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
       if (outcomeUnknown(j, x => !!x.stamp && !!x.value)) return markUnsure(o, `「${v.value}」の記録`);
-      if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
-      o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
+      if (!j.ok) return sayAt(near, j.error || '記録できませんでした', 'err');
+      patch(o, x => { x.done[s.key] = j.stamp; x.progIn = j.value; if (s.key === 'finish') x.group = '最終'; });
       navigator.vibrate?.([40, 40, 40]);
       const from = detailView(); // 開いていた作業リスト（読み直しの前に控える）
       // ビューの条件で行が消えることがあるので、作業リストは取り直してから戻る。読み直せなくても完了は送り直さない
@@ -2207,7 +2228,9 @@
     if (g.next) t.lines.push(g.next);
     backToRow(o.id, `${value} を記録しました`, 'ok', t);
   }
+  let toastGen = 0; // 案内を出す・消すたびに進める。読み直しを待つ間に消えた案内を戻さない
   function showToast(t, cls) {
+    toastGen++;
     const box = $('toast'); box.className = 'toast ' + (cls || 'ok');
     const tx = $('toastText'); tx.textContent = '';
     const h = document.createElement('b'); h.textContent = t.head; tx.append(h);
@@ -2215,16 +2238,26 @@
     $('toastRetry').hidden = !t.retry;
     box.hidden = false; document.body.classList.add('has-toast');
     S.toast = t;
+    fitToast();
   }
-  function hideToast() { $('toast').hidden = true; document.body.classList.remove('has-toast'); S.toast = null; }
+  function hideToast() { toastGen++; $('toast').hidden = true; document.body.classList.remove('has-toast'); S.toast = null; }
+  // 案内の高さぶん一覧の下に余白を取り、最後の行やフォーカスが案内に隠れないようにする（品名・文字の大きさで高さが変わる）
+  function fitToast() {
+    if ($('toast').hidden) return;
+    document.documentElement.style.setProperty('--toasth', ($('toast').offsetHeight + 16) + 'px');
+  }
+  if (window.ResizeObserver) new ResizeObserver(fitToast).observe($('toast'));
   $('toastClose').onclick = hideToast;
   // 一覧だけを読み直す（完了は送り直さない）
   $('toastRetry').onclick = async () => {
     if (busyNow()) return;
     const t = S.toast; if (!t) return;
+    const gen = toastGen;
     $('toastRetry').disabled = true;
     const ok = await loadView(S.view, true);
     $('toastRetry').disabled = false;
+    // 待つ間に閉じた・受注を開いた・リストを変えた・探した なら、成功でも失敗でも案内には触れない
+    if (gen !== toastGen || S.toast !== t || S.mode !== 'list') return;
     if (!ok) return showToast({ ...t, lines: [t.lines[0], 'まだ一覧を読み込めません。電波を確かめてもう一度押してください'] }, 'warn');
     hideToast();
     say($('listMsg'), '一覧を更新しました', 'ok');
@@ -2243,8 +2276,7 @@
         sayAt(current() ? near : null, j.error || '取り消せませんでした', 'err');
         return;
       }
-      delete o.done[s.key]; o.progIn = j.progIn;
-      if (o.group === '最終' && o.progIn !== '仕上がりました') o.group = '';
+      patch(o, x => { delete x.done[s.key]; x.progIn = j.progIn; if (x.group === '最終' && x.progIn !== '仕上がりました') x.group = ''; });
       if (S.mode === 'list') await loadView(S.view, true);
       backToRow(o.id, `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
     });
@@ -2264,10 +2296,13 @@
         ? `この受注は「${fl}」の絞り込みから外れました。「すべて」で表示できます` : 'この受注は一覧から外れました';
       S.sel = null; renderOrders();
       if (toast) showToast({ ...toast, lines: [...toast.lines, why] }, cls); else say(msgEl, `${text}（${why}）`, cls);
+      // 行が無いので、一覧の見出し（作業リスト）か検索の欄から Tab を続ける
+      (S.mode === 'list' ? $('listHead') : $('ik1')).focus({ preventScroll: true });
       return;
     }
     if (toast) showToast(toast, cls); else say(msgEl, text, cls);
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.focus({ preventScroll: true }); // Tab はこの行から続ける
     row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
   }
 

@@ -2,7 +2,8 @@
 // public/process.html を本番の API・Airtable に一切触れずに画面で確かめるための、全面モックのローカルサーバー（2026-11-03）。
 // ・/api/session（ログイン）と /api/airtable-update-progress のすべての action をここで返す
 // ・モックしていない /api/* は 500 で失敗させる（本番へは流さない）。受注はすべて架空のデータ
-// ・/__mock に POST すると、次の一覧の読み込みを失敗させる・次の書き込みを結果不明にする などを指定できる。GET /__mock/log で受けた書き込みを返す
+// ・/__mock に POST すると、次の一覧の読み込みを失敗させる（failView）・遅らせる（delayView。内容は要求を受けた時点のもの）、
+//   次の書き込みを拒否する（rejectWrite）・結果不明にする（unknownWrite: 保存せずに壊れた応答 / lostWrite: 保存したのに応答だけ壊れる）などを指定できる。GET /__mock/log で受けた書き込みを返す
 // 実行: node tools/process-mock-server.mjs [port]   → http://127.0.0.1:8787/process.html
 import http from 'node:http';
 import fs from 'node:fs';
@@ -68,7 +69,7 @@ function fixtures() {
   ];
 }
 let DB = fixtures();
-const ctl = { failView: 0, unknownWrite: 0, delayWrite: 0, log: [] };
+const ctl = { failView: 0, delayView: 0, unknownWrite: 0, lostWrite: 0, rejectWrite: 0, delayWrite: 0, log: [] };
 
 const pub = (o) => { const { views, ...rest } = o; return JSON.parse(JSON.stringify(rest)); };
 const nowStamp = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
@@ -82,11 +83,14 @@ async function handle(body) {
     ctl.log.push({ action: a, id: body.id, step: body.step, variant: body.variant, force: body.force });
     if (ctl.delayWrite) await new Promise(r => setTimeout(r, ctl.delayWrite));
     if (ctl.unknownWrite) { ctl.unknownWrite--; return { raw: '<html>502 Bad Gateway</html>', status: 502 }; }
+    if (ctl.rejectWrite) { ctl.rejectWrite--; return { status: 400, body: { ok: false, error: 'TEST_SERVER_REJECTION' } }; }
   }
   if (a === 'view') {
-    if (ctl.failView) { ctl.failView--; return { status: 502, body: { ok: false, error: 'mock 502' } }; }
+    const fail = ctl.failView > 0; if (fail) ctl.failView--;
     const key = body.view || 'cad';
     const rows = DB.filter(o => key === 'all' || o.views.includes(key)).map(pub).map(o => ({ ...o, images: [] }));
+    if (ctl.delayView) await new Promise(r => setTimeout(r, ctl.delayView)); // 待たせても内容は要求を受けた時点のもの
+    if (fail) return { status: 502, body: { ok: false, error: 'mock 502' } };
     return { body: { ok: true, view: key, views, steps, rooms: ROOMS, rows, cachedAt: Date.now() } };
   }
   if (a === 'viewImages') {
@@ -139,7 +143,10 @@ http.createServer(async (req, res) => {
     return send(res, 200, { ok: true }, { 'set-cookie': 'xcsrf=MOCK; Path=/' });
   }
   if (u.pathname === '/api/airtable-update-progress' && req.method === 'POST') {
-    const r = await handle(JSON.parse(raw || '{}'));
+    const b = JSON.parse(raw || '{}');
+    const r = await handle(b);
+    // 保存はしたが応答だけ壊れる（「実際は保存済み」からの確認の流れ用）
+    if (ctl.lostWrite && r.body?.ok && ['complete', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock'].includes(b.action)) { ctl.lostWrite--; res.writeHead(502, { 'content-type': 'text/html' }); return res.end('<html>502</html>'); }
     if (r.raw) { res.writeHead(r.status, { 'content-type': 'text/html' }); return res.end(r.raw); }
     return send(res, r.status || 200, r.body);
   }
