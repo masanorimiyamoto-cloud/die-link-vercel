@@ -27,7 +27,7 @@ const rid = () => 'recMOCK' + String(++seq).padStart(10, '0');
 function order(p) {
   return { id: rid(), book: 'Ko', wc: 9000 + seq, item: '検証用の箱', amount: 1000, ndate: '2026-11-06', progIn: '', progOut: '', group: '',
     kotei: '', memo: '', paper: '', die: [], room: [], printedAt: '', amountFrom: '', amountLog: '', ndateFrom: '', ndateLog: '',
-    amountLocked: false, images: [], closed: false, addPending: false, done: {}, views: [], ...p };
+    amountLocked: false, images: [], closed: false, addPending: false, approved: true, done: {}, views: [], ...p };
 }
 const LONG_MEMO = '検証用の長い連絡事項です。改行を含みます。\n2行目: 先方から色の指定あり（架空）。\n3行目: 仕上がり後は事務所へ連絡。とても長い文章が続く場合でも全文が読めることを確かめるための文章です。';
 function fixtures() {
@@ -65,7 +65,7 @@ function fixtures() {
     // 未対応タグ（福祉）を含む・品名にないタグ
     order({ item: '検証未対応 #o', kotei: '|オートン|福祉|', views: ['auton'], done: {}, progOut: 'シート材料入荷済' }),
     // 新規受注・削除できるもの
-    order({ item: '検証新規 #ki', kotei: '|機械貼|', addPending: true, progIn: '工程表発行済', views: ['fax', 'kikai'] }),
+    order({ item: '検証新規 #ki', kotei: '|機械貼|', addPending: true, approved: false, progIn: '工程表発行済', views: ['fax', 'kikai'] }),
   ];
 }
 let DB = fixtures();
@@ -79,7 +79,7 @@ async function handle(body) {
   const a = body.action;
   const views = publicViews(), steps = publicSteps();
   const find = () => DB.find(o => o.id === body.id);
-  if (['complete', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete'].includes(a)) {
+  if (['complete', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve'].includes(a)) {
     ctl.log.push({ action: a, id: body.id, step: body.step, variant: body.variant, force: body.force });
     if (ctl.delayWrite) await new Promise(r => setTimeout(r, ctl.delayWrite));
     if (ctl.unknownWrite) { ctl.unknownWrite--; return { raw: '<html>502 Bad Gateway</html>', status: 502 }; }
@@ -127,9 +127,10 @@ async function handle(body) {
   if (a === 'stock') { o.progOut = body.on ? body.out : 'シート手配済み'; return { body: { ok: true, progOut: o.progOut } }; }
   if (a === 'neworder') {
     if (!body.force && DB.some(x => x.item === o.item && x.ndate === body.ndate && String(x.amount) === String(body.amount))) return { status: 409, body: { ok: false, dup: true, error: '同じ納期・数量の受注が既にあります' } };
-    const no = order({ ...pub(o), id: rid(), amount: Number(body.amount), ndate: body.ndate, memo: body.memo, done: {}, progIn: '', addPending: true, views: o.views });
+    const no = order({ ...pub(o), id: rid(), amount: Number(body.amount), ndate: body.ndate, memo: body.memo, done: {}, progIn: '', addPending: true, approved: true, views: o.views });
     DB.push(no); return { body: { ok: true, order: pub(no) } };
   }
+  if (a === 'approve') { const was = o.approved; o.approved = true; return { body: { ok: true, approved: true, ...(was ? { unchanged: true } : {}) } }; }
   if (a === 'delete') { DB = DB.filter(x => x.id !== o.id); return { body: { ok: true } }; }
   return { status: 400, body: { ok: false, error: 'unknown action (mock)' } };
 }

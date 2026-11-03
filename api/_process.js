@@ -13,6 +13,7 @@
 //   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
 //   action=neworder { id, amount, ndate, memo, force } … その受注と同じ品目で新規受注を作る（ログイン必須）
 //   action=delete   { id }                       … Excel にまだ入っていない受注を消す（ログイン必須）
+//   action=approve  { id }                       … 承認済 を ON にする（ログイン必須）
 //
 // 完了の記録は2か所に書く:
 //   進行社内      … 既存の選択肢（オートン抜き完了 など）。進行社内グループの計算式や
@@ -32,7 +33,7 @@ const F = {
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
-  ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable',
+  ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable', approved: '承認済',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -97,7 +98,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -188,6 +189,7 @@ function describe(rec) {
     closed: CLOSED_OUT.has(String(f[F.progOut] || '')),
     // Add_from_Airtable が ON ＝ まだ Excel に入っていない（Airtable_Fetch.py が行を足すと OFF にする）。画面はこのときだけ削除ボタンを出す
     addPending: !!f[F.addPending],
+    approved: !!f[F.approved], // 承認済（チェックボックス）
     done,
   };
 }
@@ -220,6 +222,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'stock') return setStock(body, who.user);
   if (action === 'neworder') return newOrder(body, who.user);
   if (action === 'delete') return deleteOrder(body, who.user);
+  if (action === 'approve') return approveOrder(body, who.user);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -720,7 +723,7 @@ async function newOrder(body, user) {
 
   const fields = {
     [F.book]: book, [F.wc]: wc, [F.amount]: amount, [F.amountPrev]: amount, [F.ndate]: ndate,
-    Add_from_Airtable: true, 承認済: true,
+    [F.addPending]: true, [F.approved]: true,
   };
   if (f[F.item]) fields[F.item] = f[F.item];
   for (const k of NEW_COPY_FIELDS) if (f[k] !== undefined && f[k] !== null && f[k] !== '') fields[k] = f[k];
@@ -778,6 +781,23 @@ async function deleteOrder(body, user) {
     action: '受注削除', book: o.book, wc: o.wc, detail: `${rec.id} を削除 ${JSON.stringify(keep)}`,
   });
   return json({ ok: true, id: rec.id });
+}
+
+// ---- 承認済 を入れる（2026-11-03）----
+// 承認待ちの受注（FAX登録など）を画面から承認する。ON にするだけで外すことはしない
+// （承認済＋Add_from_Airtable の受注は Airtable_Fetch.py が Excel に行を足すため、外して戻すことに意味がない）。
+// 既に ON なら書かずに unchanged で返す（二度押し・送り直し）
+async function approveOrder(body, user) {
+  const rec = await getRecord(body?.id);
+  if (!rec) return json({ ok: false, error: '受注が見つかりません' }, 404);
+  const f = rec.fields || {};
+  if (f[F.approved]) return json({ ok: true, approved: true, unchanged: true });
+  await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields: { [F.approved]: true } }] }) });
+  viewCache.clear();
+  await writeWorkLog(user, {
+    action: '承認', recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '', detail: '承認済 を ON にした',
+  });
+  return json({ ok: true, approved: true });
 }
 
 async function undo(body, user) {

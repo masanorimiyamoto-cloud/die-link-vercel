@@ -505,6 +505,26 @@ test('V4 壊れた時差・途中で切れた日時は null。日本時間の既
   assert.equal(e.recTime('2026-11-03T00:32-05:00'), Date.UTC(2026, 10, 3, 5, 32));
 });
 
+test('A1 承認済のボタンは新規受注の横。確認してから1件ずつ書き、結果不明は止める。承認済なら押せない印だけ', () => {
+  const has = (src, s, msg) => assert.ok(src.includes(s), msg || s);
+  const ctl = extract('approveCtl');
+  has(extract('renderNewOrder'), 'top.append(open, approveCtl(o, box))');
+  has(ctl, "b.textContent = '✓ 承認済';");
+  has(ctl, "btn.dataset.w = '1';");
+  has(ctl, 'if (!confirm(');
+  has(ctl, 'await runOp(o, async');
+  has(ctl, "write({ action: 'approve', id: o.id })");
+  has(ctl, "if (outcomeUnknown(j, x => x.approved === true)) return markUnsure(o, '承認');");
+  has(ctl, 'patch(o, x => { x.approved = true; });');
+  assert.ok(ctl.indexOf('if (o.approved)') < ctl.indexOf("createElement('button')"), '承認済ならボタンを作らない');
+  const api = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(api, /PROCESS_ACTIONS = new Set\([^)]*'approve'/);
+  const fn = api.slice(api.indexOf('async function approveOrder'), api.indexOf('async function undo'));
+  has(fn, 'fields: { [F.approved]: true }', '承認済だけを ON にする');
+  has(fn, 'if (f[F.approved]) return json({ ok: true, approved: true, unchanged: true });');
+  has(api, 'approved: !!f[F.approved]');
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

@@ -70,6 +70,7 @@
   /* 同じ品目の新規受注（2026-10-30）。工程カードの一番下に置き、押すと数量・納期・連絡事項の入力が開く */
   .newo{ border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px }
   .newo .lbl{ font-size:13px; color:var(--mut) }
+  .newo .approved{ align-self:center; font-size:14px; font-weight:700; color:var(--ok, inherit) }
   .newo .row input{ flex:1 1 0 }
   .delbtn{ align-self:flex-start; padding:7px 12px; font-size:14px; font-weight:500; background:transparent; color:var(--err); border:1px solid var(--err) }
   .row{ display:flex; gap:8px; align-items:center }
@@ -2006,14 +2007,42 @@
     };
   }
 
+  /* ---------- 承認済（2026-11-03） ---------- */
+  // 承認待ちの受注（FAX登録など）をここで承認する。入れるだけで外さない（承認済＋Excel 未登録の受注は Airtable_Fetch.py が Excel に行を足す）。
+  // 承認済なら押せない印だけ出す
+  function approveCtl(o, box) {
+    if (o.approved) {
+      const b = document.createElement('span'); b.className = 'approved'; b.textContent = '✓ 承認済';
+      return b;
+    }
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'amtbtn qty'; btn.textContent = '承認済にする';
+    btn.dataset.w = '1';
+    btn.onclick = async () => {
+      const excel = o.addPending ? '\n承認すると、次の取り込みで Excel に入ります。' : '';
+      if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を承認済にしますか？${excel}`)) return;
+      await runOp(o, async () => {
+        sayAt(box, '承認しています…');
+        const j = await write({ action: 'approve', id: o.id });
+        if (outcomeUnknown(j, x => x.approved === true)) return markUnsure(o, '承認');
+        if (!j.ok) return sayAt(box, j.error || '承認できませんでした', 'err');
+        patch(o, x => { x.approved = true; });
+        navigator.vibrate?.(40);
+        renderSteps();
+        sayAt(current() ? $('newOrder') : null, `承認済にしました${o.addPending ? '（Excel には次の取り込みで入ります）' : ''}`, 'ok');
+      });
+    };
+    return btn;
+  }
+
   /* ---------- 同じ品目の新規受注（2026-10-30） ---------- */
   // 品目の情報（品名・得意先・納品先・材料・後工程・図面）は元の受注からサーバーが写す。ここで入れるのは数量・納期・連絡事項だけ。
   // 作るとすぐ承認済になり、Airtable_Fetch.py が Excel に行を足す
   function renderNewOrder(o) {
     const box = $('newOrder'); box.textContent = '';
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '＋ この品目で新規受注';
-    open.style.alignSelf = 'flex-start'; open.dataset.w = '1';
-    box.append(open);
+    open.dataset.w = '1';
+    const top = document.createElement('div'); top.className = 'row'; top.append(open, approveCtl(o, box));
+    box.append(top);
     open.onclick = () => {
       box.textContent = '';
       const head = document.createElement('div'); head.className = 'lbl';
