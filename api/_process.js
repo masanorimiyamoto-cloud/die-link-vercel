@@ -750,9 +750,9 @@ async function newOrder(body, user) {
 }
 
 // ---- 受注の削除（2026-10-30 / 2026-11-03 削除台帳）----
-// 新規受注の打ち間違い・FAX登録の誤りを、スマホから消せるようにする。消せるのは Excel にまだ入っていない受注だけ
-// （Add_from_Airtable が ON）。Excel に入った後に Airtable だけ消すと、S96.5 に RecordID の切れた行が残るため。
-// 工程の記録・伝票がある受注も消さない（作業の実績や伝票の照合が消えるため）。
+// 新規受注の打ち間違い・FAX登録の誤りを、スマホから消せるようにする。2026-11-03 から Excel 登録済の受注も消せる
+// （Excel 同期 Z:\Airtable\delete_ledger.py が台帳を見て S96.5 の行を退避・削除する。台帳の Excel登録前 は削除時の Add_from_Airtable）。
+// 工程の記録・伝票がある受注は消さない（作業の実績や伝票の照合が消えるため）。
 //
 // 削除の意思は受注とは別の削除台帳（TableDeleteLedger）に残し、Excel 同期はこの台帳だけを根拠に S96.5 の行を消す。
 //   1. 台帳に「受付済」で1行書く。書けなければ受注は消さない
@@ -814,8 +814,7 @@ async function deleteOrder(body, user) {
   }
   const o = describe(rec);
   let stop = '';
-  if (!o.addPending) stop = 'この受注はもう Excel に入っているので、ここでは消せません。事務所で Excel から取り消してください';
-  else if (Object.keys(o.done).length || !DELETE_OK_IN.has(o.progIn) || rec.fields?.[F.slipId] || SLIP_DONE_OUT.has(o.progOut)) {
+  if (Object.keys(o.done).length || !DELETE_OK_IN.has(o.progIn) || rec.fields?.[F.slipId] || SLIP_DONE_OUT.has(o.progOut)) {
     stop = '工程の記録か伝票があるので消せません。先に記録を取り消すか、事務所に頼んでください';
   }
   if (stop) {
@@ -832,7 +831,7 @@ async function deleteOrder(body, user) {
   if (!led) {
     const no = Number(user?.no);
     const fields = {
-      [DL.req]: reqId, [DL.rec]: rec.id, [DL.state]: DL_ACCEPTED, [DL.pre]: true,
+      [DL.req]: reqId, [DL.rec]: rec.id, [DL.state]: DL_ACCEPTED, [DL.pre]: !!o.addPending,
       [DL.book]: String(o.book || ''), [DL.wc]: String(o.wc ?? ''), [DL.item]: String(o.item || ''),
       [DL.keep]: JSON.stringify(keep), [DL.by]: String(user?.name || ''), [DL.at]: new Date().toISOString(),
     };
@@ -867,7 +866,7 @@ async function deleteOrder(body, user) {
   await writeWorkLog(user, {
     action: '受注削除', book: o.book, wc: o.wc, detail: `${rec.id} を削除（削除要求 ${reqId}${reason ? `・理由: ${reason}` : ''}） ${JSON.stringify(keep)}`,
   });
-  return json({ ok: true, id: rec.id, ledger, pre: true, ledgerWarn });
+  return json({ ok: true, id: rec.id, ledger, pre: !!o.addPending, ledgerWarn });
 }
 
 // 最近の削除（台帳の新しい順）。画面で「Excel 反映待ち／反映済」を確かめるため。読み取りだけ

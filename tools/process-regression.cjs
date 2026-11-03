@@ -508,7 +508,7 @@ test('V4 壊れた時差・途中で切れた日時は null。日本時間の既
 test('A1 承認済のボタンは新規受注の横。確認してから1件ずつ書き、結果不明は止める。承認済なら押せない印だけ', () => {
   const has = (src, s, msg) => assert.ok(src.includes(s), msg || s);
   const ctl = extract('approveCtl');
-  has(extract('renderNewOrder'), 'top.append(open, approveCtl(o, box))');
+  has(extract('renderNewOrder'), 'top.append(open, approveCtl(o, box), delSlot)');
   has(ctl, "b.textContent = '✓ 承認済';");
   has(ctl, "btn.dataset.w = '1';");
   has(ctl, 'if (!confirm(');
@@ -605,10 +605,19 @@ test('L1 受注を消した後に台帳を更新できなくても成功とし�
     assert.ok(!e.orders.has(RID)); assert.equal([...e.ledger.values()][0].fields['状態'], '受付済');
   } finally { e.restore(); }
 });
-test('L1 受注を読めないとき・Excel 登録済・削除要求ID なしは、台帳にも受注にも書かない', async () => {
+test('L1 Excel 登録済の受注も消せる（2026-11-03）。台帳の Excel登録前 は OFF', async () => {
+  const e = await ledgerEnv({ orders: { [RID]: pendingOrder(RID, { Add_from_Airtable: false }) } });
+  try {
+    const r = await e.run({ id: RID, reqId: REQ });
+    assert.equal(r.j.ok, true); assert.equal(r.j.pre, false);
+    assert.ok(!e.orders.has(RID));
+    assert.equal([...e.ledger.values()][0].fields['Excel登録前'], false);
+  } finally { e.restore(); }
+});
+test('L1 受注を読めないとき・工程の記録があるとき・削除要求ID なしは、台帳にも受注にも書かない', async () => {
   for (const [opt, body, st] of [
     [{ orders: { [RID]: pendingOrder(RID) }, fail: { 'GET order': 500 } }, { id: RID, reqId: REQ }, 502],
-    [{ orders: { [RID]: pendingOrder(RID, { Add_from_Airtable: false }) } }, { id: RID, reqId: REQ }, 409],
+    [{ orders: { [RID]: pendingOrder(RID, { Add_from_Airtable: false, 進行社内: '機械貼完了' }) } }, { id: RID, reqId: REQ }, 409],
     [{ orders: { [RID]: pendingOrder(RID) } }, { id: RID }, 400],
   ]) {
     const e = await ledgerEnv(opt);

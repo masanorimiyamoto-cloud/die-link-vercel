@@ -139,9 +139,9 @@ async function handle(body) {
   }
   if (a === 'approve') { const was = o.approved; o.approved = true; return { body: { ok: true, approved: true, ...(was ? { unchanged: true } : {}) } }; }
   if (a === 'delete') {
-    LEDGER.unshift({ reqId: body.reqId, recordId: o.id, state: 'Airtable削除済', pre: true, book: o.book, wc: String(o.wc), item: o.item, amount: o.amount, ndate: o.ndate, by: 'テスト 太郎', at: new Date().toISOString(), excelAt: '', memo: '', reason: body.reason || '' });
+    LEDGER.unshift({ reqId: body.reqId, recordId: o.id, state: 'Airtable削除済', pre: !!o.addPending, book: o.book, wc: String(o.wc), item: o.item, amount: o.amount, ndate: o.ndate, by: 'テスト 太郎', at: new Date().toISOString(), excelAt: '', memo: '', reason: body.reason || '' });
     DB = DB.filter(x => x.id !== o.id);
-    return { body: { ok: true, id: o.id, ledger: 'Airtable削除済', pre: true, ledgerWarn: false } };
+    return { body: { ok: true, id: o.id, ledger: 'Airtable削除済', pre: !!o.addPending, ledgerWarn: false } };
   }
   return { status: 400, body: { ok: false, error: 'unknown action (mock)' } };
 }

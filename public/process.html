@@ -1994,23 +1994,27 @@
   }
 
   /* ---------- 受注の削除（2026-10-30 / 2026-11-03 削除台帳） ---------- */
-  // Excel にまだ入っていない受注（新規受注・FAX登録の直後）で、工程の記録が無いものだけ消せる。サーバーも同じ決まりで弾く。
+  // 工程の記録・伝票が無い受注だけ消せる（2026-11-03 から Excel 登録済も可）。サーバーも同じ決まりで弾く。
+  // ボタンは「＋ この品目で新規受注」「承認済にする」と同じ行（#delSlot）に置き、結果の表示は #delOrder に出す。
   // サーバーは受注を消す前に削除台帳へ書く（書けなければ消さない）。Excel 同期は台帳を見て S96.5 の行を消す。
   // 削除要求ID は削除1回ごとに作る。通信が途切れて結果が分からないときは、同じ受注でもう一度押すと同じ ID で送り直し、
   // サーバーが台帳から続きを確かめる（二重に消すことはない）
   const newReqId = () => 'del-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
   function renderDelete(o) {
     $('delOrder').textContent = '';
-    if (!o.addPending || Object.keys(o.done || {}).length || !['', '工程表発行済'].includes(o.progIn) || o.amountLocked) return;
+    const slot = document.getElementById('delSlot');
+    if (slot) slot.textContent = '';
+    if (Object.keys(o.done || {}).length || !['', '工程表発行済'].includes(o.progIn) || o.amountLocked) return;
     const again = S.delPending && S.delPending.id === o.id;
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'delbtn';
-    btn.textContent = again ? '削除の結果を確かめる（同じ削除を送り直す）' : 'この受注を削除（Excel に入る前だけ）';
+    btn.textContent = again ? '削除の結果を確かめる（同じ削除を送り直す）' : 'この受注を削除';
     btn.dataset.w = '1';
-    $('delOrder').append(btn);
+    (slot || $('delOrder')).append(btn);
     btn.onclick = async () => {
       let req = S.delPending && S.delPending.id === o.id ? S.delPending : null;
       if (!req) {
-        if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を削除しますか？（元に戻せません）`)) return;
+        const excel = o.addPending ? '' : '\nExcel に入っている受注です。事務所の Excel（S96.5）の行も次の取り込みで消えます。';
+        if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を削除しますか？（元に戻せません）${excel}`)) return;
         const reason = prompt('削除の理由（任意。例: 打ち間違い・FAXの重複）', '');
         if (reason === null) return;
         req = { id: o.id, reqId: newReqId(), reason: reason.trim() };
@@ -2101,7 +2105,8 @@
     const box = $('newOrder'); box.textContent = '';
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '＋ この品目で新規受注';
     open.dataset.w = '1';
-    const top = document.createElement('div'); top.className = 'row'; top.append(open, approveCtl(o, box));
+    const delSlot = document.createElement('span'); delSlot.id = 'delSlot'; // 削除ボタンは renderDelete がここへ置く
+    const top = document.createElement('div'); top.className = 'row'; top.append(open, approveCtl(o, box), delSlot);
     box.append(top);
     open.onclick = () => {
       box.textContent = '';
