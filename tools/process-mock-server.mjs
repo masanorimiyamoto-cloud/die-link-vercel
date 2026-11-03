@@ -69,6 +69,7 @@ function fixtures() {
   ];
 }
 let DB = fixtures();
+let LEDGER = []; // 削除台帳（新しい順）
 const ctl = { failView: 0, delayView: 0, unknownWrite: 0, lostWrite: 0, rejectWrite: 0, delayWrite: 0, log: [] };
 
 const pub = (o) => { const { views, ...rest } = o; return JSON.parse(JSON.stringify(rest)); };
@@ -108,6 +109,12 @@ async function handle(body) {
     const list = DB.filter(o => keys.every(k => o.item.toLowerCase().includes(k))).map(pub);
     return { body: { ok: true, orders: list, more: false, steps, rooms: ROOMS } };
   }
+  if (a === 'deletions') return { body: { ok: true, rows: LEDGER.slice(0, 30) } };
+  if (a === 'delete') {
+    if (!/^del-[A-Za-z0-9-]{8,64}$/.test(String(body.reqId || ''))) return { status: 400, body: { ok: false, error: '画面が古いので、読み込み直してからもう一度削除してください' } };
+    const led = LEDGER.find(x => x.reqId === body.reqId);
+    if (led) return { body: { ok: true, id: body.id, ledger: led.state, pre: true, again: true } };
+  }
   const o = find();
   if (!o) return { status: 404, body: { ok: false, error: '受注が見つかりません' } };
   if (a === 'complete') {
@@ -131,7 +138,11 @@ async function handle(body) {
     DB.push(no); return { body: { ok: true, order: pub(no) } };
   }
   if (a === 'approve') { const was = o.approved; o.approved = true; return { body: { ok: true, approved: true, ...(was ? { unchanged: true } : {}) } }; }
-  if (a === 'delete') { DB = DB.filter(x => x.id !== o.id); return { body: { ok: true } }; }
+  if (a === 'delete') {
+    LEDGER.unshift({ reqId: body.reqId, recordId: o.id, state: 'Airtable削除済', pre: true, book: o.book, wc: String(o.wc), item: o.item, amount: o.amount, ndate: o.ndate, by: 'テスト 太郎', at: new Date().toISOString(), excelAt: '', memo: '', reason: body.reason || '' });
+    DB = DB.filter(x => x.id !== o.id);
+    return { body: { ok: true, id: o.id, ledger: 'Airtable削除済', pre: true, ledgerWarn: false } };
+  }
   return { status: 400, body: { ok: false, error: 'unknown action (mock)' } };
 }
 
@@ -147,12 +158,12 @@ http.createServer(async (req, res) => {
     const b = JSON.parse(raw || '{}');
     const r = await handle(b);
     // 保存はしたが応答だけ壊れる（「実際は保存済み」からの確認の流れ用）
-    if (ctl.lostWrite && r.body?.ok && ['complete', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock'].includes(b.action)) { ctl.lostWrite--; res.writeHead(502, { 'content-type': 'text/html' }); return res.end('<html>502</html>'); }
+    if (ctl.lostWrite && r.body?.ok && ['complete', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'delete', 'approve'].includes(b.action)) { ctl.lostWrite--; res.writeHead(502, { 'content-type': 'text/html' }); return res.end('<html>502</html>'); }
     if (r.raw) { res.writeHead(r.status, { 'content-type': 'text/html' }); return res.end(r.raw); }
     return send(res, r.status || 200, r.body);
   }
   if (u.pathname.startsWith('/api/')) { console.error('UNMOCKED', req.method, u.pathname); return send(res, 500, { ok: false, error: 'unmocked API (mock server)' }); }
-  if (u.pathname === '/__mock' && req.method === 'POST') { const b = JSON.parse(raw || '{}'); if (b.reset) { DB = fixtures(); ctl.log = []; } Object.assign(ctl, b.ctl || {}); return send(res, 200, { ok: true, ctl }); }
+  if (u.pathname === '/__mock' && req.method === 'POST') { const b = JSON.parse(raw || '{}'); if (b.reset) { DB = fixtures(); LEDGER = []; ctl.log = []; } Object.assign(ctl, b.ctl || {}); return send(res, 200, { ok: true, ctl }); }
   if (u.pathname === '/__mock/log') return send(res, 200, ctl.log);
   if (u.pathname === '/__mock/img.svg') { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="140"><rect width="200" height="140" fill="#e2e8f0"/><text x="20" y="80" font-size="22">MOCK IMAGE</text></svg>'); }
   const file = path.join(ROOT, path.normalize(u.pathname).replace(/^([/\\])+/, ''));

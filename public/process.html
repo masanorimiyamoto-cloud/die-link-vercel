@@ -468,6 +468,8 @@
   details.aux > summary{ cursor:pointer; padding:12px 2px; min-height:48px; font-size:15px; font-weight:600 }
   details.aux > summary small{ font-weight:500; color:var(--mut); margin-left:6px }
   details.aux[open] > summary{ border-bottom:1px solid var(--line); margin-bottom:10px }
+  .delrow{ border-top:1px solid var(--line); padding-top:8px } .delrow:first-child{ border-top:0; padding-top:0 }
+  .delrow .item{ font-weight:600 } .delrow .meta{ font-size:13px; color:var(--mut) }
   details.aux > .body{ padding-bottom:10px; display:flex; flex-direction:column; gap:8px }
   .auxnote{ grid-column:1/-1; font-size:13px; color:var(--mut) }
   .nearmsg{ flex-basis:100% }
@@ -568,6 +570,14 @@
     <details class="aux" id="auxDone"><summary>進行と完了記録 <small id="doneCnt"></small></summary><div class="body"><div class="steps" id="stepsDone"></div></div></details>
     <div class="newo" id="newOrder"></div>
     <div class="row" id="delOrder"></div>
+  </section>
+
+  <!-- 削除した受注（削除台帳。Excel 反映の状況）2026-11-03 -->
+  <section class="card">
+    <details class="aux" id="delCard"><summary>削除した受注（Excel 反映の状況）</summary><div class="body">
+      <div class="msg" id="delMsg" role="status"></div>
+      <div id="delList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div></details>
   </section>
 </main>
 <!-- 完了を保存した後の結果。閉じるか、次の操作（受注を開く・リストを変える・探す・次の記録）まで残す -->
@@ -1983,29 +1993,79 @@
     applyUnsure(o); // 結果不明・書き込み中のボタン止めは、描き終えた最後にまとめて掛ける
   }
 
-  /* ---------- 受注の削除（2026-10-30） ---------- */
-  // Excel にまだ入っていない受注（新規受注・FAX登録の直後）で、工程の記録が無いものだけ消せる。サーバーも同じ決まりで弾く
+  /* ---------- 受注の削除（2026-10-30 / 2026-11-03 削除台帳） ---------- */
+  // Excel にまだ入っていない受注（新規受注・FAX登録の直後）で、工程の記録が無いものだけ消せる。サーバーも同じ決まりで弾く。
+  // サーバーは受注を消す前に削除台帳へ書く（書けなければ消さない）。Excel 同期は台帳を見て S96.5 の行を消す。
+  // 削除要求ID は削除1回ごとに作る。通信が途切れて結果が分からないときは、同じ受注でもう一度押すと同じ ID で送り直し、
+  // サーバーが台帳から続きを確かめる（二重に消すことはない）
+  const newReqId = () => 'del-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
   function renderDelete(o) {
     $('delOrder').textContent = '';
     if (!o.addPending || Object.keys(o.done || {}).length || !['', '工程表発行済'].includes(o.progIn) || o.amountLocked) return;
-    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'delbtn'; btn.textContent = 'この受注を削除（Excel に入る前だけ）';
+    const again = S.delPending && S.delPending.id === o.id;
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'delbtn';
+    btn.textContent = again ? '削除の結果を確かめる（同じ削除を送り直す）' : 'この受注を削除（Excel に入る前だけ）';
     btn.dataset.w = '1';
     $('delOrder').append(btn);
     btn.onclick = async () => {
-      if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を削除しますか？（元に戻せません）`)) return;
+      let req = S.delPending && S.delPending.id === o.id ? S.delPending : null;
+      if (!req) {
+        if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を削除しますか？（元に戻せません）`)) return;
+        const reason = prompt('削除の理由（任意。例: 打ち間違い・FAXの重複）', '');
+        if (reason === null) return;
+        req = { id: o.id, reqId: newReqId(), reason: reason.trim() };
+      }
       await runOp(o, async () => {
         sayAt($('delOrder'), '削除しています…');
-        const j = await write({ action: 'delete', id: o.id });
-        if (j.unknown) return sayAt($('delOrder'), '通信が途切れ、削除できたか確認できません。探し直して確かめてください', 'err');
-        if (!j.ok && !j.gone) return sayAt($('delOrder'), j.error || '削除できませんでした', 'err');
+        const j = await write({ action: 'delete', id: o.id, reqId: req.reqId, reason: req.reason });
+        if (j.unknown) {
+          S.delPending = req; renderDelete(o); applyLocks();
+          return sayAt($('delOrder'), '通信が途切れ、削除できたか確認できません。もう一度押すと同じ削除として確かめます（二重に消えることはありません）', 'err');
+        }
+        if (!j.ok && !j.gone) { S.delPending = null; renderDelete(o); applyLocks(); return sayAt($('delOrder'), j.error || '削除できませんでした', 'err'); }
+        S.delPending = null;
         navigator.vibrate?.(60);
         S.orders = S.orders.filter(x => x.id !== o.id);
         $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
         if (S.mode === 'list') await loadView(S.view, true); else renderOrders();
-        say(S.mode === 'list' ? $('listMsg') : $('findMsg'), `${o.book} / ${o.wc}（納期 ${o.ndate || '空白'}）の受注を削除しました`, 'ok');
+        const what = `${o.book} / ${o.wc}（納期 ${o.ndate || '空白'}）`;
+        const text = j.gone ? `${what} の受注はもう消えていました`
+          : j.ledgerWarn ? `${what} の受注を削除しました。削除台帳の状態を更新できませんでしたが、Excel 同期が続きを処理します`
+          : `${what} の削除を受け付けました（削除台帳に記録・Excel 反映待ち）`;
+        say(S.mode === 'list' ? $('listMsg') : $('findMsg'), text, j.ledgerWarn ? 'warn' : 'ok');
+        if ($('delCard').open) loadDeletions();
       });
     };
   }
+
+  // 削除した受注（削除台帳の最近の30件）。開いたときと削除の後に読む。読み取りだけ
+  const DL_CLASS = { '受付済': 'warn', 'Airtable削除済': 'warn', 'Excel反映済': 'ok', '要確認': 'err' };
+  const DL_LABEL = { '受付済': '受付済・Excel 反映待ち', 'Airtable削除済': 'Excel 反映待ち', 'Excel反映済': 'Excel 反映済み', '要確認': '要確認（事務所で確認）' };
+  const jstShort = (iso) => { const t = Date.parse(iso); if (!Number.isFinite(t)) return ''; const d = new Date(t + 9 * 3600000); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+  let delGen = 0;
+  async function loadDeletions() {
+    const gen = ++delGen;
+    const box = $('delList');
+    say($('delMsg'), '読み込んでいます…');
+    const j = await api({ action: 'deletions' });
+    if (gen !== delGen) return;
+    if (!j.ok) return say($('delMsg'), j.error || '削除台帳を読めませんでした', 'err');
+    box.textContent = '';
+    say($('delMsg'), j.rows.length ? '' : '削除した受注はありません');
+    for (const r of j.rows) {
+      const it = document.createElement('div'); it.className = 'delrow';
+      const st = document.createElement('div'); st.className = 'msg ' + (DL_CLASS[r.state] || '');
+      st.textContent = DL_LABEL[r.state] || r.state || '状態なし';
+      const nm = document.createElement('div'); nm.className = 'item'; nm.textContent = r.item || '(品名なし)';
+      const mt = document.createElement('div'); mt.className = 'meta';
+      mt.textContent = `${r.book} / ${r.wc}・数量 ${r.amount ?? '空白'}・納期 ${r.ndate || '空白'}・${r.by || '?'} ${jstShort(r.at)}` +
+        (r.excelAt ? `・Excel ${jstShort(r.excelAt)}` : '');
+      it.append(st, nm, mt);
+      if (r.memo && r.state === '要確認') { const m = document.createElement('div'); m.className = 'meta'; m.textContent = r.memo; it.append(m); }
+      box.append(it);
+    }
+  }
+  $('delCard').addEventListener('toggle', () => { if ($('delCard').open) loadDeletions(); });
 
   /* ---------- 承認済（2026-11-03） ---------- */
   // 承認待ちの受注（FAX登録など）をここで承認する。入れるだけで外さない（承認済＋Excel 未登録の受注は Airtable_Fetch.py が Excel に行を足す）。

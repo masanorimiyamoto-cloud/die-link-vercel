@@ -12,7 +12,8 @@
 //   action=paper    { id, paper }                … 紙入荷日（シート・機械貼材料の入荷日）を入れる／消す（ログイン必須）
 //   action=room     { id, room, on }             … Room（複数選択）に応援先を足す／外す（ログイン必須）
 //   action=neworder { id, amount, ndate, memo, force } … その受注と同じ品目で新規受注を作る（ログイン必須）
-//   action=delete   { id }                       … Excel にまだ入っていない受注を消す（ログイン必須）
+//   action=delete   { id, reqId, reason }        … Excel にまだ入っていない受注を消す。先に削除台帳へ書く（ログイン必須）
+//   action=deletions {}                          … 削除台帳の最近の30件（Excel 反映の状況。ログイン必須）
 //   action=approve  { id }                       … 承認済 を ON にする（ログイン必須）
 //
 // 完了の記録は2か所に書く:
@@ -98,7 +99,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -223,6 +224,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'neworder') return newOrder(body, who.user);
   if (action === 'delete') return deleteOrder(body, who.user);
   if (action === 'approve') return approveOrder(body, who.user);
+  if (action === 'deletions') return deletions();
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -747,40 +749,144 @@ async function newOrder(body, user) {
   return json({ ok: true, order: describe(rec) });
 }
 
-// ---- 受注の削除（2026-10-30）----
+// ---- 受注の削除（2026-10-30 / 2026-11-03 削除台帳）----
 // 新規受注の打ち間違い・FAX登録の誤りを、スマホから消せるようにする。消せるのは Excel にまだ入っていない受注だけ
 // （Add_from_Airtable が ON）。Excel に入った後に Airtable だけ消すと、S96.5 に RecordID の切れた行が残るため。
 // 工程の記録・伝票がある受注も消さない（作業の実績や伝票の照合が消えるため）。
-// 消した内容は作業ログ（受注削除）に残し、必要なら作り直せるようにする。
-// Chrome の自動再送で2回目が来たときは、もう無いので gone を返す（画面は消せたものとして扱う）
+//
+// 削除の意思は受注とは別の削除台帳（TableDeleteLedger）に残し、Excel 同期はこの台帳だけを根拠に S96.5 の行を消す。
+//   1. 台帳に「受付済」で1行書く。書けなければ受注は消さない
+//   2. 受注を消し、台帳を「Airtable削除済」にする（Excel 同期はこの行の 受注RecordID と一致する行だけを退避・削除する）
+//   3. Excel の保存に成功したら、Excel 同期が台帳を「Excel反映済」にする
+// 削除要求ID（reqId）は画面が削除1回ごとに作り、送り直しでも同じ値を送る。同じ reqId の2回目は台帳から続きを処理する
+// （受注が既に無ければ消せたものとして台帳を進める）。台帳の更新だけが失敗したときは「受付済」のまま残るので、
+// Excel 同期は「受付済で受注が Airtable に無い」行も削除済として扱う（docs/delete-ledger-excel-sync.md）。
+// 作業ログ（受注削除）にも従来どおり残す
 const DELETE_OK_IN = new Set(['', '工程表発行済']);
+const LEDGER_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${process.env.DELETE_LEDGER_TABLE_ID || 'tblpQzjyEoYQO9Ala'}`;
+const DL = {
+  req: '削除要求ID', rec: '受注RecordID', state: '状態', pre: 'Excel登録前', book: 'Book', wc: 'WorkCord', item: 'ItemName',
+  amount: 'NAmount', ndate: 'Ndate', keep: '削除内容', reason: '削除理由', by: '操作者', no: '社員番号',
+  at: '受付日時', delAt: 'Airtable削除日時', excelAt: 'Excel反映日時', memo: '処理メモ',
+};
+const DL_ACCEPTED = '受付済', DL_DELETED = 'Airtable削除済', DL_EXCEL = 'Excel反映済', DL_CHECK = '要確認';
+// 受注を読む。無い（404）ときだけ null。通信の失敗などは投げる（「無い」と取り違えて台帳を進めないため）
+async function fetchRecordStrict(id) {
+  try { return await airtable(`${API}/${id}`); }
+  catch (e) { if (/^airtable 404\b/.test(String(e?.message || ''))) return null; throw e; }
+}
+async function ledgerByReq(reqId) {
+  const url = new URL(LEDGER_API);
+  url.searchParams.set('filterByFormula', `{${DL.req}}='${esc(reqId)}'`);
+  url.searchParams.set('maxRecords', '2');
+  return (await airtable(url)).records?.[0] || null;
+}
+async function ledgerPatch(id, fields) {
+  await airtable(LEDGER_API, { method: 'PATCH', body: JSON.stringify({ records: [{ id, fields }] }) });
+}
+const memoAdd = (led, line) => [String(led?.fields?.[DL.memo] || '').trim(), `${nowJST()} ${line}`].filter(Boolean).join('\n');
+
 async function deleteOrder(body, user) {
-  if (!/^rec[A-Za-z0-9]{14}$/.test(String(body?.id || ''))) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
-  const rec = await getRecord(body.id);
-  if (!rec) return json({ ok: false, gone: true, error: 'この受注はもうありません（既に消えています）' }, 404);
-  const o = describe(rec);
-  if (!o.addPending) {
-    return json({ ok: false, error: 'この受注はもう Excel に入っているので、ここでは消せません。事務所で Excel から取り消してください' }, 409);
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  const reqId = String(body?.reqId || '');
+  if (!/^del-[A-Za-z0-9-]{8,64}$/.test(reqId)) return json({ ok: false, error: '画面が古いので、読み込み直してからもう一度削除してください' }, 400);
+  const reason = String(body?.reason ?? '').trim().slice(0, 500);
+  let led, rec;
+  try {
+    led = await ledgerByReq(reqId);
+    rec = await fetchRecordStrict(id);
+  } catch (e) {
+    return json({ ok: false, error: `削除台帳か受注を読めなかったので、削除していません（${String(e?.message || e).slice(0, 120)}）` }, 502);
   }
-  if (Object.keys(o.done).length || !DELETE_OK_IN.has(o.progIn) || rec.fields?.[F.slipId] || SLIP_DONE_OUT.has(o.progOut)) {
-    return json({ ok: false, error: '工程の記録か伝票があるので消せません。先に記録を取り消すか、事務所に頼んでください' }, 409);
+  if (led && led.fields?.[DL.rec] !== id) return json({ ok: false, error: '削除の指定が食い違っています。画面を読み込み直してください' }, 409);
+  const ledState = led?.fields?.[DL.state] || '';
+  // 同じ要求の2回目（通信が切れて送り直した等）。もう消せている
+  if (led && (ledState === DL_DELETED || ledState === DL_EXCEL)) {
+    return json({ ok: true, id, ledger: ledState, pre: !!led.fields?.[DL.pre], again: true });
+  }
+  if (!rec) {
+    if (!led) return json({ ok: false, gone: true, error: 'この受注はもうありません（既に消えています）' }, 404);
+    // 台帳は受付済のまま受注が無い＝前回は消せたが台帳を進められなかった。ここで進める
+    try { await ledgerPatch(led.id, { [DL.state]: DL_DELETED, [DL.delAt]: new Date().toISOString(), [DL.memo]: memoAdd(led, '送り直しで受注が無いことを確かめ、Airtable削除済にした') }); }
+    catch { return json({ ok: true, id, ledger: DL_ACCEPTED, pre: !!led.fields?.[DL.pre], ledgerWarn: true }); }
+    return json({ ok: true, id, ledger: DL_DELETED, pre: !!led.fields?.[DL.pre], again: true });
+  }
+  const o = describe(rec);
+  let stop = '';
+  if (!o.addPending) stop = 'この受注はもう Excel に入っているので、ここでは消せません。事務所で Excel から取り消してください';
+  else if (Object.keys(o.done).length || !DELETE_OK_IN.has(o.progIn) || rec.fields?.[F.slipId] || SLIP_DONE_OUT.has(o.progOut)) {
+    stop = '工程の記録か伝票があるので消せません。先に記録を取り消すか、事務所に頼んでください';
+  }
+  if (stop) {
+    // 送り直しの間に条件が変わった。台帳の受付済の行は、消していないことが分かるようにしておく
+    if (led) await ledgerPatch(led.id, { [DL.state]: DL_CHECK, [DL.memo]: memoAdd(led, `削除していない（${stop}）`) }).catch(() => {});
+    return json({ ok: false, error: stop }, 409);
   }
   const f = rec.fields || {};
   const keep = {};
-  for (const k of [F.book, F.wc, F.item, F.amount, F.ndate, F.memo, F.progOut, ...NEW_COPY_FIELDS, 'Ko_OrderNo', '承認済']) {
+  for (const k of [F.book, F.wc, F.item, F.amount, F.ndate, F.memo, F.progOut, ...NEW_COPY_FIELDS, 'Ko_OrderNo', F.approved]) {
     if (f[k] !== undefined && f[k] !== null && f[k] !== '') keep[k] = f[k];
   }
+  // 1. 台帳に受付済で書く。書けなければ消さない
+  if (!led) {
+    const no = Number(user?.no);
+    const fields = {
+      [DL.req]: reqId, [DL.rec]: rec.id, [DL.state]: DL_ACCEPTED, [DL.pre]: true,
+      [DL.book]: String(o.book || ''), [DL.wc]: String(o.wc ?? ''), [DL.item]: String(o.item || ''),
+      [DL.keep]: JSON.stringify(keep), [DL.by]: String(user?.name || ''), [DL.at]: new Date().toISOString(),
+    };
+    if (Number.isFinite(Number(o.amount)) && o.amount !== null) fields[DL.amount] = Number(o.amount);
+    if (/^\d{4}-\d\d-\d\d$/.test(o.ndate)) fields[DL.ndate] = o.ndate;
+    if (reason) fields[DL.reason] = reason;
+    if (Number.isFinite(no)) fields[DL.no] = no;
+    try {
+      led = (await airtable(LEDGER_API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) })).records?.[0];
+    } catch (e) {
+      return json({ ok: false, error: `削除台帳に書けなかったので、削除していません（${String(e?.message || e).slice(0, 120)}）` }, 502);
+    }
+    if (!led) return json({ ok: false, error: '削除台帳に書けなかったので、削除していません' }, 502);
+  }
+  // 2. 受注を消す。失敗したら本当に残っているか読み直す（消えていれば成功として進める）
   try {
     await airtable(`${API}/${rec.id}`, { method: 'DELETE' });
   } catch (e) {
-    return json({ ok: false, error: `消せませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
+    let still = true;
+    try { still = !!(await fetchRecordStrict(rec.id)); } catch { /* 分からないときは残っているものとして扱う */ }
+    if (still) {
+      const msg = String(e?.message || e).slice(0, 120);
+      await ledgerPatch(led.id, { [DL.state]: DL_CHECK, [DL.memo]: memoAdd(led, `Airtable の受注を消せなかった（${msg}）。受注は残っている`) }).catch(() => {});
+      return json({ ok: false, error: `消せませんでした（${msg}）` }, 502);
+    }
   }
   viewCache.clear();
+  let ledger = DL_DELETED, ledgerWarn = false;
+  try { await ledgerPatch(led.id, { [DL.state]: DL_DELETED, [DL.delAt]: new Date().toISOString() }); }
+  catch { ledger = DL_ACCEPTED; ledgerWarn = true; }
   // 受注はもう無いのでリンクは付けない（付けると書き込みが弾かれる）。受注IDは内容に残す
   await writeWorkLog(user, {
-    action: '受注削除', book: o.book, wc: o.wc, detail: `${rec.id} を削除 ${JSON.stringify(keep)}`,
+    action: '受注削除', book: o.book, wc: o.wc, detail: `${rec.id} を削除（削除要求 ${reqId}${reason ? `・理由: ${reason}` : ''}） ${JSON.stringify(keep)}`,
   });
-  return json({ ok: true, id: rec.id });
+  return json({ ok: true, id: rec.id, ledger, pre: true, ledgerWarn });
+}
+
+// 最近の削除（台帳の新しい順）。画面で「Excel 反映待ち／反映済」を確かめるため。読み取りだけ
+async function deletions() {
+  const url = new URL(LEDGER_API);
+  url.searchParams.set('sort[0][field]', DL.at);
+  url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('maxRecords', '30');
+  let rows;
+  try { rows = (await airtable(url)).records || []; }
+  catch (e) { return json({ ok: false, error: `削除台帳を読めませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502); }
+  return json({ ok: true, rows: rows.map(r => {
+    const f = r.fields || {};
+    return {
+      reqId: f[DL.req] || '', recordId: f[DL.rec] || '', state: f[DL.state] || '', pre: !!f[DL.pre],
+      book: f[DL.book] || '', wc: f[DL.wc] || '', item: f[DL.item] || '', amount: f[DL.amount] ?? null, ndate: f[DL.ndate] || '',
+      by: f[DL.by] || '', at: f[DL.at] || '', excelAt: f[DL.excelAt] || '', memo: String(f[DL.memo] || '').trim().split('\n').pop() || '',
+    };
+  }) });
 }
 
 // ---- 承認済 を入れる（2026-11-03）----

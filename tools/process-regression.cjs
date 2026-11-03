@@ -525,6 +525,108 @@ test('A1 承認済のボタンは新規受注の横。確認してから1件ず�
   has(api, 'approved: !!f[F.approved]');
 });
 
+// ---- 削除台帳（サーバー）: 偽の Airtable に対して api/_process.js の削除を動かす。本物の Airtable には繋がない ----
+async function ledgerEnv(opt = {}) {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const calls = [];
+  const orders = new Map(Object.entries(opt.orders || {}));
+  const ledger = new Map(); let n = 0;
+  for (const r of opt.ledger || []) ledger.set(r.id, r);
+  const ok = (b) => new Response(JSON.stringify(b), { status: 200 });
+  const ng = (s) => new Response('{"error":"TEST"}', { status: s });
+  const fail = opt.fail || {};
+  const prevFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const m = init.method || 'GET';
+    if (u.hostname !== 'api.airtable.com') throw new Error('unexpected host ' + u.hostname);
+    const parts = u.pathname.split('/'); const table = decodeURIComponent(parts[3] || ''); const rid = parts[4];
+    const kind = table === 'TableJuchu' ? 'order' : table === 'tblpQzjyEoYQO9Ala' ? 'ledger' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
+    calls.push(`${m} ${kind}${rid ? ' ' + rid : ''}`);
+    if (fail[`${m} ${kind}`]) return ng(fail[`${m} ${kind}`]);
+    if (kind === 'order') {
+      if (m === 'GET') return orders.has(rid) ? ok(orders.get(rid)) : ng(404);
+      if (m === 'DELETE') { if (!orders.has(rid)) return ng(404); orders.delete(rid); return ok({ id: rid, deleted: true }); }
+    }
+    if (kind === 'ledger') {
+      if (m === 'GET') { const q = /'(.+)'/.exec(u.searchParams.get('filterByFormula') || '')?.[1]; return ok({ records: [...ledger.values()].filter(r => r.fields['削除要求ID'] === q) }); }
+      if (m === 'POST') { const f = JSON.parse(init.body).records[0].fields; const r = { id: 'recLEDGER' + String(++n).padStart(8, '0'), fields: f }; ledger.set(r.id, r); return ok({ records: [r] }); }
+      if (m === 'PATCH') { const x = JSON.parse(init.body).records[0]; Object.assign(ledger.get(x.id).fields, x.fields); return ok({ records: [ledger.get(x.id)] }); }
+    }
+    if (kind === 'worklog') return ok({ records: [] });
+    return ng(500);
+  };
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+  const run = async (body) => { try { const r = await mod.handleProcess('delete', body, { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } }); return { status: r.status, j: await r.json() }; } finally { /* keep fetch for inspection */ } };
+  return { run, calls, orders, ledger, restore: () => { global.fetch = prevFetch; } };
+}
+const pendingOrder = (id, extra = {}) => ({ id, fields: { Book: 'Ko', WorkCord: 9017, ItemName: '検証新規 #ki', NAmount: 1000, Ndate: '2026-11-06', Add_from_Airtable: true, 承認済: true, 進行社内: '工程表発行済', ...extra } });
+const RID = 'recTESTORDER00001', REQ = 'del-11111111-2222-3333-4444-555555555555';
+
+test('L1 削除台帳に書けなければ受注は消さない', async () => {
+  const e = await ledgerEnv({ orders: { [RID]: pendingOrder(RID) }, fail: { 'POST ledger': 422 } });
+  try {
+    const r = await e.run({ id: RID, reqId: REQ });
+    assert.equal(r.status, 502); assert.match(r.j.error, /削除台帳に書けなかったので、削除していません/);
+    assert.ok(!e.calls.some(c => c.startsWith('DELETE')), e.calls.join(','));
+    assert.ok(e.orders.has(RID));
+  } finally { e.restore(); }
+});
+test('L1 順番は 台帳(受付済)→受注の削除→台帳(Airtable削除済)。台帳に RecordID・内容・操作者・理由を残す', async () => {
+  const e = await ledgerEnv({ orders: { [RID]: pendingOrder(RID) } });
+  try {
+    const r = await e.run({ id: RID, reqId: REQ, reason: '打ち間違い' });
+    assert.equal(r.j.ok, true); assert.equal(r.j.ledger, 'Airtable削除済'); assert.equal(r.j.ledgerWarn, false);
+    const w = e.calls.filter(c => !c.startsWith('GET'));
+    assert.deepEqual(w.slice(0, 3), ['POST ledger', `DELETE order ${RID}`, 'PATCH ledger'], w.join(','));
+    const f = [...e.ledger.values()][0].fields;
+    assert.equal(f['削除要求ID'], REQ); assert.equal(f['受注RecordID'], RID); assert.equal(f['状態'], 'Airtable削除済');
+    assert.equal(f['Excel登録前'], true); assert.equal(f['削除理由'], '打ち間違い'); assert.equal(f['操作者'], 'テスト 太郎'); assert.equal(f['社員番号'], 9001);
+    assert.equal(f['NAmount'], 1000); assert.equal(f['Ndate'], '2026-11-06'); assert.equal(f['WorkCord'], '9017');
+    assert.equal(JSON.parse(f['削除内容']).ItemName, '検証新規 #ki');
+    assert.ok(f['受付日時'] && f['Airtable削除日時']);
+  } finally { e.restore(); }
+});
+test('L1 同じ削除要求の送り直しは台帳から続きを処理し、受注を二度消さない・台帳を2行にしない', async () => {
+  const e = await ledgerEnv({ orders: {}, ledger: [{ id: 'recLEDGER00000077', fields: { '削除要求ID': REQ, '受注RecordID': RID, '状態': '受付済', 'Excel登録前': true } }] });
+  try {
+    const r = await e.run({ id: RID, reqId: REQ });
+    assert.equal(r.j.ok, true); assert.equal(r.j.ledger, 'Airtable削除済');
+    assert.ok(!e.calls.some(c => c.startsWith('DELETE') || c === 'POST ledger'), e.calls.join(','));
+    assert.equal(e.ledger.size, 1); assert.equal(e.ledger.get('recLEDGER00000077').fields['状態'], 'Airtable削除済');
+    const r2 = await e.run({ id: RID, reqId: REQ });
+    assert.equal(r2.j.ok, true); assert.equal(r2.j.again, true);
+  } finally { e.restore(); }
+});
+test('L1 受注を消した後に台帳を更新できなくても成功として返し、台帳は受付済のまま（Excel 同期が続きを処理）', async () => {
+  const e = await ledgerEnv({ orders: { [RID]: pendingOrder(RID) }, fail: { 'PATCH ledger': 422 } });
+  try {
+    const r = await e.run({ id: RID, reqId: REQ });
+    assert.equal(r.j.ok, true); assert.equal(r.j.ledgerWarn, true); assert.equal(r.j.ledger, '受付済');
+    assert.ok(!e.orders.has(RID)); assert.equal([...e.ledger.values()][0].fields['状態'], '受付済');
+  } finally { e.restore(); }
+});
+test('L1 受注を読めないとき・Excel 登録済・削除要求ID なしは、台帳にも受注にも書かない', async () => {
+  for (const [opt, body, st] of [
+    [{ orders: { [RID]: pendingOrder(RID) }, fail: { 'GET order': 500 } }, { id: RID, reqId: REQ }, 502],
+    [{ orders: { [RID]: pendingOrder(RID, { Add_from_Airtable: false }) } }, { id: RID, reqId: REQ }, 409],
+    [{ orders: { [RID]: pendingOrder(RID) } }, { id: RID }, 400],
+  ]) {
+    const e = await ledgerEnv(opt);
+    try {
+      const r = await e.run(body);
+      assert.equal(r.status, st, JSON.stringify(r.j));
+      assert.ok(!e.calls.some(c => !c.startsWith('GET')), e.calls.join(','));
+    } finally { e.restore(); }
+  }
+});
+test('L1 画面は削除要求IDを作って送り、結果不明のときは同じIDで送り直す', () => {
+  const d = extract('renderDelete');
+  assert.ok(d.includes("write({ action: 'delete', id: o.id, reqId: req.reqId, reason: req.reason })"));
+  assert.ok(d.includes('S.delPending = req;'), '結果不明なら同じ要求を残す');
+  assert.ok(d.includes("let req = S.delPending && S.delPending.id === o.id ? S.delPending : null;"));
+  assert.ok(d.includes('Excel 反映待ち'));
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {
