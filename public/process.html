@@ -426,7 +426,58 @@
   .chips.filt button[aria-pressed=true]{ background:var(--sel); color:var(--bg); border-color:var(--sel); font-weight:600 }
   .chips.filt .lbl{ font-size:12.5px; color:var(--mut); margin-right:2px }
   /* キーボードで動かしたときの位置が分かるように */
-  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible{ outline:3px solid var(--focus); outline-offset:2px }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible{ outline:3px solid var(--focus); outline-offset:2px }
+
+  /* ===== 2026-11-03 作業共有画面の改善（docs/claude-process-ui-implementation.md 第1段階）===== */
+  /* 最新の記録の項目（更新の印）。状態の緑・青・黄土・赤と選択中の枠とは別の紫系にする */
+  :root{ --chg:#d8b4fe }
+  :root[data-theme=light]{ --chg:#6D28D9 }
+  :root[data-theme=vivant]{ --chg:#f0abfc }
+  :root[data-skin=shelf]{ --chg:#5B3A7A }
+  .chg{ display:inline-flex; align-items:baseline; gap:4px; margin-left:6px; font-size:12px; font-weight:600; letter-spacing:0; color:var(--chg); font-variant-numeric:tabular-nums; white-space:nowrap }
+  .chg .ct, .fs .chgt .ct{ border:1px solid var(--chg); border-radius:4px; padding:0 4px; font-size:11.5px; line-height:1.4 }
+  .fs.chg-on{ border-color:var(--chg); font-weight:600 }
+  .fs .chgt{ display:inline-flex; gap:3px; align-items:baseline; font-size:12px; font-weight:600; color:var(--chg); font-variant-numeric:tabular-nums; white-space:nowrap }
+  .legend{ font-size:12px; color:var(--mut) }
+  .legend .ct{ color:var(--chg); border:1px solid var(--chg); border-radius:4px; padding:0 4px; font-weight:600 }
+  /* 一覧の 表示：簡潔／詳細。簡潔は情報を減らさず、余白と札の内側の間隔だけ詰める（工程列はどちらも同じ） */
+  #list.compact .order{ padding:8px 10px 8px 12px; gap:3px }
+  :root #list.compact .order.ready{ padding:6px 8px 6px 10px }
+  :root #list.compact .order.mine, :root #list.compact .order.wait{ padding-left:8px }
+  #list.compact .orow{ gap:8px } #list.compact .orow .info{ gap:4px }
+  #list.compact .order .item{ font-size:18px; line-height:1.35 }
+  #list.compact .facts b{ font-size:21px }
+  #list.compact .prog{ gap:4px; margin-top:0 }
+  #list.compact .prog .tags{ gap:4px }
+  #list.compact .flow{ gap:4px 3px }
+  #list.compact .fs{ padding:2px 6px }
+  #list.compact .memo{ padding:3px 7px }
+  .order .open{ align-self:flex-end; font-size:12.5px; font-weight:500; color:var(--mut) }
+  /* 工程カード上部の操作（開いた作業リスト・状態・主操作） */
+  .primary{ display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--line); padding-top:10px }
+  .primary .vname{ font-size:13px; color:var(--mut) }
+  .primary .why{ font-size:14px; line-height:1.5 }
+  .primary .acts{ display:flex; flex-wrap:wrap; gap:8px }
+  .primary .acts button{ flex:1 1 40%; min-height:52px; font-size:18px; white-space:normal }
+  .primary .hint{ font-size:12.5px; color:var(--mut) }
+  .nextinfo{ font-size:14px; line-height:1.5; padding:6px 10px; border-radius:8px; background:var(--surf2); border:1px solid var(--line) }
+  .nextinfo div + div{ font-size:13px; color:var(--mut) }
+  /* 補助の操作は1段だけの開閉 */
+  details.aux{ border:1px solid var(--line); border-radius:var(--r); padding:0 10px; background:var(--surf) }
+  details.aux > summary{ cursor:pointer; padding:12px 2px; min-height:48px; font-size:15px; font-weight:600 }
+  details.aux > summary small{ font-weight:500; color:var(--mut); margin-left:6px }
+  details.aux[open] > summary{ border-bottom:1px solid var(--line); margin-bottom:10px }
+  details.aux > .body{ padding-bottom:10px; display:flex; flex-direction:column; gap:8px }
+  .auxnote{ grid-column:1/-1; font-size:13px; color:var(--mut) }
+  .nearmsg{ flex-basis:100% }
+  /* 完了を保存した後の結果（一覧の画面だけ。自動では消さない） */
+  .toast{ position:fixed; left:0; right:0; bottom:0; max-width:640px; margin:0 auto; z-index:40; padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    background:var(--surf); border-top:3px solid var(--ok); box-shadow:0 -6px 14px rgba(0,0,0,.3); display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; font-size:14px; line-height:1.5 }
+  .toast.warn{ border-top-color:var(--warn) }
+  .toast .tx{ flex:1 1 60%; min-width:0; display:flex; flex-direction:column; gap:2px; overflow-wrap:anywhere }
+  .toast .tx b{ font-weight:600 }
+  .toast .btn{ padding:8px 12px; font-size:14px }
+  body.has-toast .wrap{ padding-bottom:170px }
 </style>
 </head>
 <body>
@@ -462,6 +513,9 @@
     <div class="chips" id="viewChips"></div>
     <!-- 状態の絞り込み（取得済みの一覧を画面の中で絞る。Airtable のビュー・並び順は変えない）2026-10-23 -->
     <div class="chips filt" id="filtChips" role="group" aria-label="状態で絞り込む" hidden></div>
+    <!-- 表示：簡潔／詳細（部門別のリストだけ。取得済みの一覧を描き直すだけで読み直さない）2026-11-03 -->
+    <div class="chips filt" id="densChips" role="group" aria-label="一覧の表示" hidden></div>
+    <div class="legend"><span class="ct">更新</span> 取得できた記録（工程・数量・納期・工程表発行）のうち最新。受注の最終更新とは限りません</div>
     <div class="row"><div class="msg" id="listMsg" role="status" style="flex:1"></div>
       <button type="button" class="btn ghost" id="listRetry" hidden>もう一度読む</button></div>
     <div id="list" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -483,6 +537,7 @@
       <button class="btn ghost" id="searchBtn" type="button">検索</button>
     </div>
     <div class="msg" id="findMsg" role="status"></div>
+    <div class="legend"><span class="ct">更新</span> 取得できた記録（工程・数量・納期・工程表発行）のうち最新。受注の最終更新とは限りません</div>
     <div id="orders" style="display:flex;flex-direction:column;gap:8px"></div>
   </section>
 
@@ -494,17 +549,32 @@
       <span id="unsureText"></span>
       <button type="button" class="btn" id="unsureBtn">記録の状態を確認</button>
     </div>
+    <!-- 2026-11-03 並び: 品名・数量・納期・連絡事項・工程列 → 作業リストと状態・主操作 → 案内 → 探す・画像 → 補助の操作（1段だけの開閉） -->
     <div class="target" id="target"></div>
-    <div class="imgs" id="stepImgs"></div>
-    <div class="steps" id="steps"></div>
-    <div class="roomhead" id="roomHead">Room <small>（明るい枠＝普段の部屋。押すと Room に入る／もう一度押すと外す）</small></div>
-    <div class="rooms" id="rooms"></div>
+    <div class="primary" id="primary"></div>
     <div class="variants" id="variants" hidden></div>
     <div class="msg" id="stepMsg" role="status"></div>
+    <div class="nextinfo" id="nextInfo" hidden></div>
+    <div id="goBar"></div>
+    <div class="imgs" id="stepImgs"></div>
+    <details class="aux" id="auxOther"><summary>その他の工程を記録</summary><div class="body"><div class="steps" id="stepsOther"></div></div></details>
+    <details class="aux" id="auxStatus"><summary>材料・在庫の状況を記録</summary><div class="body"><div class="steps" id="stepsStatus"></div></div></details>
+    <details class="aux" id="auxEdit"><summary>数量・納期・紙入荷日を変更</summary><div class="body" id="editors"></div></details>
+    <details class="aux" id="auxRoom"><summary>応援先 <small id="roomNow"></small></summary><div class="body">
+      <div class="roomhead" id="roomHead">Room <small>（明るい枠＝普段の部屋。押すと Room に入る／もう一度押すと外す）</small></div>
+      <div class="rooms" id="rooms"></div>
+    </div></details>
+    <details class="aux" id="auxDone"><summary>進行と完了記録 <small id="doneCnt"></small></summary><div class="body"><div class="steps" id="stepsDone"></div></div></details>
     <div class="newo" id="newOrder"></div>
     <div class="row" id="delOrder"></div>
   </section>
 </main>
+<!-- 完了を保存した後の結果。閉じるか、次の操作（受注を開く・リストを変える・探す・次の記録）まで残す -->
+<div class="toast" id="toast" role="status" hidden>
+  <div class="tx" id="toastText"></div>
+  <button type="button" class="btn ghost" id="toastRetry" hidden>一覧だけ読み直す</button>
+  <button type="button" class="btn ghost" id="toastClose">閉じる</button>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <div class="viewer" id="viewer" hidden role="dialog" aria-label="画像">
@@ -589,6 +659,39 @@
     writing++;
     try { return await api(body); } finally { writing--; }
   }
+  // 書き込みの操作（記録・取消・材料・Room・数量・納期・紙入荷日・新規受注・削除）の開始から、画面へ反映するまで（2026-11-03）。
+  // writing は自動の読み直しを止めるための数で、二重の送信は止めない。その間は別の書き込みを重ねず、受注・画面の切り替えも止める。
+  // 対象は操作を始めたときの受注（o）。結果不明のままの受注には書かない
+  let op = null;
+  async function runOp(o, fn) {
+    if (op) { say($('stepMsg'), '前の操作を処理しています。終わるまでお待ちください', 'warn'); return; }
+    if (!o || (S.unsure && S.unsure.id === o.id)) { applyLocks(); return; }
+    if (S.sel !== o.id) return; // 開いている受注が変わっていたら送らない
+    op = { id: o.id }; writing++; hideToast(); applyLocks();
+    try { return await fn(); } finally { op = null; writing--; applyLocks(); updateNav(); }
+  }
+  // 書き込み中に、受注・リスト・画面を切り替える操作を止める（押されたら知らせるだけ）
+  function busyNow() {
+    if (!op) return false;
+    say(detailOpen() ? $('stepMsg') : (S.mode === 'list' ? $('listMsg') : $('findMsg')), '記録を処理しています。終わるまでお待ちください', 'warn');
+    return true;
+  }
+  // 工程カードの書き込みボタン（data-w）の押せる・押せないを、そのときの状態からまとめて決め直す。
+  // 押した後に全部のボタンを有効に戻すのではなく、もともと押せないもの（data-off）と結果不明の受注は止めたままにする
+  function applyLocks() {
+    const o = current();
+    const lock = !!op || !!(S.unsure && o && S.unsure.id === o.id);
+    $('stepCard').querySelectorAll('[data-w]').forEach(b => { b.disabled = lock || b.dataset.off === '1'; });
+    $('closeDetail').disabled = !!op;
+  }
+  // 工程カードの案内（stepMsg）に出し、押した欄の近くにも同じ文を出す（読み上げは stepMsg の1か所だけ）
+  function sayAt(near, text, cls) {
+    say($('stepMsg'), text, cls);
+    if (!near) return;
+    let m = [...near.children].find(x => x.classList.contains('nearmsg'));
+    if (!m) { m = document.createElement('div'); m.setAttribute('aria-hidden', 'true'); near.append(m); }
+    m.textContent = text || ''; m.className = 'msg nearmsg ' + (cls || '');
+  }
 
   /* ---------- QR ---------- */
   // 対応する形式: order-Book-WC / die-Book-WC / Ta:230 / URL の ?book=&wc=
@@ -632,6 +735,7 @@
       const p = parseQr(raw);
       if (!p) { say($('camMsg'), '工程表のQRではないようです', 'warn'); return; }
       stopCam(); navigator.vibrate?.(60);
+      if (op) return; // 記録の処理中は対象を変えない
       setBook(p.book); $('wc').value = p.wc; setMode('find'); search();
     }, 160);
   }
@@ -646,7 +750,7 @@
   async function search() {
     const book = $('book').value.trim(), wc = $('wc').value.trim();
     if (!book || !wc) return say($('findMsg'), 'Book と WorkCord を入れてください', 'err');
-    S.findBy = 'wc';
+    S.findBy = 'wc'; hideToast();
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     const j = await api({ action: 'orders', book, wc });
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
@@ -657,7 +761,7 @@
     renderOrders();
     if (open.length === 1) selectOrder(open[0].id);
   }
-  $('searchBtn').onclick = search;
+  $('searchBtn').onclick = () => { if (!busyNow()) search(); };
 
   // 品名（ItemName）で探す（2026-10-30）。キーワードは2つまでで、両方を含む受注が候補になる。
   // 候補は下に並べ、上の ← → で1件ずつ工程カードを開いて順に見られる
@@ -665,7 +769,7 @@
   async function itemSearch(keys) {
     const { k1, k2, archived } = keys || { k1: $('ik1').value.trim(), k2: $('ik2').value.trim(), archived: $('ikArch').checked };
     if (!k1 && !k2) return say($('findMsg'), '品名のキーワードを入れてください', 'err');
-    S.findBy = 'item'; S.findKeys = { k1, k2, archived };
+    S.findBy = 'item'; S.findKeys = { k1, k2, archived }; hideToast();
     $('ik1').blur(); $('ik2').blur(); // スマホのキーボードを閉じて候補を見やすくする
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     S.orders = []; updateNav();
@@ -680,16 +784,17 @@
     renderOrders();
     if (j.orders.length === 1) selectOrder(j.orders[0].id);
   }
-  $('itemBtn').onclick = () => itemSearch();
-  ['ik1', 'ik2'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') itemSearch(); }));
+  $('itemBtn').onclick = () => { if (!busyNow()) itemSearch(); };
+  ['ik1', 'ik2'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter' && !busyNow()) itemSearch(); }));
   // 切り替えたら、もう探していればすぐ同じキーワードで探し直す。選んだ状態は端末に覚える
   $('ikArch').checked = store.get('process.itemArch') === '1';
   $('ikArch').onchange = () => {
     store.set('process.itemArch', $('ikArch').checked ? '1' : '0');
-    if (S.findBy === 'item' && ($('ik1').value.trim() || $('ik2').value.trim())) itemSearch();
+    if (S.findBy === 'item' && ($('ik1').value.trim() || $('ik2').value.trim()) && !busyNow()) itemSearch();
   };
   // 候補を順に送る。まだ選んでいなければ「次」で先頭、「前」で最後を開く
   function stepCandidate(d) {
+    if (busyNow()) return;
     const n = S.orders.length; if (!n) return;
     const i = S.orders.findIndex(o => o.id === S.sel);
     const next = i < 0 ? (d > 0 ? 0 : n - 1) : i + d;
@@ -707,7 +812,7 @@
     $('navPrev').disabled = i === 0;
     $('navNext').disabled = i === n - 1;
   }
-  $('wc').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+  $('wc').addEventListener('keydown', e => { if (e.key === 'Enter' && !busyNow()) search(); });
 
   function fmtDate(d) { return d ? d.slice(5).replace('-', '/') : '-'; }
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
@@ -727,6 +832,8 @@
       fr.textContent = '元 ' + (o.amountFrom === '空白' ? '空白' : Number(o.amountFrom).toLocaleString('ja-JP'));
       fr.title = o.amountLog || ''; q.append(fr);
     }
+    const lc = latestChanges(o);
+    if (lc && lc.keys.has('amount')) q.append(chgMark(lc, 'chg'));
     const n = document.createElement('span'); const nb = document.createElement('b');
     n.append('納期', nb);
     if (o.ndate) {
@@ -743,8 +850,59 @@
       fr.textContent = '元 ' + (o.ndateFrom === '空白' ? '空白' : fmtDate(o.ndateFrom));
       fr.title = o.ndateLog || ''; n.append(fr);
     }
+    if (lc && lc.keys.has('ndate')) n.append(chgMark(lc, 'chg'));
     f.append(q, n);
     return f;
+  }
+
+  /* ---------- 最新の記録の項目（2026-11-03）---------- */
+  // 記録の日時を読む。タイムゾーンの無い記録（「佐藤 2026-10-03 14:20」「2026-10-03T14:20」）は日本時間、
+  // Z や +09:00 が付いていればそれに従う。日付だけ・読めない日時は null（00:00 や今の時刻で補わない）。端末のタイムゾーンには左右されない
+  function recTime(text) {
+    const m = /(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?(Z|[+-]\d\d:?\d\d)?(?![\d:])/.exec(String(text || ''));
+    if (!m) return null;
+    const [y, mo, d, h, mi, se] = m.slice(1, 7).map(x => Number(x || 0));
+    if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || se > 59) return null;
+    if (new Date(Date.UTC(y, mo - 1, d)).getUTCDate() !== d) return null; // 2/30 など
+    const z = m[7];
+    const off = !z ? 9 * 60 : z === 'Z' ? 0 : (z[0] === '-' ? -1 : 1) * (Number(z.slice(1, 3)) * 60 + Number(z.slice(-2)));
+    return Date.UTC(y, mo - 1, d, h, mi, se) - off * 60000;
+  }
+  // 数量・納期の変更記録の最後の行「旧値→新値 氏名 YYYY-MM-DD HH:mm」。日時は行末のものだけを読み（納期の旧値・新値と取り違えない）、
+  // 変更後の値が今の値と違う行は、今の値の変更日時にしない
+  const AMT_LOG = /^(?:\d+|空白)→(\d+)\s+.+?\s+(\d{4}-\d\d-\d\d \d\d:\d\d)$/;
+  const NDATE_LOG = /^(?:\d{4}-\d\d-\d\d|空白)→(\d{4}-\d\d-\d\d)\s+.+?\s+(\d{4}-\d\d-\d\d \d\d:\d\d)$/;
+  function logTime(line, re, cur) {
+    const m = re.exec(String(line || '').trim());
+    return m && cur !== '' && m[1] === cur ? recTime(m[2]) : null;
+  }
+  // 受注ごとに、取得できた記録（工程・状況の完了記録、数量・納期の変更、工程表の発行）のうち一番新しいものを選ぶ。
+  // 同じ日時（分まで）のものはどれも選ぶ。latestKey（今の進行を優先）とは別。受注全体の最終更新ではない（社外進行・Room・連絡事項などの日時は無い）
+  // keys: 'step:<工程key>' / 'amount' / 'ndate' / 'printed'
+  function latestChanges(o) {
+    const c = [];
+    for (const s of S.steps) if (o.done?.[s.key]) c.push(['step:' + s.key, recTime(o.done[s.key])]);
+    c.push(['amount', logTime(o.amountLog, AMT_LOG, o.amount == null ? '' : String(o.amount))]);
+    c.push(['ndate', logTime(o.ndateLog, NDATE_LOG, String(o.ndate || ''))]);
+    if (o.printedAt) c.push(['printed', recTime(o.printedAt)]);
+    let t = null;
+    for (const [, x] of c) if (x != null && (t == null || x > t)) t = x;
+    if (t == null) return null;
+    return { t, keys: new Set(c.filter(x => x[1] === t).map(x => x[0])) };
+  }
+  // 日本時間の M/D HH:mm（今年でなければ年も付ける）
+  function fmtChange(t) {
+    const d = new Date(t + 9 * 3600000), y = new Date(Date.now() + 9 * 3600000).getUTCFullYear();
+    const p = (n) => String(n).padStart(2, '0');
+    const s = `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+    return d.getUTCFullYear() === y ? s : `${d.getUTCFullYear()}/${s}`;
+  }
+  // 「更新 11/3 14:32」の印。同じ日時の記録が複数あるときは「同時刻」と添える
+  function chgMark(lc, cls) {
+    const el = document.createElement('span'); el.className = cls;
+    const tag = document.createElement('span'); tag.className = 'ct'; tag.textContent = lc.keys.size > 1 ? '更新・同時刻' : '更新';
+    el.append(tag, fmtChange(lc.t));
+    return el;
   }
 
   // 「佐藤 2026-10-03 14:20」→「佐藤 10/03」
@@ -803,8 +961,8 @@
   const md = (t) => { const m = /\d{4}-(\d\d)-(\d\d)/.exec(t || ''); return m ? `${+m[1]}/${+m[2]}` : ''; };
   // 進行社内は 工程表印刷日時 と各工程の「〜記録」の日時で並べる。記録の無い今の進行（抜き作業中など）は最後に足す
   function inFlow(o) {
-    const items = doneSteps(o).map(({ s, d, t }) => ({ label: s.label, sub: d ? md(d) : '', t }));
-    if (o.printedAt) items.push({ label: '工程表発行済', sub: md(o.printedAt), t: stampTime(o.printedAt) || '0000' });
+    const items = doneSteps(o).map(({ s, d, t }) => ({ key: 'step:' + s.key, label: s.label, sub: d ? md(d) : '', t }));
+    if (o.printedAt) items.push({ key: 'printed', label: '工程表発行済', sub: md(o.printedAt), t: stampTime(o.printedAt) || '0000' });
     items.sort((a, b) => a.t.localeCompare(b.t));
     if (o.progIn && !items.some(x => x.label === o.progIn)) items.push({ label: o.progIn, sub: '' });
     const i = items.findIndex(x => x.label === o.progIn);
@@ -818,12 +976,14 @@
   const ITEM_TAG = { o: 'オートン', 0: 'オートン', ki: '機械貼', h: '花', ha: '花', ko: '2F_小', tk: 'たおしK判', tm: 'たおしM判',
     cad: 'CAD', nao: 'Nao', na: 'Nao', pre: 'プレ', st: '断裁ステッチ', '断': '断裁ステッチ',
     '福祉': '福祉' }; // 工程(自動) の対応表と同じ（2026-10-23 #福祉 を追加）
-  function itemTags(o) {
+  // fromItem: 品名の #タグから読めた部屋（作業順）。all: それに 品名から読めなかった 工程(自動) のタグを後ろに足したもの（= itemTags）
+  function itemTagInfo(o) {
     const kotei = String(o.kotei || '').split('|').filter(Boolean);
-    const fromItem = String(o.item || '').normalize('NFKC').split('#').slice(1)
-      .map(t => ITEM_TAG[t.trim().split(/\s/)[0].toLowerCase()]).filter(t => t && kotei.includes(t));
-    return [...new Set([...fromItem, ...kotei])];
+    const fromItem = [...new Set(String(o.item || '').normalize('NFKC').split('#').slice(1)
+      .map(t => ITEM_TAG[t.trim().split(/\s/)[0].toLowerCase()]).filter(t => t && kotei.includes(t)))];
+    return { fromItem, all: [...new Set([...fromItem, ...kotei])] };
   }
+  function itemTags(o) { return itemTagInfo(o).all; }
   function todoRooms(o) {
     if (o.closed || o.group === '最終' || o.done.finish) return [];
     return itemTags(o).filter(tag => !tagDone(o, tag)).map(tag => S.rooms.find(r => r.tag === tag)?.name || tag);
@@ -837,6 +997,7 @@
       const b = document.createElement('span'); b.className = 'fs ' + (i === cur ? 'now' : 'past') + (it.alert ? ' alert' : '') + (it.arrived ? ' arrived' : '');
       b.append((it.arrived ? '✓ ' : '') + it.label);
       if (it.sub) { const s = document.createElement('small'); s.textContent = it.sub; b.append(s); }
+      if (it.chg) { b.classList.add('chg-on'); b.append(chgMark(it.chg, 'chgt')); }
       row.append(b);
     });
     // まだの工程は点線の枠で暗く出す。タグの並びが実際の作業順なので → でつなぐ（→ Nao → 機械貼）
@@ -871,6 +1032,9 @@
     // 入荷確認済み・在庫シート利用は、社外の今の札を緑にする
     if (out.length && [...OUT_ARRIVED, '在庫シート利用'].includes(out[out.length - 1].label)) out[out.length - 1].arrived = true;
     const ins = inFlow(o);
+    // 最新の記録の工程札に「更新」の印を付ける（工程の並び・今の位置は変えない）
+    const lc = latestChanges(o);
+    if (lc) ins.items.forEach(it => { if (it.key && lc.keys.has(it.key)) it.chg = lc; });
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
     // 抜型状況。仕舞い完了があるのに「型まだ仕舞済でない」が残っていたら、古い方は出さない
@@ -921,35 +1085,38 @@
       box.append(n); return box;
     }
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '仕上がり数量を変える';
+    open.dataset.w = '1';
     box.append(open);
     if (o.amountLog) { const n = document.createElement('span'); n.className = 'note'; n.textContent = '最後の変更: ' + o.amountLog; box.append(n); }
     open.onclick = () => {
       box.textContent = '';
       const inp = document.createElement('input'); inp.inputMode = 'numeric'; inp.pattern = '\\d*'; inp.value = o.amount ?? '';
       inp.setAttribute('aria-label', '仕上がり数量');
-      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存';
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存'; save.dataset.w = '1';
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
       box.append(inp, save, cancel);
+      applyLocks();
       inp.focus(); inp.select();
       cancel.onclick = () => renderSteps();
       inp.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
       save.onclick = async () => {
         const v = inp.value.trim().replace(/[,，\s]/g, '');
-        if (!/^\d+$/.test(v) || Number(v) <= 0) return say($('stepMsg'), '数量は1以上の整数で入れてください', 'err');
+        if (!/^\d+$/.test(v) || Number(v) <= 0) return sayAt(box, '数量は1以上の整数で入れてください', 'err');
         const cur = Number(o.amount), next = Number(v);
         if (cur === next) return renderSteps();
         // 大きく変わるときは念のため確認（10倍・10分の1はサーバーが弾く）
         if (cur > 0 && (next > cur * 1.5 || next < cur / 1.5) &&
             !confirm(`数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} に変えます。よろしいですか？`)) return;
-        save.disabled = true;
-        const j = await write({ action: 'amount', id: o.id, amount: next });
-        save.disabled = false;
-        if (outcomeUnknown(j, x => Number.isFinite(x.amount))) return markUnsure(o, '数量の変更');
-        if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
-        if (!o.amountFrom) o.amountFrom = String(cur);
-        o.amount = j.amount; o.amountLog = j.line || o.amountLog;
-        say($('stepMsg'), `仕上がり数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} にしました`, 'ok');
-        renderSteps(); renderOrders();
+        await runOp(o, async () => {
+          sayAt(box, '数量を保存しています…');
+          const j = await write({ action: 'amount', id: o.id, amount: next });
+          if (outcomeUnknown(j, x => Number.isFinite(x.amount))) return markUnsure(o, '数量の変更');
+          if (!j.ok) return sayAt(box, j.error || '変えられませんでした', 'err');
+          if (!o.amountFrom) o.amountFrom = String(cur);
+          o.amount = j.amount; o.amountLog = j.line || o.amountLog;
+          say($('stepMsg'), `仕上がり数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} にしました`, 'ok');
+          renderSteps(); renderOrders();
+        });
       };
     };
     return box;
@@ -961,35 +1128,38 @@
     const box = document.createElement('div'); box.className = 'amt';
     if (o.amountLocked) return box;
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn date'; open.textContent = '納期を変える';
+    open.dataset.w = '1';
     box.append(open);
     if (o.ndateLog) { const n = document.createElement('span'); n.className = 'note'; n.textContent = '最後の変更: ' + o.ndateLog; box.append(n); }
     open.onclick = () => {
       box.textContent = '';
       const inp = document.createElement('input'); inp.type = 'date'; inp.value = o.ndate || '';
       inp.setAttribute('aria-label', '納期');
-      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存';
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存'; save.dataset.w = '1';
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
       box.append(inp, save, cancel);
+      applyLocks();
       inp.focus();
       cancel.onclick = () => renderSteps();
       save.onclick = async () => {
         const next = inp.value;
-        if (!/^\d{4}-\d\d-\d\d$/.test(next)) return say($('stepMsg'), '納期の日付を選んでください', 'err');
+        if (!/^\d{4}-\d\d-\d\d$/.test(next)) return sayAt(box, '納期の日付を選んでください', 'err');
         if (next === o.ndate) return renderSteps();
         const [y, m, d] = next.split('-').map(Number);
         const label = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
         // 過ぎた日にするのは打ち間違いのことが多いので確認する
         if (daysFromToday(next) < 0 && !confirm(`納期を過ぎた日（${label}）にします。よろしいですか？`)) return;
-        save.disabled = true;
-        const j = await write({ action: 'ndate', id: o.id, ndate: next });
-        save.disabled = false;
-        if (outcomeUnknown(j, x => /^\d{4}-\d\d-\d\d$/.test(String(x.ndate || '')))) return markUnsure(o, '納期の変更');
-        if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
-        if (!o.ndateFrom) o.ndateFrom = o.ndate || '空白';
-        const before = o.ndate ? fmtDate(o.ndate) : '空白';
-        o.ndate = j.ndate; o.ndateLog = j.line || o.ndateLog;
-        say($('stepMsg'), `納期を ${before} → ${label} にしました`, 'ok');
-        renderSteps(); renderOrders();
+        await runOp(o, async () => {
+          sayAt(box, '納期を保存しています…');
+          const j = await write({ action: 'ndate', id: o.id, ndate: next });
+          if (outcomeUnknown(j, x => /^\d{4}-\d\d-\d\d$/.test(String(x.ndate || '')))) return markUnsure(o, '納期の変更');
+          if (!j.ok) return sayAt(box, j.error || '変えられませんでした', 'err');
+          if (!o.ndateFrom) o.ndateFrom = o.ndate || '空白';
+          const before = o.ndate ? fmtDate(o.ndate) : '空白';
+          o.ndate = j.ndate; o.ndateLog = j.line || o.ndateLog;
+          say($('stepMsg'), `納期を ${before} → ${label} にしました`, 'ok');
+          renderSteps(); renderOrders();
+        });
       };
     };
     return box;
@@ -1002,37 +1172,40 @@
     if (o.amountLocked) return box;
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn date';
     open.textContent = o.paper ? `紙入荷日 ${fmtDate(o.paper)} を変える` : '紙入荷日を入れる';
+    open.dataset.w = '1';
     const n = document.createElement('span'); n.className = 'note'; n.textContent = 'シート（自社手配・先方支給）・機械貼材料の入荷日';
     box.append(open, n);
     open.onclick = () => {
       box.textContent = '';
       const inp = document.createElement('input'); inp.type = 'date'; inp.value = o.paper || '';
       inp.setAttribute('aria-label', '紙入荷日');
-      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存';
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '保存'; save.dataset.w = '1';
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
       box.append(inp, save, cancel);
       if (o.paper) {
-        const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'amtbtn'; clear.textContent = '消す';
+        const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'amtbtn'; clear.textContent = '消す'; clear.dataset.w = '1';
         clear.onclick = () => { if (confirm('紙入荷日を消しますか？')) send(''); };
         box.append(clear);
       }
+      applyLocks();
       inp.focus();
       cancel.onclick = () => renderSteps();
       save.onclick = () => {
-        if (!/^\d{4}-\d\d-\d\d$/.test(inp.value)) return say($('stepMsg'), '紙入荷日の日付を選んでください', 'err');
+        if (!/^\d{4}-\d\d-\d\d$/.test(inp.value)) return sayAt(box, '紙入荷日の日付を選んでください', 'err');
         send(inp.value);
       };
       async function send(next) {
         if (next === (o.paper || '')) return renderSteps();
-        box.querySelectorAll('button').forEach(b => b.disabled = true);
-        const j = await write({ action: 'paper', id: o.id, paper: next });
-        box.querySelectorAll('button').forEach(b => b.disabled = false);
-        if (outcomeUnknown(j, x => typeof x.paper === 'string')) return markUnsure(o, '紙入荷日の変更');
-        if (!j.ok) return say($('stepMsg'), j.error || '変えられませんでした', 'err');
-        const before = o.paper ? fmtDate(o.paper) : '空白';
-        o.paper = j.paper;
-        say($('stepMsg'), `紙入荷日を ${before} → ${o.paper ? fmtDate(o.paper) : '空白'} にしました`, 'ok');
-        renderSteps(); renderOrders();
+        await runOp(o, async () => {
+          sayAt(box, '紙入荷日を保存しています…');
+          const j = await write({ action: 'paper', id: o.id, paper: next });
+          if (outcomeUnknown(j, x => typeof x.paper === 'string')) return markUnsure(o, '紙入荷日の変更');
+          if (!j.ok) return sayAt(box, j.error || '変えられませんでした', 'err');
+          const before = o.paper ? fmtDate(o.paper) : '空白';
+          o.paper = j.paper;
+          say($('stepMsg'), `紙入荷日を ${before} → ${o.paper ? fmtDate(o.paper) : '空白'} にしました`, 'ok');
+          renderSteps(); renderOrders();
+        });
       }
     };
     return box;
@@ -1129,13 +1302,14 @@
       const th = thumbOf(o); if (th) wrap.append(th);
       el.append(wrap);
       el.dataset.id = o.id;
-      el.onclick = () => selectOrder(o.id);
+      el.onclick = () => { if (!busyNow()) selectOrder(o.id); };
       box.append(el);
     }
   }
 
   /* ---------- タブ ---------- */
   function setMode(m) {
+    hideToast();
     S.mode = m; store.set('process.mode', m);
     // 読み込み途中の一覧の応答は、切り替えた後の画面には使わない
     listGen++; listBusy = 0;
@@ -1150,8 +1324,8 @@
     if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
     else { S.orders = []; renderOrders(); say($('findMsg'), ''); }
   }
-  $('tabList').onclick = () => setMode('list');
-  $('tabFind').onclick = () => setMode('find');
+  $('tabList').onclick = () => { if (!busyNow()) setMode('list'); };
+  $('tabFind').onclick = () => { if (!busyNow()) setMode('find'); };
 
   // 作業リストの自動の読み直し。受注を開いて操作している間・書き込み中・画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない。
   // 2026-10-23 以前は「行を選んでいる（S.sel）」で止めていたため、記録して一覧に戻った後（行の選択表示は残る）も止まったままだった。
@@ -1298,16 +1472,51 @@
       const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
       if (v.key === S.view) b.classList.add('on');
       b.setAttribute('aria-pressed', String(v.key === S.view));
-      b.onclick = () => { S.sel = null; $('stepCard').hidden = true; loadView(v.key); };
+      b.onclick = () => { if (busyNow()) return; hideToast(); S.sel = null; $('stepCard').hidden = true; loadView(v.key); };
       box.append(b);
     }
     const sp = document.createElement('span'); sp.className = 'sp'; box.append(sp);
     const r = document.createElement('button'); r.type = 'button'; r.textContent = '更新';
     // 手で押した更新は、開いている受注のカードも最新にする（自動の読み直しはカードを開いている間は動かない）
-    r.onclick = async () => { if (await loadView(S.view, true)) syncDetail('一覧と開いている受注を最新の状態にしました'); };
+    r.onclick = async () => { if (busyNow()) return; if (await loadView(S.view, true)) syncDetail('一覧と開いている受注を最新の状態にしました'); };
     box.append(r);
   }
-  $('listRetry').onclick = () => loadView(S.view || store.get('process.view') || '', true);
+  $('listRetry').onclick = () => { if (!busyNow()) loadView(S.view || store.get('process.view') || '', true); };
+
+  /* ---------- 表示：簡潔／詳細（2026-11-03） ---------- */
+  // 部門別のリスト（自分の工程の決まりがあるもの）だけ。初めは簡潔。選んだ方は端末に覚える（process.view / process.mode とは別のキー）。
+  // 全件・Recent・Fax・品番／品名の検索は今までの詳しい表示のまま。切り替えは取得済みの一覧を描き直すだけで、読み直さない
+  const DENSITY_KEY = 'process.listDensity';
+  S.density = store.get(DENSITY_KEY) === 'detail' ? 'detail' : 'compact';
+  function renderDensity(v) {
+    const box = $('densChips'); box.textContent = '';
+    const on = hasMine(v);
+    box.hidden = !on;
+    $('list').classList.toggle('compact', on && S.density === 'compact');
+    if (!on) return;
+    const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '表示:'; box.append(l);
+    for (const [k, label] of [['compact', '簡潔'], ['detail', '詳細']]) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.setAttribute('aria-pressed', String(S.density === k));
+      b.onclick = () => {
+        if (S.density === k) return;
+        S.density = k; store.set(DENSITY_KEY, k);
+        keepTopRow(renderList);
+      };
+      box.append(b);
+    }
+  }
+  // 描き直しの前後で、画面の一番上に見えていた行の位置を保つ
+  function keepTopRow(fn) {
+    const sc = scroller();
+    const head = [$('listHead'), $('findHead')].find(x => x && !x.hidden);
+    const top = (sc === window ? 0 : sc.getBoundingClientRect().top) + (head ? head.offsetHeight : 0);
+    const r = [...$('list').querySelectorAll('.order')].find(el => el.getBoundingClientRect().bottom > top);
+    const id = r?.dataset.id, y = r ? r.getBoundingClientRect().top : 0;
+    fn();
+    const n = id && $('list').querySelector(`.order[data-id="${id}"]`);
+    if (n) sc.scrollBy(0, n.getBoundingClientRect().top - y);
+  }
 
 
   /* ---------- 状態の絞り込み（2026-10-23） ---------- */
@@ -1406,6 +1615,7 @@
     const counts = {};
     for (const st of states.values()) counts[st.kind] = (counts[st.kind] || 0) + 1;
     renderFilter(counts);
+    renderDensity(v);
     // 並びは 緑枠（着手可）→ 無印（待ち・未確認など）→ 青枠（済）。同じ枠の中は納品日順（空は最後）（2026-10-26）
     const band = (o) => ({ ready: 0, done: 2 })[states.get(o.id).kind] ?? 1;
     // keepOrder のリスト（Recent 1day）はビューの並び（最終更新の新しい順）のまま（2026-10-29）
@@ -1432,9 +1642,11 @@
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
       const th = thumbOf(o); if (th) wrap.append(th);
-      el.append(wrap);
+      // カード全体で詳細を開く（中にボタン・リンクは入れない）
+      const go = document.createElement('span'); go.className = 'open'; go.textContent = '詳細・工程を記録 →';
+      el.append(wrap, go);
       el.dataset.id = o.id;
-      el.onclick = () => selectOrder(o.id);
+      el.onclick = () => { if (!busyNow()) selectOrder(o.id); };
       row.append(el);
       box.append(row);
     }
@@ -1502,6 +1714,8 @@
   const hasTag = (o, tag) => !!tag && String(o.kotei || '').includes('|' + tag + '|');
 
   function selectOrder(id) {
+    hideToast();
+    S.auxFor = null; // 開き直したら補助の開閉は初めの状態に戻す
     S.sel = id; S.pendingStep = null; renderOrders(); renderSteps(); showCloseLabel();
     $('stepCard').hidden = false; say($('stepMsg'), '');
     scrollToCard($('stepCard'));
@@ -1523,6 +1737,7 @@
 
   // 記録せずに一覧へ戻る（2026-10-23）。選んだ行の表示は残し、その行まで戻る。閉じたので自動の読み直しも再開する
   $('closeDetail').onclick = () => {
+    if (busyNow()) return;
     const id = S.sel;
     $('stepCard').hidden = true; $('variants').hidden = true; S.pendingStep = null;
     renderOrders();
@@ -1543,10 +1758,10 @@
   function applyUnsure(o) {
     const on = !!(S.unsure && o && S.unsure.id === o.id);
     $('unsureBox').hidden = !on;
-    if (!on) return;
-    $('unsureText').textContent = `通信が途切れ、${S.unsure.what}が保存されたか確認できません（保存されなかったとは限りません）。` +
+    if (on) $('unsureText').textContent = `通信が途切れ、${S.unsure.what}が保存されたか確認できません（保存されなかったとは限りません）。` +
       'もう一度押す前に「記録の状態を確認」で最新の状態を読み込んでください。確認できるまで、この受注のボタンは押せません。';
-    $('stepCard').querySelectorAll('.step, .undo, .room, .amtbtn, .variants button').forEach(b => { b.disabled = true; });
+    // 書き込みのボタン（主操作・工程・取消・材料・Room・数量／納期／紙入荷日の保存・新規受注・削除）は data-w でまとめて止める
+    applyLocks();
   }
   // 最新の状態を読み込む（読み取りだけ）。読めたときだけ「確認できた」とし、開いている受注のカードも作り直す
   $('unsureBtn').onclick = async () => {
@@ -1583,55 +1798,171 @@
     say($('stepMsg'), text, 'ok');
   }
 
-  function renderSteps() {
-    const o = current(); if (!o) return;
-    const t = $('target'); t.textContent = '';
-    const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
-    const mt = document.createElement('div'); mt.className = 'meta';
-    mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
-    t.append(it, facts(o), mt, goBar(o), amountEditor(o), ndateEditor(o), paperEditor(o));
-    renderStepImages(o);
+  // 工程カードを開いた作業リスト。部門別などの作業リストから開いたときだけ。品番・品名で探したときは前に見ていたリストを使わない
+  const detailView = () => (S.mode === 'list' ? S.views.find(x => x.key === S.view) || null : null);
 
-    const box = $('steps'); box.textContent = '';
+  /* ---------- 上部の主操作（2026-11-03） ---------- */
+  // 表示の優先度だけを決める（記録できるかどうかの判定は変えない。送信は chooseStep → doComplete → write のまま）。
+  // ・CAD／オートン抜き／機械貼／手貼り: その工程
+  // ・たおし抜き: 工程(自動) に K判・M判 の片方だけがあればその工程。両方・どちらも無ければ2つを同じ強さで出す
+  // ・2F 小／Nao: シール貼完了 と 仕上がりました のまだのものを同じ強さで出す（自動ではどちらも選ばない）
+  // ・お守箔焼印・断裁ステッチ・プレ・全件・Recent・Fax・検索・定義の足りないもの: 「工程を選んで記録」（工程の一覧を開く）
+  // 閉じた受注・自分の工程が済の受注には、自動で選んだ完了ボタンを出さない
+  const PRIMARY = { cad: ['cad'], auton: ['o'], kikai: ['kikai'], tebari: ['tebari'], taoshi: 'taoshi', f2: ['seal', 'finish'], nao: ['seal', 'finish'] };
+  function primaryPlan(o, v) {
+    const plan = { keys: [], closed: !!o.closed, md: v && hasMine(v) ? mineDone(o, v) : null };
+    if (plan.closed || plan.md || !v || !hasMine(v)) return plan;
+    let keys = PRIMARY[v.key];
+    if (keys === 'taoshi') {
+      const hit = (v.mine || []).filter(k => (S.steps.find(s => s.key === k)?.variants || []).some(x => hasTag(o, x.tag)));
+      keys = hit.length === 1 ? hit : (v.mine || []);
+    }
+    if (!Array.isArray(keys) || !keys.length) return plan;
+    const steps = keys.map(k => S.steps.find(s => s.key === k));
+    if (steps.some(s => !s)) return plan; // 定義が足りなければ選ばせる
+    plan.keys = steps.filter(s => !o.done[s.key] && !s.variants.some(x => x.value === o.progIn)).map(s => s.key);
+    return plan;
+  }
+  // 補助の開閉の初めの状態。材料待ちのときだけ「材料・在庫の状況」を開く
+  function auxDefaults(o, v) {
+    ['auxOther', 'auxEdit', 'auxRoom', 'auxDone'].forEach(id => { $(id).open = false; });
+    const st = v ? rowState(o, v) : { kind: '' };
+    $('auxStatus').open = ['シート手配待ち', 'シート手配済み'].includes(o.progOut) || (st.kind === 'wait' && /材料|シート/.test(st.text));
+  }
+  // 「工程を選んで記録」「他の工程を記録」: 工程の一覧を開き、そこまで動かして最初の押せるボタンへ
+  function openAux(id) {
+    const d = $(id); d.open = true;
+    scrollToCard(d);
+    const b = d.querySelector('button:not(:disabled)') || d.querySelector('summary');
+    b?.focus({ preventScroll: true });
+  }
+  function renderPrimary(o, v, plan) {
+    const box = $('primary'); box.textContent = '';
+    const add = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; box.append(d); return d; };
+    add('vname', v ? `作業リスト: ${v.label}` : (S.mode === 'list' ? '作業リストから開きました' : '品番・品名で探す から開きました'));
+    const st = v ? rowState(o, v) : { kind: '' };
+    const sb = stateBadge(st, v);
+    if (sb) { const bd = document.createElement('div'); bd.className = 'badges'; bd.append(sb); box.append(bd); }
+    // 済とみなした根拠（記録者・日時は実際の記録があるときだけ。抜き半製品あり・仕上がり済 はそのまま）
+    if (plan.md) add('why', `済とみなした根拠: ${plan.md.label}${plan.md.who ? `（${plan.md.who}）` : ''}。別の工程の記録が要るときは下から選べます`);
+    if (plan.closed) add('why', `この受注は閉じています（進行社外: ${o.progOut || '空白'}）。工程の記録は下の一覧から選べます`);
+    // 待ち・状態未確認でも記録はできる。理由だけを主操作の前に出す
+    if (st.kind === 'wait') add('why', '待ちの理由は上の札のとおりです。記録は今までどおりできます');
+    if (st.kind === 'unknown') add('why', '着手できるか・何を待っているかを判断できる記録がありません。記録は今までどおりできます');
+    const acts = document.createElement('div'); acts.className = 'acts';
+    for (const k of plan.keys) {
+      const s = S.steps.find(x => x.key === k);
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.dataset.w = '1';
+      b.textContent = s.label; b.onclick = () => chooseStep(s);
+      acts.append(b);
+    }
+    if (plan.keys.length) {
+      box.append(acts);
+      add('hint', plan.keys.length > 1 ? '押すと完了を記録します。どちらの工程かを選んで押してください（自動では選びません）' : '押すと完了を記録します');
+    } else {
+      const b = document.createElement('button'); b.type = 'button'; b.className = plan.md ? 'btn ghost' : 'btn';
+      b.textContent = plan.md ? '他の工程を記録' : '工程を選んで記録';
+      b.onclick = () => openAux('auxOther');
+      acts.append(b); box.append(acts);
+    }
+  }
+  // 工程記録から見た残りの工程（2026-11-03）。品名の #タグで並びが説明でき、どの工程も完了を判定できるときだけ順番（→）で出す。
+  // それ以外は候補として並べるだけ。空のときも「全部終わった」とは言わない。部門別の作業リストから開いたときだけ（検索では追加で読みに行かない）
+  function nextGuide(o, v) {
+    if (!v || !hasMine(v) || !S.steps.length || !S.views.length) return { kind: 'nodata', text: '工程列と完了記録を確認してください' };
+    if (o.done.finish || o.progIn === '仕上がりました') return { kind: 'end', text: '仕上がりの記録があります' };
+    if (o.group === '最終') return { kind: 'end', text: '現在は仕上がり済の扱いです' };
+    if (o.closed) return { kind: 'end', text: `受注は「${o.progOut}」です` };
+    const info = itemTagInfo(o);
+    if (!info.all.length) return { kind: 'none', text: '次工程を確認してください' };
+    const left = info.all.filter(t => !tagDone(o, t));
+    if (!left.length) return { kind: 'empty', text: '表示できる残工程はありません。必要な作業を確認してください' };
+    const judged = (t) => S.views.some(x => viewTags(x).includes(t)) || S.steps.some(s => s.variants.some(x => x.tag === t));
+    const names = left.map(roomLabel);
+    if (info.all.every(t => info.fromItem.includes(t) && judged(t))) {
+      return { kind: 'order', text: `工程記録から見た残り：${names.join(' → ')}`, next: `次の工程候補：${names[0]}` };
+    }
+    return { kind: 'maybe', text: `工程候補：${names.join('・')}（順番・完了状況を確認）` };
+  }
+  function renderNext(o, v) {
+    const g = nextGuide(o, v), el = $('nextInfo'); el.textContent = '';
+    const a = document.createElement('div'); a.textContent = (g.kind === 'nodata' ? '上部の' : '') + g.text; el.append(a);
+    if (g.next) { const b = document.createElement('div'); b.textContent = g.next + '（着手できる・知らせ済みという意味ではありません）'; el.append(b); }
+    el.hidden = false;
+  }
+  // 済の工程（押せない表示＋記録者・日時＋取り消し）
+  function doneCell(o, s, done, lastKey) {
+    // 2026-10-23 済の工程は押せない表示（工程名・済・記録者・日時）にし、取り消しは「記録を取り消す」に分ける。
+    // 以前は済のボタンをもう一度押すと取り消しの確認になり、確かめるつもりで押して取り消しに進みやすかった
+    const cell = document.createElement('div'); cell.className = 'stepcell';
+    const st = document.createElement('div');
+    st.className = 'step done ' + (s.key === lastKey ? 'now' : 'past') + (s.group === 'status' ? ' status' : '');
+    st.append(document.createTextNode('✓ ' + s.label));
+    const sm = document.createElement('small');
+    sm.textContent = done ? '済 ' + fullStamp(done) : '済（記録者なし）';
+    st.append(sm);
+    const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '記録を取り消す'; un.dataset.w = '1';
+    un.setAttribute('aria-label', `「${s.label}」の記録を取り消す`);
+    un.onclick = () => cancelStep(s, done);
+    cell.append(st, un);
+    return cell;
+  }
+  // 補助の工程一覧。まだの工程は「その他の工程を記録」（上部に出した工程は除く）、状況（材料・在庫）は「材料・在庫の状況」、
+  // 済の工程は「進行と完了記録」に分ける。どの工程にも上部かここのどちらか1か所から届く
+  function renderStepLists(o, plan) {
+    const other = $('stepsOther'), status = $('stepsStatus'), doneBox = $('stepsDone');
+    other.textContent = ''; status.textContent = ''; doneBox.textContent = '';
     const lastKey = latestKey(o);
-    let lastGroup = '';
+    let nDone = 0;
     for (const s of S.steps) {
-      if (s.group !== lastGroup) {
-        const h = document.createElement('div'); h.className = 'stephead' + (s.group === 'status' ? ' status' : '');
-        h.textContent = s.group === 'status' ? '状況（材料・在庫）' : '工程の完了';
-        box.append(h); lastGroup = s.group;
-      }
       const done = o.done[s.key];
       // Airtable で直接入れた（記録者なし）の完了も済として扱う
       const byProg = !done && s.variants.some(v => v.value === o.progIn);
       if (done || byProg) {
-        // 2026-10-23 済の工程は押せない表示（工程名・済・記録者・日時）にし、取り消しは下の「記録を取り消す」に分ける。
-        // 以前は済のボタンをもう一度押すと取り消しの確認になり、確かめるつもりで押して取り消しに進みやすかった
-        const cell = document.createElement('div'); cell.className = 'stepcell';
-        const st = document.createElement('div');
-        st.className = 'step done ' + (s.key === lastKey ? 'now' : 'past') + (s.group === 'status' ? ' status' : '');
-        st.append(document.createTextNode('✓ ' + s.label));
-        const sm = document.createElement('small');
-        sm.textContent = done ? '済 ' + fullStamp(done) : '済（記録者なし）';
-        st.append(sm);
-        const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '記録を取り消す';
-        un.setAttribute('aria-label', `「${s.label}」の記録を取り消す`);
-        un.onclick = () => cancelStep(s, done);
-        cell.append(st, un);
-        box.append(cell);
+        if (s.group === 'status') status.append(doneCell(o, s, done, lastKey));
+        else { doneBox.append(doneCell(o, s, done, lastKey)); nDone++; }
         continue;
       }
+      if (s.group !== 'status' && plan.keys.includes(s.key)) continue;
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step' + (s.group === 'status' ? ' status' : '');
+      btn.dataset.w = '1';
       if (s.variants.some(v => hasTag(o, v.tag))) btn.classList.add('rec');
       btn.append(document.createTextNode(s.label));
       btn.onclick = () => chooseStep(s);
-      box.append(btn);
+      (s.group === 'status' ? status : other).append(btn);
     }
-    box.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, KIKAI_ARRIVED_OUT), stockCell(o, STOCK_OUT));
+    status.append(stockCell(o, SHEET_ARRIVED_OUT), stockCell(o, KIKAI_ARRIVED_OUT), stockCell(o, STOCK_OUT));
+    const note = (box, text) => { const n = document.createElement('div'); n.className = 'auxnote'; n.textContent = text; box.append(n); };
+    if (!other.childNodes.length) note(other, plan.keys.length ? 'ほかにまだ記録していない工程はありません（上の主操作を使ってください）' : 'まだ記録していない工程はありません');
+    else if (other.querySelector('.rec')) note(other, '明るい枠＝品名タグから分かる工程');
+    if (!nDone) note(doneBox, '記録された工程はまだありません（工程の流れは上部に出ています）');
+    $('doneCnt').textContent = nDone ? `${nDone}件` : '';
+  }
+
+  function renderSteps() {
+    const o = current(); if (!o) return;
+    const v = detailView();
+    const plan = primaryPlan(o, v);
+    if (S.auxFor !== o.id) { S.auxFor = o.id; auxDefaults(o, v); }
+    // 品名全文・品番・数量・納期・連絡事項全文・社外／社内の工程列（一覧と同じ progressStrip）を主操作より前に出す
+    const t = $('target'); t.textContent = '';
+    const it = document.createElement('div'); it.className = 'item'; it.textContent = o.item || '(品名なし)';
+    const mt = document.createElement('div'); mt.className = 'meta';
+    mt.textContent = `${o.book} / ${o.wc} ・ 今の進行: ${o.progIn || 'なし'}`;
+    t.append(it, mt, facts(o));
+    const mm = memoLine(o); if (mm) t.append(mm);
+    t.append(progressStrip(o, S.mode === 'list' ? S.view : ''));
+    renderPrimary(o, v, plan);
+    renderNext(o, v);
+    $('goBar').replaceChildren(goBar(o));
+    $('editors').replaceChildren(amountEditor(o), ndateEditor(o), paperEditor(o));
+    renderStepImages(o);
+    renderStepLists(o, plan);
     $('variants').hidden = true;
     renderNewOrder(o);
     renderDelete(o);
     renderRooms(o);
+    applyUnsure(o); // 結果不明・書き込み中のボタン止めは、描き終えた最後にまとめて掛ける
   }
 
   /* ---------- 受注の削除（2026-10-30） ---------- */
@@ -1640,19 +1971,21 @@
     $('delOrder').textContent = '';
     if (!o.addPending || Object.keys(o.done || {}).length || !['', '工程表発行済'].includes(o.progIn) || o.amountLocked) return;
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'delbtn'; btn.textContent = 'この受注を削除（Excel に入る前だけ）';
+    btn.dataset.w = '1';
     $('delOrder').append(btn);
     btn.onclick = async () => {
       if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}・数量 ${o.amount ?? '空白'}・納期 ${o.ndate || '空白'}\n\nこの受注を削除しますか？（元に戻せません）`)) return;
-      btn.disabled = true; say($('stepMsg'), '削除しています…');
-      const j = await write({ action: 'delete', id: o.id });
-      btn.disabled = false;
-      if (j.unknown) return say($('stepMsg'), '通信が途切れ、削除できたか確認できません。探し直して確かめてください', 'err');
-      if (!j.ok && !j.gone) return say($('stepMsg'), j.error || '削除できませんでした', 'err');
-      navigator.vibrate?.(60);
-      S.orders = S.orders.filter(x => x.id !== o.id);
-      $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
-      if (S.mode === 'list') await loadView(S.view, true); else renderOrders();
-      say(S.mode === 'list' ? $('listMsg') : $('findMsg'), `${o.book} / ${o.wc}（納期 ${o.ndate || '空白'}）の受注を削除しました`, 'ok');
+      await runOp(o, async () => {
+        sayAt($('delOrder'), '削除しています…');
+        const j = await write({ action: 'delete', id: o.id });
+        if (j.unknown) return sayAt($('delOrder'), '通信が途切れ、削除できたか確認できません。探し直して確かめてください', 'err');
+        if (!j.ok && !j.gone) return sayAt($('delOrder'), j.error || '削除できませんでした', 'err');
+        navigator.vibrate?.(60);
+        S.orders = S.orders.filter(x => x.id !== o.id);
+        $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
+        if (S.mode === 'list') await loadView(S.view, true); else renderOrders();
+        say(S.mode === 'list' ? $('listMsg') : $('findMsg'), `${o.book} / ${o.wc}（納期 ${o.ndate || '空白'}）の受注を削除しました`, 'ok');
+      });
     };
   }
 
@@ -1662,7 +1995,7 @@
   function renderNewOrder(o) {
     const box = $('newOrder'); box.textContent = '';
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '＋ この品目で新規受注';
-    open.style.alignSelf = 'flex-start';
+    open.style.alignSelf = 'flex-start'; open.dataset.w = '1';
     box.append(open);
     open.onclick = () => {
       box.textContent = '';
@@ -1672,50 +2005,51 @@
       const nd = document.createElement('input'); nd.type = 'date'; nd.setAttribute('aria-label', '納期');
       const r1 = document.createElement('div'); r1.className = 'row'; r1.append(amt, nd);
       const memo = document.createElement('input'); memo.placeholder = '連絡事項（任意）'; memo.autocomplete = 'off'; memo.setAttribute('aria-label', '連絡事項');
-      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '登録する';
+      const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '登録する'; save.dataset.w = '1';
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
       const r2 = document.createElement('div'); r2.className = 'row'; r2.append(save, cancel);
       box.append(head, r1, memo, r2);
+      applyLocks();
       amt.focus();
       cancel.onclick = () => renderNewOrder(o);
       save.onclick = async () => {
         const n = amt.value.trim().replace(/[,，\s]/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-        if (!/^\d+$/.test(n) || !(Number(n) > 0)) return say($('stepMsg'), '数量は1以上の整数で入れてください', 'err');
-        if (!/^\d{4}-\d\d-\d\d$/.test(nd.value)) return say($('stepMsg'), '納期を選んでください', 'err');
+        if (!/^\d+$/.test(n) || !(Number(n) > 0)) return sayAt(box, '数量は1以上の整数で入れてください', 'err');
+        if (!/^\d{4}-\d\d-\d\d$/.test(nd.value)) return sayAt(box, '納期を選んでください', 'err');
         const [y, m, d] = nd.value.split('-').map(Number);
         const label = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
         if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}\n数量 ${Number(n).toLocaleString('ja-JP')}・納期 ${label}\n\nこの内容で新規受注を作りますか？`)) return;
-        const send = async (force) => {
-          save.disabled = true; say($('stepMsg'), '新規受注を作っています…');
-          const j = await write({ action: 'neworder', id: o.id, amount: n, ndate: nd.value, memo: memo.value.trim(), force });
-          save.disabled = false;
-          return j;
-        };
-        let j = await send(false);
-        // 同じ納期・数量の受注が既にある（二度押し・通信の送り直しのことが多い）。本当に別の注文のときだけ作る
-        if (j.dup) {
-          if (!confirm(`${j.error}。\n二度押しでなく、別の注文として作りますか？`)) return say($('stepMsg'), '作りませんでした（同じ受注が既にあります）', 'warn');
-          j = await send(true);
-        }
-        // 作れたか分からないときは送り直さない（二重登録を避ける）。品名で探し直せば確かめられる
-        if (j.unknown) return say($('stepMsg'), '通信が途切れ、新規受注が作られたか確認できません。もう一度押す前に、品名で探し直して確かめてください', 'err');
-        if (!j.ok || !j.order) return say($('stepMsg'), j.error || '新規受注を作れませんでした', 'err');
-        navigator.vibrate?.([40, 40, 40]);
-        const no = j.order;
-        const text = `新規受注を作りました（${no.book} / ${no.wc}・数量 ${Number(no.amount).toLocaleString('ja-JP')}・納期 ${label}）。Excel には次の取り込みで入ります`;
-        // 作った受注は候補の一番上に「今作成」の印で出し、そこまで動かして光らせる（カードは開かない）。
-        // 作業リストから作ったときは品番で探すに切り替え、新しい受注と元の受注を並べる（ビューに出るかは条件次第のため）
-        S.newIds.add(no.id);
-        if (S.mode !== 'find') {
-          setMode('find'); setBook(o.book); $('wc').value = String(o.wc); S.findBy = 'wc';
-          S.orders = [o];
-        }
-        S.orders = pinNew([no, ...S.orders.filter(x => x.id !== no.id)]);
-        $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
-        renderOrders();
-        say($('findMsg'), text, 'ok');
-        const row = document.querySelector(`#orders .order[data-id="${no.id}"]`);
-        if (row) { scrollToCard($('findMsg')); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+        await runOp(o, async () => {
+          const send = async (force) => {
+            sayAt(box, '新規受注を作っています…');
+            return write({ action: 'neworder', id: o.id, amount: n, ndate: nd.value, memo: memo.value.trim(), force });
+          };
+          let j = await send(false);
+          // 同じ納期・数量の受注が既にある（二度押し・通信の送り直しのことが多い）。本当に別の注文のときだけ作る（明示の再送はこの1回だけ）
+          if (j.dup) {
+            if (!confirm(`${j.error}。\n二度押しでなく、別の注文として作りますか？`)) return sayAt(box, '作りませんでした（同じ受注が既にあります）', 'warn');
+            j = await send(true);
+          }
+          // 作れたか分からないときは送り直さない（二重登録を避ける）。品名で探し直せば確かめられる
+          if (j.unknown) return sayAt(box, '通信が途切れ、新規受注が作られたか確認できません。もう一度押す前に、品名で探し直して確かめてください', 'err');
+          if (!j.ok || !j.order) return sayAt(box, j.error || '新規受注を作れませんでした', 'err');
+          navigator.vibrate?.([40, 40, 40]);
+          const no = j.order;
+          const text = `新規受注を作りました（${no.book} / ${no.wc}・数量 ${Number(no.amount).toLocaleString('ja-JP')}・納期 ${label}）。Excel には次の取り込みで入ります`;
+          // 作った受注は候補の一番上に「今作成」の印で出し、そこまで動かして光らせる（カードは開かない）。
+          // 作業リストから作ったときは品番で探すに切り替え、新しい受注と元の受注を並べる（ビューに出るかは条件次第のため）
+          S.newIds.add(no.id);
+          if (S.mode !== 'find') {
+            setMode('find'); setBook(o.book); $('wc').value = String(o.wc); S.findBy = 'wc';
+            S.orders = [o];
+          }
+          S.orders = pinNew([no, ...S.orders.filter(x => x.id !== no.id)]);
+          $('stepCard').hidden = true; $('variants').hidden = true; S.sel = null;
+          renderOrders();
+          say($('findMsg'), text, 'ok');
+          const row = document.querySelector(`#orders .order[data-id="${no.id}"]`);
+          if (row) { scrollToCard($('findMsg')); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+        });
       };
     };
   }
@@ -1734,7 +2068,7 @@
       const st = document.createElement('div'); st.className = 'step done past status';
       st.append(document.createTextNode('✓ ' + out));
       const sm = document.createElement('small'); sm.textContent = '進行社外に入っています'; st.append(sm);
-      const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '取り消す';
+      const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '取り消す'; un.dataset.w = '1';
       un.setAttribute('aria-label', `進行社外の「${out}」を取り消す`);
       un.onclick = () => setStockOut(o, false, out);
       cell.append(st, un);
@@ -1746,28 +2080,28 @@
     const can = STOCK_REPLACEABLE.includes(o.progOut || '');
     sm.textContent = can ? '進行社外に入れる' : `進行社外が「${o.progOut}」なので変えられません`;
     btn.append(sm);
-    btn.disabled = !can;
+    btn.dataset.w = '1'; btn.dataset.off = can ? '' : '1'; btn.disabled = !can;
     btn.onclick = () => setStockOut(o, true, out);
     return btn;
   }
   async function setStockOut(o, on, out) {
     if (!on && !confirm(`進行社外の「${out}」を取り消しますか？\n入れる前の値（シート手配済み など）に戻します。`)) return;
-    say($('stepMsg'), on ? '進行社外に記録しています…' : '取り消しています…');
-    document.querySelectorAll('.step, .undo').forEach(b => b.disabled = true);
-    const j = await write({ action: 'stock', id: o.id, on, out });
-    document.querySelectorAll('.step, .undo').forEach(b => b.disabled = false);
-    if (outcomeUnknown(j, x => typeof x.progOut === 'string')) return markUnsure(o, on ? `「${out}」の記録` : `「${out}」の取り消し`);
-    if (!j.ok) {
-      say($('stepMsg'), j.error || '進行社外を変えられませんでした', 'err');
-      if (j.stale) await refreshCurrent();
-      else renderSteps();
-      return;
-    }
-    o.progOut = j.progOut;
-    navigator.vibrate?.(40);
-    // 着手可・材料の表示が変わるので、作業リストは取り直してから戻る
-    if (S.mode === 'list') await loadView(S.view, true);
-    backToRow(o.id, on ? `進行社外を「${out}」にしました` : `進行社外の「${out}」を取り消しました（進行社外: ${j.progOut || '空白'}）`, on ? 'ok' : 'warn');
+    await runOp(o, async () => {
+      sayAt($('stepsStatus').parentNode, on ? '進行社外に記録しています…' : '取り消しています…');
+      const j = await write({ action: 'stock', id: o.id, on, out });
+      if (outcomeUnknown(j, x => typeof x.progOut === 'string')) return markUnsure(o, on ? `「${out}」の記録` : `「${out}」の取り消し`);
+      if (!j.ok) {
+        if (j.stale) await refreshCurrent();
+        else renderSteps();
+        sayAt(current() ? $('stepsStatus').parentNode : null, j.error || '進行社外を変えられませんでした', 'err');
+        return;
+      }
+      o.progOut = j.progOut;
+      navigator.vibrate?.(40);
+      // 着手可・材料の表示が変わるので、作業リストは取り直してから戻る
+      if (S.mode === 'list') await loadView(S.view, true);
+      backToRow(o.id, on ? `進行社外を「${out}」にしました` : `進行社外の「${out}」を取り消しました（進行社外: ${j.progOut || '空白'}）`, on ? 'ok' : 'warn');
+    });
   }
 
   /* ---------- Room（応援を頼む部屋） ---------- */
@@ -1783,8 +2117,12 @@
   function renderRooms(o) {
     const box = $('rooms'); box.textContent = '';
     $('roomHead').hidden = !S.rooms.length;
+    $('auxRoom').hidden = !S.rooms.length;
+    // 今の応援先（普段の部屋＝品名タグ 以外の Room）を見出しの横にも出す
+    const help = (o.room || []).filter(r => !hasTag(o, roomTag(r)));
+    $('roomNow').textContent = help.length ? '今: ' + help.join('・') : '（なし）';
     for (const r of S.rooms) {
-      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'room';
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'room'; btn.dataset.w = '1';
       const on = (o.room || []).includes(r.name);
       if (hasTag(o, r.tag || r.name)) btn.classList.add('def');
       if (on) { btn.classList.add('on'); btn.style.setProperty('--rc', roomColor(r.name)); }
@@ -1796,16 +2134,19 @@
   }
   async function toggleRoom(o, room, on) {
     if (!on && !confirm(`Room から「${room}」を外しますか？`)) return;
-    say($('stepMsg'), on ? `Room に ${room} を入れています…` : `Room から ${room} を外しています…`);
-    document.querySelectorAll('.room').forEach(b => b.disabled = true);
-    const j = await write({ action: 'room', id: o.id, room, on });
-    document.querySelectorAll('.room').forEach(b => b.disabled = false);
-    if (outcomeUnknown(j, x => Array.isArray(x.room))) return markUnsure(o, `Room（${room}）の変更`);
-    if (!j.ok) return say($('stepMsg'), j.error || 'Room を変えられませんでした', 'err');
-    o.room = j.room;
-    navigator.vibrate?.(40);
-    say($('stepMsg'), on ? `Room に「${room}」を入れました` : `Room から「${room}」を外しました`, on ? 'ok' : 'warn');
-    renderRooms(o); renderOrders();
+    await runOp(o, async () => {
+      const near = $('rooms').parentNode;
+      sayAt(near, on ? `Room に ${room} を入れています…` : `Room から ${room} を外しています…`);
+      const j = await write({ action: 'room', id: o.id, room, on });
+      if (outcomeUnknown(j, x => Array.isArray(x.room))) return markUnsure(o, `Room（${room}）の変更`);
+      if (!j.ok) return sayAt(near, j.error || 'Room を変えられませんでした', 'err');
+      o.room = j.room;
+      navigator.vibrate?.(40);
+      sayAt(near, on ? `Room に「${room}」を入れました` : `Room から「${room}」を外しました`, on ? 'ok' : 'warn');
+      renderRooms(o); renderOrders();
+      // 一覧と同じ工程列（応援先の札）も合わせる
+      const strip = $('target').querySelector('.prog'); if (strip) strip.replaceWith(progressStrip(o, S.mode === 'list' ? S.view : ''));
+    });
   }
 
   function chooseStep(s) {
@@ -1817,11 +2158,12 @@
     S.pendingStep = s;
     const box = $('variants'); box.textContent = ''; box.hidden = false;
     for (const v of s.variants) {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label; b.dataset.w = '1';
       if (hasTag(o, v.tag)) b.classList.add('rec');
       b.onclick = () => doComplete(s, v);
       box.append(b);
     }
+    applyLocks();
     say($('stepMsg'), `${s.label}の種類を選んでください`);
   }
 
@@ -1829,46 +2171,88 @@
     const o = current(); if (!o) return;
     if (!force && o.group === '最終' && s.key !== 'finish' &&
         !confirm(`この受注はもう「${o.progIn}」です。\n${v.value} にしてよいですか？`)) return;
-    say($('stepMsg'), '記録しています…');
-    document.querySelectorAll('.step, .undo, .variants button').forEach(b => b.disabled = true);
-    const j = await write({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
-    document.querySelectorAll('.step, .undo, .variants button').forEach(b => b.disabled = false);
-    if (j.conflict) {
-      // 他の人が先に記録していた。上書きはせず、最新の状態を見せる
-      say($('stepMsg'), `${j.error}。取り消すときは「記録を取り消す」を押してください`, 'warn');
-      return refreshCurrent();
-    }
-    // 応答が無い・読めない・必要な値が欠けている: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
-    if (outcomeUnknown(j, x => !!x.stamp && !!x.value)) return markUnsure(o, `「${v.value}」の記録`);
-    if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
-    o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
-    navigator.vibrate?.([40, 40, 40]);
-    // ビューの条件で行が消えることがあるので、作業リストは取り直してから戻る
-    if (S.mode === 'list') await loadView(S.view, true);
-    backToRow(o.id, `${j.value} を記録しました`, 'ok');
+    await runOp(o, async () => {
+      say($('stepMsg'), '記録しています…');
+      const j = await write({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
+      if (j.conflict) {
+        // 他の人が先に記録していた。上書きはせず、最新の状態を見せる
+        await refreshCurrent();
+        say($('stepMsg'), `${j.error}。取り消すときは「進行と完了記録」の「記録を取り消す」を押してください`, 'warn');
+        return;
+      }
+      // 応答が無い・読めない・必要な値が欠けている: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
+      if (outcomeUnknown(j, x => !!x.stamp && !!x.value)) return markUnsure(o, `「${v.value}」の記録`);
+      if (!j.ok) return say($('stepMsg'), j.error || '記録できませんでした', 'err');
+      o.done[s.key] = j.stamp; o.progIn = j.value; o.group = (s.key === 'finish') ? '最終' : o.group;
+      navigator.vibrate?.([40, 40, 40]);
+      const from = detailView(); // 開いていた作業リスト（読み直しの前に控える）
+      // ビューの条件で行が消えることがあるので、作業リストは取り直してから戻る。読み直せなくても完了は送り直さない
+      const listed = S.mode === 'list' ? await loadView(S.view, true) : null;
+      afterComplete(o, j.value, from, listed);
+    });
   }
+  // 完了を保存できた後の案内（2026-11-03）。一覧を取り直せたか・その受注がまだ一覧にあるかで言い方を分け、一覧の画面の下に残す。
+  // listed: true＝読み直せた / false＝読み直しに失敗 / null＝品番・品名で探す（読み直さない）
+  function afterComplete(o, value, v, listed) {
+    const t = { head: `${o.book} / ${o.wc}　${itemShort(o)}`, lines: [], retry: false };
+    if (listed === false) {
+      t.lines = [`「${value}」の完了記録は保存済みです`, '一覧の更新に失敗しました（完了は送り直しません）。「一覧だけ読み直す」で一覧を更新してください',
+        '残りの工程は、一覧を読み直してから確かめてください'];
+      t.retry = true;
+      return backToRow(o.id, `${value} を記録しました`, 'warn', t);
+    }
+    const fresh = listed ? S.orders.find(x => x.id === o.id) : null;
+    const g = nextGuide(fresh || o, listed ? v : null);
+    t.lines = [`「${value}」を記録しました`, (listed && !fresh ? '保存した内容から見た候補: ' : '') + g.text];
+    if (g.next) t.lines.push(g.next);
+    backToRow(o.id, `${value} を記録しました`, 'ok', t);
+  }
+  function showToast(t, cls) {
+    const box = $('toast'); box.className = 'toast ' + (cls || 'ok');
+    const tx = $('toastText'); tx.textContent = '';
+    const h = document.createElement('b'); h.textContent = t.head; tx.append(h);
+    for (const line of t.lines) { const d = document.createElement('span'); d.textContent = line; tx.append(d); }
+    $('toastRetry').hidden = !t.retry;
+    box.hidden = false; document.body.classList.add('has-toast');
+    S.toast = t;
+  }
+  function hideToast() { $('toast').hidden = true; document.body.classList.remove('has-toast'); S.toast = null; }
+  $('toastClose').onclick = hideToast;
+  // 一覧だけを読み直す（完了は送り直さない）
+  $('toastRetry').onclick = async () => {
+    if (busyNow()) return;
+    const t = S.toast; if (!t) return;
+    $('toastRetry').disabled = true;
+    const ok = await loadView(S.view, true);
+    $('toastRetry').disabled = false;
+    if (!ok) return showToast({ ...t, lines: [t.lines[0], 'まだ一覧を読み込めません。電波を確かめてもう一度押してください'] }, 'warn');
+    hideToast();
+    say($('listMsg'), '一覧を更新しました', 'ok');
+  };
 
   async function cancelStep(s, done) {
     const o = current(); if (!o) return;
     if (!confirm(`「${s.label}」${done ? `の記録（${done}）` : ''}を取り消しますか？\n進行社内は、この工程を記録する前の状態に戻します。`)) return;
-    say($('stepMsg'), '取り消しています…');
-    document.querySelectorAll('.step, .undo').forEach(b => b.disabled = true);
-    const j = await write({ action: 'cancel', id: o.id, step: s.key });
-    document.querySelectorAll('.step, .undo').forEach(b => b.disabled = false);
-    if (outcomeUnknown(j, x => typeof x.progIn === 'string')) return markUnsure(o, `「${s.label}」の取り消し`);
-    if (!j.ok) {
-      say($('stepMsg'), j.error || '取り消せませんでした', 'err');
-      if (j.stale) await refreshCurrent();
-      return;
-    }
-    delete o.done[s.key]; o.progIn = j.progIn;
-    if (o.group === '最終' && o.progIn !== '仕上がりました') o.group = '';
-    if (S.mode === 'list') await loadView(S.view, true);
-    backToRow(o.id, `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
+    await runOp(o, async () => {
+      const near = (s.group === 'status' ? $('stepsStatus') : $('stepsDone')).parentNode;
+      sayAt(near, '取り消しています…');
+      const j = await write({ action: 'cancel', id: o.id, step: s.key });
+      if (outcomeUnknown(j, x => typeof x.progIn === 'string')) return markUnsure(o, `「${s.label}」の取り消し`);
+      if (!j.ok) {
+        if (j.stale) await refreshCurrent();
+        sayAt(current() ? near : null, j.error || '取り消せませんでした', 'err');
+        return;
+      }
+      delete o.done[s.key]; o.progIn = j.progIn;
+      if (o.group === '最終' && o.progIn !== '仕上がりました') o.group = '';
+      if (S.mode === 'list') await loadView(S.view, true);
+      backToRow(o.id, `「${s.label}」を取り消しました（進行社内: ${o.progIn || '空白'}）`, 'warn');
+    });
   }
 
   // 工程カードを閉じて、押した受注の行まで戻り、その行を一瞬光らせる
-  function backToRow(id, text, cls) {
+  // toast: 完了の結果。渡されたときは本文の案内ではなく画面の下の案内に出す（同じ内容を2か所で読み上げさせない）
+  function backToRow(id, text, cls, toast) {
     $('stepCard').hidden = true; $('variants').hidden = true; S.sel = id;
     renderOrders();
     const msgEl = S.mode === 'list' ? $('listMsg') : $('findMsg');
@@ -1879,9 +2263,10 @@
       const why = S.mode === 'list' && S.filter !== 'all' && S.orders.some(x => x.id === id)
         ? `この受注は「${fl}」の絞り込みから外れました。「すべて」で表示できます` : 'この受注は一覧から外れました';
       S.sel = null; renderOrders();
-      say(msgEl, `${text}（${why}）`, cls); return;
+      if (toast) showToast({ ...toast, lines: [...toast.lines, why] }, cls); else say(msgEl, `${text}（${why}）`, cls);
+      return;
     }
-    say(msgEl, text, cls);
+    if (toast) showToast(toast, cls); else say(msgEl, text, cls);
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
   }

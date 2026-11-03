@@ -256,6 +256,142 @@ test('R5 自動の読み直しはカードを作り直さない（入力中の�
   assert.doesNotMatch(extract('loadView'), /syncDetail|renderSteps/);
 });
 
+// ---- 2026-11-03 作業共有画面の改善（docs/claude-process-ui-implementation.md）----
+// 判定の関数をページから抜き出し、サーバーの定義（publicViews / publicSteps と同じ形）で動かす
+const P6 = { cad: ['cad'], omamori: ['finish'], auton: ['o'], kikai: ['kikai'], taoshi: ['tk', 'tm'], tebari: ['tebari'], f2: ['finish', 'seal'], nao: ['finish', 'seal'], dansai: ['finish'], pre: ['finish'] };
+const V6 = [...Object.entries(P6).map(([key, mine]) => ({ key, label: key, mine,
+  mineValues: { auton: ['抜き半製品あり'], taoshi: ['抜き半製品あり'], tebari: ['(神)貼り完了', '(花)貼り完了'] }[key] || [] })),
+  { key: 'all', label: '全件', mine: [], mineValues: [] }];
+const ST6 = [['kiji', '生地カット終了'], ['o', 'オートン抜き完了', 'オートン'], ['tk', '(K判)たおし抜き完了', 'たおしK判'], ['tm', '(M判)たおし抜き完了', 'たおしM判'],
+  ['cad', 'CADカット完了', 'CAD'], ['tebari', '手貼り完了', '花'], ['kikai', '機械貼完了', '機械貼'], ['seal', 'シール貼完了'], ['finish', '仕上がりました'],
+  ['hansei', '抜き半製品あり', '', 'status'], ['zaiko', '製品在庫から', '', 'status']]
+  .map(([key, label, tag = '', group = 'done']) => ({ key, label, group, variants: [{ key: '-', label, value: label, tag }] }));
+function planEnv() {
+  const env = { S: { steps: ST6, views: V6, rooms: [] } };
+  vm.createContext(env);
+  vm.runInContext([
+    line(/^  const ITEM_TAG = \{[^]*?\};.*$/m), line(/^  const VIEW_TAG = .*$/m), line(/^  const hasMine = .*$/m), line(/^  const hasTag = .*$/m),
+    line(/^  const roomLabel = .*$/m), line(/^  const stampTime = .*$/m), line(/^  const shortStamp = .*$/m), line(/^  const PRIMARY = .*$/m),
+    line(/^  const AMT_LOG = .*$/m), line(/^  const NDATE_LOG = .*$/m),
+    ...['itemTagInfo', 'itemTags', 'doneSteps', 'mineDone', 'viewTags', 'tagDone', 'primaryPlan', 'nextGuide', 'recTime', 'logTime', 'latestChanges', 'fmtChange'].map(extract),
+    'Object.assign(globalThis, { itemTagInfo, itemTags, primaryPlan, nextGuide, recTime, latestChanges, fmtChange });',
+  ].join('\n'), env);
+  return env;
+}
+const ord = (p) => ({ id: 'recT', item: '', kotei: '', progIn: '', progOut: '', group: '', closed: false, done: {}, amount: 100, ndate: '', ...p });
+const view = (k) => V6.find(v => v.key === k);
+const keys = (e, o, k) => e.primaryPlan(o, k ? view(k) : null).keys.join(',');
+
+test('N1 主操作: 機械貼は機械貼完了。お守箔焼印・断裁・プレ・全件・検索は選ばせる', () => {
+  const e = planEnv();
+  assert.equal(keys(e, ord({ kotei: '|機械貼|' }), 'kikai'), 'kikai');
+  for (const k of ['omamori', 'dansai', 'pre', 'all', null]) assert.equal(keys(e, ord({ kotei: '|オートン|' }), k), '', String(k));
+});
+test('N1 主操作: たおしは K判・M判 の片方だけなら確定、両方・なしは2つ（自動で選ばない）', () => {
+  const e = planEnv();
+  assert.equal(keys(e, ord({ kotei: '|たおしK判|' }), 'taoshi'), 'tk');
+  assert.equal(keys(e, ord({ kotei: '|たおしM判|' }), 'taoshi'), 'tm');
+  assert.equal(keys(e, ord({ kotei: '|たおしK判|たおしM判|' }), 'taoshi'), 'tk,tm');
+  assert.equal(keys(e, ord({ kotei: '' }), 'taoshi'), 'tk,tm');
+});
+test('N1 主操作: Nao・2F 小は シール貼・仕上がり を両方。片方済なら済扱いで主ボタンは出さない', () => {
+  const e = planEnv();
+  assert.equal(keys(e, ord({}), 'nao'), 'seal,finish');
+  const p = e.primaryPlan(ord({ done: { seal: '高橋 2026-11-02 16:20' }, progIn: 'シール貼完了' }), view('f2'));
+  assert.equal(p.keys.length, 0); assert.ok(p.md);
+});
+test('N1 主操作: 閉じた受注・抜き半製品あり・旧手貼り名・最終 は完了ボタンを出さず、記録者を作らない', () => {
+  const e = planEnv();
+  assert.equal(e.primaryPlan(ord({ closed: true, progOut: '伝票取消' }), view('kikai')).keys.length, 0);
+  const h = e.primaryPlan(ord({ progIn: '抜き半製品あり' }), view('auton'));
+  assert.equal(h.md.label, '抜き半製品あり'); assert.equal(h.md.who, '');
+  assert.equal(e.primaryPlan(ord({ progIn: '(花)貼り完了' }), view('tebari')).md.who, '');
+  assert.equal(e.primaryPlan(ord({ group: '最終', progIn: '仕上がりました' }), view('auton')).md.who, '仕上がり済');
+});
+test('N2 工程順: itemTags の結果・順序は品名タグ優先のまま（#o#nao#ki）', () => {
+  const e = planEnv();
+  assert.deepEqual([...e.itemTags(ord({ item: 'X #o#nao#ki', kotei: '|オートン|機械貼|Nao|' }))], ['オートン', 'Nao', '機械貼']);
+  assert.deepEqual([...e.itemTags(ord({ item: 'X #o', kotei: '|オートン|福祉|' }))], ['オートン', '福祉']);
+});
+test('N2 残工程: 品名で説明できるときだけ → で並べ、補ったタグ・未対応タグ・タグなし・検索は断定しない', () => {
+  const e = planEnv();
+  const g = e.nextGuide(ord({ item: 'X #o#nao#ki', kotei: '|オートン|機械貼|Nao|', done: { o: '佐藤 2026-11-01 10:00' }, progIn: 'オートン抜き完了' }), view('kikai'));
+  assert.equal(g.kind, 'order'); assert.match(g.text, /Nao → 機械貼/); assert.match(g.next, /次の工程候補：Nao/);
+  const m = e.nextGuide(ord({ item: 'X #o', kotei: '|オートン|福祉|' }), view('auton'));
+  assert.equal(m.kind, 'maybe'); assert.doesNotMatch(m.text, /→/);
+  assert.equal(e.nextGuide(ord({ item: 'X', kotei: '' }), view('kikai')).kind, 'none');
+  assert.equal(e.nextGuide(ord({ item: 'X #ki', kotei: '|機械貼|' }), null).kind, 'nodata');
+});
+test('N2 残工程が空: 仕上がり・最終・閉じた・それ以外 を言い分け、全作業完了とは言わない', () => {
+  const e = planEnv();
+  assert.equal(e.nextGuide(ord({ done: { finish: 'a 2026-11-01 10:00' } }), view('kikai')).text, '仕上がりの記録があります');
+  assert.equal(e.nextGuide(ord({ group: '最終' }), view('kikai')).text, '現在は仕上がり済の扱いです');
+  assert.match(e.nextGuide(ord({ closed: true, progOut: '伝票取消' }), view('kikai')).text, /伝票取消/);
+  assert.match(e.nextGuide(ord({ item: 'X #ki', kotei: '|機械貼|', done: { kikai: 'a 2026-11-01 10:00' } }), view('kikai')).text, /表示できる残工程はありません/);
+});
+test('N3 最新の記録: 一番新しい項目だけ。同時刻は両方。不正・日付だけ・現在値と違うログは使わない', () => {
+  const e = planEnv();
+  const a = e.latestChanges(ord({ done: { o: '佐藤 2026-11-02 10:15' }, amount: 1200, amountLog: '1000→1200 田中 2026-11-03 14:32', printedAt: '2026-11-01 09:00' }));
+  assert.deepEqual([...a.keys], ['amount']); assert.equal(e.fmtChange(a.t), '11/3 14:32');
+  const b = e.latestChanges(ord({ done: { kikai: '鈴木 2026-11-03 11:00' }, ndate: '2026-11-10', ndateLog: '2026-11-08→2026-11-10 鈴木 2026-11-03 11:00' }));
+  assert.deepEqual([...b.keys].sort(), ['ndate', 'step:kikai']);
+  assert.equal(e.latestChanges(ord({ amount: 500, amountLog: '400→450 田中 2026-11-03 09:00', ndate: '2026-11-09',
+    ndateLog: '2026-11-07→2026-11-09 田中 2026-13-40 25:99', printedAt: '2026-11-03' })), null);
+});
+test('N3 日時: タイムゾーン無しは日本時間、Z・オフセットは尊重。納期の日付を変更日時と取り違えない', () => {
+  const e = planEnv();
+  assert.equal(e.recTime('2026-11-03 14:32'), Date.UTC(2026, 10, 3, 5, 32));
+  assert.equal(e.recTime('2026-11-03T05:32:00.000Z'), Date.UTC(2026, 10, 3, 5, 32));
+  assert.equal(e.recTime('2026-11-03T14:32+09:00'), Date.UTC(2026, 10, 3, 5, 32));
+  assert.equal(e.recTime('2026-11-03'), null);
+  assert.equal(e.recTime('2026-02-30 10:00'), null);
+  // 納期の変更後の日付（2026-12-31）ではなく、行末の操作日時（日付の境目 00:05 JST = 前日 15:05 UTC）
+  const c = e.latestChanges(ord({ ndate: '2026-12-31', ndateLog: '2026-12-01→2026-12-31 田中 2026-11-04 00:05' }));
+  assert.equal(c.t, Date.UTC(2026, 10, 3, 15, 5)); assert.equal(e.fmtChange(c.t), '11/4 00:05');
+});
+test('N4 二重操作: 書き込み中は次の操作を始めない。結果不明の受注・開いていない受注には書かない', async () => {
+  const env = { S: { sel: 'recA', unsure: null }, writing: 0, msgs: [], locks: 0,
+    $: () => ({}), say: (el, t) => env.msgs.push(t), applyLocks: () => { env.locks++; }, hideToast() {}, updateNav() {} };
+  vm.createContext(env);
+  vm.runInContext('let op = null;\n' + extract('runOp') + '\nglobalThis.runOp = runOp; globalThis.opNow = () => op;', env);
+  let release; let runs = 0;
+  const first = env.runOp({ id: 'recA' }, () => { runs++; return new Promise(r => { release = r; }); });
+  assert.equal(env.writing, 1, '書き込み中は自動の読み直しも止まる');
+  await env.runOp({ id: 'recA' }, async () => { runs++; });
+  assert.equal(runs, 1, '2回目は送らない');
+  release(); await first;
+  assert.equal(env.opNow(), null); assert.equal(env.writing, 0);
+  env.S.unsure = { id: 'recA' }; await env.runOp({ id: 'recA' }, async () => { runs++; }); assert.equal(runs, 1, '結果不明の受注には書かない');
+  env.S.unsure = null; env.S.sel = 'recB'; await env.runOp({ id: 'recA' }, async () => { runs++; }); assert.equal(runs, 1, '開いている受注が変わっていたら送らない');
+});
+test('N4 書き込みの後にボタンを全部有効へ戻さない（もともと押せない・結果不明は止めたまま）', () => {
+  for (const fn of ['doComplete', 'cancelStep', 'setStockOut', 'toggleRoom', 'paperEditor']) {
+    assert.doesNotMatch(extract(fn), /disabled = false/, `${fn} は無条件に有効化しない`);
+    assert.match(extract(fn), /runOp\(o, /, `${fn} は runOp を通す`);
+  }
+  assert.match(extract('applyLocks'), /b\.dataset\.off === '1'/);
+  assert.match(extract('renderSteps'), /applyUnsure\(o\);\s*\/\/[^\n]*\n  }$/, '描画の最後に結果不明の止めを掛ける');
+});
+test('N5 保存後: 一覧の読み直しに失敗しても complete は送り直さず、保存済みと失敗を両方伝える', async () => {
+  const env = { S: { orders: [], views: V6, steps: ST6 }, shown: null, back: null,
+    itemShort: (o) => o.item, nextGuide: () => ({ kind: 'order', text: '工程記録から見た残り：A', next: '次の工程候補：A' }) };
+  env.backToRow = (id, text, cls, t) => { env.back = { id, cls, t }; };
+  vm.createContext(env);
+  vm.runInContext(extract('afterComplete') + '\nglobalThis.afterComplete = afterComplete;', env);
+  const o = { id: 'recA', book: 'Ko', wc: 1, item: '箱' };
+  env.afterComplete(o, '機械貼完了', view('kikai'), false);
+  assert.equal(env.back.cls, 'warn'); assert.equal(env.back.t.retry, true);
+  assert.match(env.back.t.lines.join('\n'), /保存済み/); assert.match(env.back.t.lines.join('\n'), /一覧の更新に失敗/);
+  assert.doesNotMatch(env.back.t.lines.join('\n'), /工程記録から見た残り/, '失敗時は次工程を断定しない');
+  env.afterComplete(o, '機械貼完了', view('kikai'), true); // 一覧から外れた
+  assert.match(env.back.t.lines.join('\n'), /保存した内容から見た候補/);
+  env.S.orders = [o]; env.afterComplete(o, '機械貼完了', view('kikai'), true);
+  assert.doesNotMatch(env.back.t.lines.join('\n'), /保存した内容から見た候補/);
+  // 完了の送信は doComplete の write 1回だけ（afterComplete・一覧の読み直しからは送らない）
+  assert.equal((extract('doComplete').match(/write\(/g) || []).length, 1);
+  assert.doesNotMatch(extract('afterComplete'), /write\(|api\(/);
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {
