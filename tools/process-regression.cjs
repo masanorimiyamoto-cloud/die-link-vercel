@@ -636,6 +636,47 @@ test('L1 画面は削除要求IDを作って送り、結果不明のときは同
   assert.ok(d.includes('Excel 反映待ち'));
 });
 
+// 路線便（品名に #路線）: 集荷は納期（着日）の前日、土日は金曜。出荷済は印だけ（2026-11-04）
+function rosenEnv(today) {
+  const mk = () => ({ className: '', textContent: '', kids: [], classList: { list: [], add(c) { this.list.push(c); } },
+    append(...xs) { this.kids.push(...xs); } });
+  const env = { document: { createElement: mk }, todayJST: () => today };
+  vm.createContext(env);
+  vm.runInContext([
+    line(/^  const WD = .*$/m), line(/^  const ROSEN_TAG = .*$/m), line(/^  const SHIPPED_OUT = .*$/m), line(/^  const ROSEN_HOLIDAYS = .*$/m),
+    ...['daysFromToday', 'rosenPickup', 'rosenLine'].map(extract),
+    'Object.assign(globalThis, { rosenPickup, rosenLine });',
+  ].join('\n'), env);
+  return env;
+}
+const rosenText = (s) => s.kids.map(k => typeof k === 'string' ? k : k.textContent).join(' ');
+test('RS1 路線便の集荷日は納期の前日。土日・祝日は集荷できないので前の平日（月曜着は金曜）', () => {
+  const e = rosenEnv('2026-11-04');
+  assert.equal(e.rosenPickup('2026-11-11'), '2026-11-10');
+  assert.equal(e.rosenPickup('2026-11-16'), '2026-11-13'); // 月曜着 → 金曜
+  assert.equal(e.rosenPickup('2026-11-15'), '2026-11-13'); // 日曜着 → 金曜
+  assert.equal(e.rosenPickup('2026-11-14'), '2026-11-13'); // 土曜着 → 金曜
+  assert.equal(e.rosenPickup('2026-11-17'), '2026-11-16'); // 火曜着 → 月曜
+  assert.equal(e.rosenPickup('2026-11-24'), '2026-11-20'); // 火曜着・月曜(11/23)祝日 → 金曜
+  assert.equal(e.rosenPickup('2026-11-04'), '2026-11-02'); // 水曜着・火曜(11/3)祝日 → 月曜
+  assert.equal(e.rosenPickup('2027-01-04'), '2026-12-31'); // 1/4(月)着。1/1〜1/3 と土日を越えて 12/31
+  assert.equal(e.rosenPickup('2027-01-05'), '2027-01-04'); // 1/4(月) は平日
+  assert.equal(e.rosenPickup('2027-05-06'), '2027-04-30'); // 5/3〜5/5 と 5/1・5/2(土日) を越える
+  assert.equal(e.rosenPickup('2026-12-01'), '2026-11-30'); // 月をまたぐ
+});
+test('RS1 路線便の印: 今日・明日・過ぎ を出し、#路線 が無い・納期が空・出荷済は警告しない', () => {
+  const e = rosenEnv('2026-11-10');
+  const o = (p) => ({ item: 'TP小箱#o#路線', ndate: '2026-11-11', progOut: '', ...p });
+  assert.equal(e.rosenLine(o({ item: 'TP小箱#o' })), null);
+  assert.equal(e.rosenLine(o({ ndate: '' })), null);
+  let s = e.rosenLine(o());
+  assert.match(rosenText(s), /路線 集荷 11\/10\(火\) 今日集荷/); assert.deepEqual(s.classList.list, ['late']);
+  s = e.rosenLine(o({ ndate: '2026-11-12' })); assert.match(rosenText(s), /明日集荷/); assert.deepEqual(s.classList.list, ['soon']);
+  s = e.rosenLine(o({ ndate: '2026-11-09' })); assert.match(rosenText(s), /集荷日を4日過ぎ/); // 11/9(月)着 → 11/6(金)集荷
+  s = e.rosenLine(o({ ndate: '2026-11-09', progOut: '完納済' })); assert.match(rosenText(s), /出荷済/); assert.deepEqual(s.classList.list, []);
+  assert.ok(extract('facts').includes('rosenLine(o)'), '数量・納期の表示に集荷日を足す');
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

@@ -174,6 +174,10 @@
   .facts .when{ font-size:12px; font-weight:600; margin-left:6px; padding:1px 8px; border-radius:999px; letter-spacing:0; vertical-align:3px }
   .facts .late .when{ background:rgba(248,113,113,.16); color:#fca5a5 }
   .facts .soon .when{ background:rgba(251,191,36,.16); color:#fde68a }
+  /* 路線便の集荷日（納期＝着日の前日）。数量・納期の後ろに1行で出す */
+  .facts .rosen{ flex-basis:100%; padding:2px 8px; border:1px dashed currentColor; border-radius:8px; color:var(--txt) }
+  .facts .rosen b{ font-size:19px }
+  .facts .rosen:not(.late):not(.soon) .when{ background:rgba(148,163,184,.18) }
   /* 抜型状況（Airtable の選択肢の色に寄せる）。未仕舞は注意として目立たせる */
   .pc.die.d-check{ background:rgba(168,85,247,.16); color:#e9d5ff }
   .pc.die.d-stored{ background:rgba(34,211,238,.13); color:#a5f3fc }
@@ -876,7 +880,43 @@
     }
     if (lc && lc.keys.has('ndate')) n.append(chgMark(lc, 'chg'));
     f.append(q, n);
+    const rs = rosenLine(o); if (rs) f.append(rs);
     return f;
+  }
+
+  /* ---------- 路線便の集荷日（2026-11-04） ---------- */
+  // 品名に #路線 がある受注は、納期（Ndate＝着日。請求・受領伝票の日）の前日に集荷してもらう。土日・祝日は集荷できないので前の平日に繰り上げる（月曜着は金曜集荷）。
+  // 納期は着日のまま動かさず、集荷日をここで出す（以前は人が納期を前日にずらして、請求の前に戻していた）。
+  // 出荷済（伝票出力済・完納）は印だけ。まだなら 今日・明日・過ぎ を色で出す。事務所側は Z:\Airtable\rosen_pickup_report.py が同じ規則で報告する
+  const ROSEN_TAG = /#路線/;
+  const SHIPPED_OUT = new Set(['伝票出力済', '完納済', '完納（数量訂正）']);
+  // 集荷のない祝日（月-日。毎年同じ日付で扱う。2026-11-04 ユーザー指定。rosen_pickup_report.py の HOLIDAYS と同じ）
+  const ROSEN_HOLIDAYS = new Set(['01-01', '01-02', '01-03', '02-11', '03-20', '04-29', '05-03', '05-04', '05-05', '07-20', '08-11', '09-21', '09-22', '09-23', '10-12', '11-03', '11-23']);
+  function rosenPickup(ndate) {
+    const [y, m, d] = ndate.split('-').map(Number);
+    const t = new Date(Date.UTC(y, m - 1, d - 1));
+    // 土日・祝日は集荷できないので、その前の平日まで戻す
+    while (t.getUTCDay() === 0 || t.getUTCDay() === 6 || ROSEN_HOLIDAYS.has(t.toISOString().slice(5, 10))) t.setUTCDate(t.getUTCDate() - 1);
+    return t.toISOString().slice(0, 10);
+  }
+  function rosenLine(o) {
+    if (!ROSEN_TAG.test(o.item || '') || !o.ndate) return null;
+    const p = rosenPickup(o.ndate);
+    const [y, m, d] = p.split('-').map(Number);
+    const s = document.createElement('span'); s.className = 'rosen';
+    const b = document.createElement('b'); b.textContent = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+    s.append('🚚 路線 集荷', b);
+    const w = document.createElement('span'); w.className = 'when';
+    if (SHIPPED_OUT.has(o.progOut) || o.archived) w.textContent = '出荷済';
+    else {
+      const diff = daysFromToday(p);
+      if (diff < 0) { s.classList.add('late'); w.textContent = `！集荷日を${-diff}日過ぎ`; }
+      else if (diff === 0) { s.classList.add('late'); w.textContent = '今日集荷'; }
+      else if (diff === 1) { s.classList.add('soon'); w.textContent = '明日集荷'; }
+      else w.textContent = '着日の前日';
+    }
+    s.append(w);
+    return s;
   }
 
   /* ---------- 最新の記録の項目（2026-11-03）---------- */

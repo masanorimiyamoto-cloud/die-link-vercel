@@ -22,6 +22,7 @@ const ROOMS = [
 ];
 
 // 架空の受注。views: どの作業リストに出すか（all は自動で全件）
+const dayJST = (n) => new Date(Date.now() + 9 * 3600e3 + n * 86400e3).toISOString().slice(0, 10);
 let seq = 0;
 const rid = () => 'recMOCK' + String(++seq).padStart(10, '0');
 function order(p) {
@@ -66,6 +67,10 @@ function fixtures() {
     order({ item: '検証未対応 #o', kotei: '|オートン|福祉|', views: ['auton'], done: {}, progOut: 'シート材料入荷済' }),
     // 新規受注・削除できるもの
     order({ item: '検証新規 #ki', kotei: '|機械貼|', addPending: true, approved: false, progIn: '工程表発行済', views: ['fax', 'kikai'] }),
+    // 路線便: 明日着＝今日集荷・3日後着・出荷済（集荷日の印の確認用）
+    order({ item: '検証路線 今日集荷 #o#路線', kotei: '|オートン|', ndate: dayJST(1), views: ['auton', 'rosen'] }),
+    order({ item: '検証路線 後日 #ki#路線', kotei: '|機械貼|', ndate: dayJST(3), views: ['kikai', 'rosen'] }),
+    order({ item: '検証路線 出荷済 #路線', ndate: dayJST(-1), progOut: '完納済', views: [] }),
   ];
 }
 let DB = fixtures();
