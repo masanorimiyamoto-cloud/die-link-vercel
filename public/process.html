@@ -457,6 +457,7 @@
   #list.compact .flow{ gap:4px 3px }
   #list.compact .fs{ padding:2px 6px }
   #list.compact .memo{ padding:3px 7px }
+  .meta .deli{ margin-left:10px; font-weight:600; color:var(--txt) }
   .order .open{ align-self:flex-end; font-size:12.5px; font-weight:500; color:var(--mut) }
   /* 工程カード上部の操作（開いた作業リスト・状態・主操作） */
   .primary{ display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--line); padding-top:10px }
@@ -1699,6 +1700,7 @@
       if (st.kind === 'wait') el.classList.add('wait');
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
+      if (o.deli) { const d = document.createElement('span'); d.className = 'deli'; d.textContent = '納品先 ' + o.deli; mt.append(d); }
       const info = document.createElement('div'); info.className = 'info';
       const bd = document.createElement('div'); bd.className = 'badges';
       const sb = stateBadge(st, v); if (sb) bd.append(sb);

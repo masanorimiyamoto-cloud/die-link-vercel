@@ -35,7 +35,7 @@ function fixtures() {
   seq = 0;
   return [
     // 機械貼: 前工程（オートン）が済んで着手可。数量の変更が一番新しい記録
-    order({ item: '検証箱A 機械貼テスト #o#ki', kotei: '|オートン|機械貼|', progIn: 'オートン抜き完了', amount: 1200,
+    order({ item: '検証箱A 機械貼テスト #o#ki', deli: '本社倉庫', kotei: '|オートン|機械貼|', progIn: 'オートン抜き完了', amount: 1200,
       amountFrom: '1000', amountLog: '1000→1200 田中 2026-11-03 14:32', printedAt: '2026-11-01 09:00',
       done: { o: '佐藤 2026-11-02 10:15' }, memo: LONG_MEMO, die: ['型修正あり'], room: ['Nao'], views: ['kikai', 'recent'] }),
     // 機械貼: 材料待ち（予定日経過）

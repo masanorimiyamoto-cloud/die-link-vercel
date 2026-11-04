@@ -34,7 +34,7 @@ const F = {
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
-  ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable', approved: '承認済',
+  ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable', approved: '承認済', deli: 'DeliPlace',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -194,6 +194,7 @@ function describe(rec) {
     // Add_from_Airtable が ON ＝ まだ Excel に入っていない（Airtable_Fetch.py が行を足すと OFF にする）。画面はこのときだけ削除ボタンを出す
     addPending: !!f[F.addPending],
     approved: !!f[F.approved], // 承認済（チェックボックス）
+    deli: String(f[F.deli] || '').trim(), // 納品先（一行テキスト）。作業リストの一覧カードに出す
     done,
   };
 }
@@ -240,7 +241,7 @@ function imagesOf(f) {
   }));
 }
 
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 // 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）
