@@ -730,6 +730,41 @@ test('CU1 一覧は顧客で絞ってから状態を数え、件数の案内に�
   return e.loadView('taoshi').then(() => { assert.equal(e.S.cust, null); assert.equal(e.S.custOpen, false); });
 });
 
+// ---- AR1 全件にアーカイブ済も出す 2026-11-05（偽の Airtable。本物には繋がない） ----
+test('AR1 全件はアーカイブ済も納期の新しい順で後ろに足し、閉じた受注として扱う。アーカイブ済には自動で書かない', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const calls = []; const prevFetch = global.fetch;
+  const rec = (id, f) => ({ id, fields: { Book: 'Ko', WorkCord: 1, NAmount: 10, ...f } });
+  const active = [rec('recACTIVE00000002', { ItemName: '進行中B', Ndate: '2026-11-09' }), rec('recACTIVE00000001', { ItemName: '進行中A', Ndate: '2026-11-07' })];
+  // アーカイブ済の1件は 進行社外が空・#o・まだ何も済んでいない（シート手配待ちの自動書き込みの条件に当たる形）
+  const archived = [rec('recARCHIVE0000001', { ItemName: '古い箱 #o', '工程(自動)': '|オートン|', Ndate: '2026-10-01' }), rec('recARCHIVE0000002', { ItemName: '古い箱2', Ndate: '2026-10-20' })];
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const m = init.method || 'GET';
+    calls.push({ m, u, body: init.body });
+    if (u.pathname.includes('/meta/')) return new Response(JSON.stringify({ tables: [] }), { status: 200 });
+    if (m !== 'GET') return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    const fm = u.searchParams.get('filterByFormula') || '';
+    const recs = fm === '{アーカイブ済}' ? archived : fm === 'NOT({アーカイブ済})' ? active : [];
+    return new Response(JSON.stringify({ records: recs }), { status: 200 });
+  };
+  try {
+    const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+    const r = await mod.handleProcess('view', { view: 'all', refresh: true, lite: true }, { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } });
+    const j = await r.json();
+    assert.equal(j.ok, true, JSON.stringify(j).slice(0, 200));
+    assert.deepEqual(j.rows.map(x => x.id), ['recACTIVE00000001', 'recACTIVE00000002', 'recARCHIVE0000002', 'recARCHIVE0000001'], '進行中は納期順、アーカイブ済は後ろに新しい順');
+    assert.deepEqual(j.rows.map(x => !!x.archived), [false, false, true, true]);
+    assert.ok(j.rows.slice(2).every(x => x.closed), 'アーカイブ済は閉じた受注');
+    const arcReq = calls.find(c => c.u.searchParams.get('filterByFormula') === '{アーカイブ済}');
+    assert.equal(arcReq.u.searchParams.get('sort[0][field]'), 'Ndate'); assert.equal(arcReq.u.searchParams.get('sort[0][direction]'), 'desc');
+    const writes = calls.filter(c => c.m === 'PATCH' && /TableJuchu/.test(c.u.pathname));
+    assert.ok(!writes.some(c => String(c.body).includes('recARCHIVE')), 'アーカイブ済に シート手配待ち を書かない');
+  } finally { global.fetch = prevFetch; }
+  const src = extract('renderList');
+  assert.ok(src.includes("(o.archived ? ' closed' : '')") && src.includes("s.textContent = 'アーカイブ済'"), '一覧にアーカイブ済の印');
+  assert.ok(src.includes('(!!a.archived - !!b.archived)'), '画面でもアーカイブ済は後ろ');
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

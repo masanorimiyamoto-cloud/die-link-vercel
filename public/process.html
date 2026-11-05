@@ -1741,13 +1741,15 @@
     const band = (o) => ({ ready: 0, done: 2 })[states.get(o.id).kind] ?? 1;
     // keepOrder のリスト（Recent 1day）はビューの並び（最終更新の新しい順）のまま（2026-10-29）
     const shown = (S.filter === 'all' ? base : base.filter(o => states.get(o.id).kind === S.filter)).slice();
-    if (!v?.keepOrder) shown.sort((a, b) => (band(a) - band(b)) || String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
+    // 全件のアーカイブ済（2026-11-05）は一番後ろに、納期の新しい順
+    if (!v?.keepOrder) shown.sort((a, b) => (!!a.archived - !!b.archived) || (band(a) - band(b))
+      || (a.archived ? String(b.ndate || '').localeCompare(String(a.ndate || '')) : String(a.ndate || '9999').localeCompare(String(b.ndate || '9999'))));
     S.counts = counts; S.shown = shown.length;
     for (const o of shown) {
       const st = states.get(o.id);
       const row = document.createElement('div'); row.className = 'lrow';
       const el = document.createElement('button'); el.type = 'button';
-      el.className = 'order' + (S.sel === o.id ? ' sel' : '');
+      el.className = 'order' + (S.sel === o.id ? ' sel' : '') + (o.archived ? ' closed' : '');
       const it = document.createElement('div'); it.className = 'item'; it.textContent = itemShort(o);
       if (st.kind === 'done') el.classList.add('mine');
       if (st.kind === 'ready') el.classList.add('ready');
@@ -1759,6 +1761,7 @@
       const bd = document.createElement('div'); bd.className = 'badges';
       const sb = stateBadge(st, v); if (sb) bd.append(sb);
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; bd.append(s); }
+      if (o.archived) { const s = document.createElement('span'); s.className = 'archmark'; s.textContent = 'アーカイブ済'; bd.append(s); }
       if (bd.childNodes.length) info.append(bd);
       info.append(it, facts(o), mt, progressStrip(o, S.view));
       const mm = memoLine(o); if (mm) info.append(mm);

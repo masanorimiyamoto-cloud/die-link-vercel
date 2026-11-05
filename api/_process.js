@@ -129,7 +129,10 @@ export const VIEWS = {
   pre:     { label: 'プレ',         mine: ['finish'], sources: [{ id: 'viwfoMBJi9LeTlENl', steps: [] }] },          // Grid プレ
   // 2026-10-05 全件のビュー。絞り込みが無く9割がアーカイブ済で、500件の上限で途中が切れるため
   // アーカイブ済だけはここで外す（Grid view は他でも使うので Airtable 側は変えない）
-  all:     { label: '全件',         sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [], formula: 'NOT({アーカイブ済})' }] }, // Grid view
+  // 2026-11-05 アーカイブ済も出す（ユーザー指定）。全部は読み切れないので、アーカイブ済は納期の新しい順に500件までを別に読んで後ろに足す。
+  // archived: その行は閉じた受注として扱い、一覧を読んだときの自動書き込み（シート手配待ち）をしない。画像も読まない
+  all:     { label: '全件',         sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [], formula: 'NOT({アーカイブ済})' },
+    { id: 'viwQW1JdhvjK5hbwF', steps: [], formula: '{アーカイブ済}', archived: true, sort: [F.ndate, 'desc'] }] }, // Grid view
   // keepOrder: 画面で納品日順に並べ替えず、ビューの並び（Recent は 最終更新 の新しい順 Z→A）のまま出す（2026-10-29 ユーザー指定）
   recent:  { label: 'Recent 1day',  keepOrder: true, sources: [{ id: 'viwgFO3k8bRAhJVNw', steps: [] }] },          // Grid Recent 1day
   fax:     { label: 'Fax',          sources: [{ id: 'viwvqPJgm9s9BAlvR', steps: [] }] },          // Grid FromFAX 承認待ち
@@ -254,13 +257,14 @@ const LIST_FIELDS_LITE = LIST_FIELDS.filter(x => x !== F.image);
 const IMG_CACHE_MS = 5 * 60 * 1000; // 画像の URL は数時間有効。図面は滅多に変わらないので5分使い回す
 const imgCache = new Map();         // key -> { at, images }
 
-async function readView(viewId, formula = '', fields = LIST_FIELDS, map = describe) {
+async function readView(viewId, formula = '', fields = LIST_FIELDS, map = describe, sort = null) {
   const rows = [];
   let offset;
   do {
     const url = new URL(API);
     url.searchParams.set('view', viewId);
     if (formula) url.searchParams.set('filterByFormula', formula);
+    if (sort) { url.searchParams.set('sort[0][field]', sort[0]); url.searchParams.set('sort[0][direction]', sort[1]); }
     url.searchParams.set('pageSize', '100');
     for (const f of fields) url.searchParams.append('fields[]', f);
     if (offset) url.searchParams.set('offset', offset);
@@ -285,7 +289,7 @@ async function view(body, user) {
   const byId = new Map();
   for (const src of v.sources) {
     let got;
-    try { got = await readView(src.id, src.formula, lite ? LIST_FIELDS_LITE : LIST_FIELDS); }
+    try { got = await readView(src.id, src.formula, src.archived ? LIST_FIELDS_LITE : lite ? LIST_FIELDS_LITE : LIST_FIELDS, describe, src.sort); }
     catch (e) {
       // Airtable でビューを消したり作り直したりすると ID が変わる。何が起きたか画面で分かるようにする
       const gone = /airtable (404|422)/.test(String(e?.message || ''));
@@ -295,6 +299,7 @@ async function view(body, user) {
     }
     for (const r of got) {
       const steps = typeof src.steps === 'function' ? src.steps(r) : src.steps;
+      if (src.archived) { r.archived = true; r.closed = true; } // 閉じた受注（自動書き込みの対象外）
       const cur = byId.get(r.id);
       if (cur) cur.extra = [...new Set([...cur.extra, ...steps])];
       else byId.set(r.id, { ...r, extra: [...steps] });
@@ -302,8 +307,10 @@ async function view(body, user) {
   }
   let rows = [...byId.values()];
   await autoSheetWait(rows, user);
-  // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）
-  if (v.sources.length > 1) rows.sort((a, b) => String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
+  // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）。アーカイブ済は後ろに納期の新しい順
+  if (v.sources.length > 1) rows.sort((a, b) => (!!a.archived - !!b.archived)
+    || (a.archived ? String(b.ndate || '').localeCompare(String(a.ndate || ''))
+      : String(a.ndate || '9999').localeCompare(String(b.ndate || '9999'))));
   const at = Date.now();
   viewCache.set(ck, { at, rows });
   return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: at });
@@ -320,7 +327,7 @@ const SHEET_WAIT = 'シート手配待ち';
 const SHEET_ARRIVED = 'シート材料入荷済';
 const todayJST = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
-const needsSheetWait = (r) => !r.progOut && !r.closed && SHEET_TAGS.some(t => hasTag(r, t))
+const needsSheetWait = (r) => !r.progOut && !r.closed && !r.archived && SHEET_TAGS.some(t => hasTag(r, t))
   && ['', '工程表発行済'].includes(r.progIn) && !Object.keys(r.done).length;
 async function autoSheetWait(rows, user) {
   const today = todayJST();
@@ -347,6 +354,7 @@ async function viewImages(body) {
   const images = {};
   try {
     for (const src of v.sources) {
+      if (src.archived) continue; // アーカイブ済の画像は読まない（詳細を開けば出る）
       const got = await readView(src.id, src.formula, [F.image], r => ({ id: r.id, images: imagesOf(r.fields || {}) }));
       for (const r of got) if (r.images.length) images[r.id] = r.images;
     }
