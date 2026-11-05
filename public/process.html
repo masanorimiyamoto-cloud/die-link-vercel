@@ -88,6 +88,10 @@
   .chips button{ padding:7px 13px; font-size:14px; font-weight:500; border-radius:999px; background:var(--surf2); color:var(--mut); border:1px solid var(--line) }
   .chips button.on{ background:rgba(139,92,246,.18); color:#ddd6fe; border-color:rgba(139,92,246,.55); font-weight:600 }
   .chips .sp{ flex:1 }
+  .custlist{ display:flex; flex-wrap:wrap; gap:6px; padding:8px; border:1px solid var(--line); border-radius:var(--r); max-height:50vh; overflow:auto }
+  .custlist button{ padding:7px 12px; font-size:14px; border-radius:var(--r); background:var(--surf2); color:var(--txt); border:1px solid var(--line) }
+  .custlist button[aria-pressed=true]{ background:var(--sel); color:var(--bg); border-color:var(--sel); font-weight:600 }
+  .custlist button small{ margin-left:6px; opacity:.75 }
   .lrow{ display:flex; gap:8px; align-items:stretch }
   .lrow .order{ flex:1; min-width:0 }
   .order .item{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
@@ -525,6 +529,9 @@
     <div class="chips" id="viewChips"></div>
     <!-- 状態の絞り込み（取得済みの一覧を画面の中で絞る。Airtable のビュー・並び順は変えない）2026-10-23 -->
     <div class="chips filt" id="filtChips" role="group" aria-label="状態で絞り込む" hidden></div>
+    <!-- 顧客（Kname）で絞り込む。取得済みの一覧を画面の中で絞るだけ 2026-11-05 -->
+    <div class="chips filt" id="custChips" role="group" aria-label="顧客で絞り込む" hidden></div>
+    <div class="custlist" id="custList" hidden></div>
     <!-- 表示：簡潔／詳細（部門別のリストだけ。取得済みの一覧を描き直すだけで読み直さない）2026-11-03 -->
     <div class="chips filt" id="densChips" role="group" aria-label="一覧の表示" hidden></div>
     <div class="legend"><span class="ct">更新</span> 取得できた記録（工程・数量・納期・工程表発行）のうち最新。受注の最終更新とは限りません</div>
@@ -1441,7 +1448,7 @@
       return false;
     }
     // ビューを切り替えたら、前のリストの絞り込みは持ち越さない
-    if ((j.view || j.views[0].key) !== S.view) S.filter = 'all';
+    if ((j.view || j.views[0].key) !== S.view) { S.filter = 'all'; S.cust = null; S.custOpen = false; }
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     S.orders = j.rows;
@@ -1489,7 +1496,7 @@
     $('listHeadName').textContent = `作業リスト（${v ? v.label : ''}）`;
     const n = S.orders.length, c = S.counts || {};
     $('listHeadCnt').textContent = !n ? '0件'
-      : S.filter !== 'all' ? `表示${S.shown ?? n}件／全${n}件`
+      : (S.filter !== 'all' || S.cust != null) ? `表示${S.shown ?? n}件／全${n}件`
       : [`${n}件`, c.ready && `着手可${c.ready}`, c.done && `済${c.done}`].filter(Boolean).join('・');
     showFresh();
     fitHead();
@@ -1590,20 +1597,60 @@
   }
 
 
+  /* ---------- 顧客（Kname）の絞り込み（2026-11-05） ---------- */
+  // 「顧客別」を押すと、今のリストにいる顧客を件数の多い順に出す（顧客名なしは最後）。選ぶとその顧客の受注だけにする。
+  // 取得済みの一覧を画面の中で絞るだけ（読み直さない）。リストを切り替えたら解除する。Kname が空の受注は「(顧客名なし)」
+  const custOf = (o) => String(o.spec?.kname || '').trim();
+  const custLabel = (k) => k || '(顧客名なし)';
+  function renderCust() {
+    const box = $('custChips'), list = $('custList');
+    box.textContent = ''; list.textContent = '';
+    if (!S.orders.length && S.cust == null) { box.hidden = true; list.hidden = true; return; }
+    box.hidden = false;
+    const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '顧客:'; box.append(l);
+    const b = document.createElement('button'); b.type = 'button'; b.id = 'custBtn';
+    b.textContent = S.cust == null ? '顧客別 ▾' : `${custLabel(S.cust)} ▾`;
+    b.setAttribute('aria-pressed', String(S.cust != null));
+    b.setAttribute('aria-expanded', String(!!S.custOpen));
+    b.onclick = () => { S.custOpen = !S.custOpen; renderList(); $('custBtn')?.focus(); };
+    box.append(b);
+    if (S.cust != null) {
+      const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕ 解除';
+      x.onclick = () => { S.cust = null; S.custOpen = false; keepTopRow(renderList); $('custBtn')?.focus(); };
+      box.append(x);
+    }
+    list.hidden = !S.custOpen;
+    if (!S.custOpen) return;
+    const cnt = new Map();
+    for (const o of S.orders) cnt.set(custOf(o), (cnt.get(custOf(o)) || 0) + 1);
+    const rows = [...cnt].sort((a, b) => (!a[0]) - (!b[0]) || (b[1] - a[1]) || a[0].localeCompare(b[0], 'ja')); // 顧客名なしは件数によらず最後
+    const pick = (k) => { S.cust = k; S.custOpen = false; renderList(); $('custBtn')?.focus(); };
+    const add = (k, label, n) => {
+      const c = document.createElement('button'); c.type = 'button';
+      c.append(label); const sm = document.createElement('small'); sm.textContent = n; c.append(sm);
+      c.setAttribute('aria-pressed', String(S.cust === k));
+      c.onclick = () => pick(k);
+      list.append(c);
+    };
+    add(null, 'すべて', S.orders.length);
+    for (const [k, n] of rows) add(k, custLabel(k), n);
+  }
+
   /* ---------- 状態の絞り込み（2026-10-23） ---------- */
   // 取得済みの一覧を画面の中で絞るだけ。並び順は Airtable のビューのまま（着手可順に並べ替えない）
   const FILTERS = [['all', 'すべて'], ['ready', '着手可'], ['wait', '待ち'], ['done', '自工程済']];
   const hasMine = (v) => !!(v && (v.mine || []).length);
-  function renderFilter(counts) {
+  function renderFilter(counts, total) {
     const box = $('filtChips'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
     // 自分の工程の決まりが無いリスト（全件・Recent・Fax）では出さず、絞り込みも残さない
     if (!hasMine(v) || !S.orders.length) { box.hidden = true; if (!hasMine(v)) S.filter = 'all'; return; }
+    total = total ?? S.orders.length;
     box.hidden = false;
     const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '状態:'; box.append(l);
     for (const [k, label] of FILTERS) {
       const b = document.createElement('button'); b.type = 'button';
-      b.textContent = k === 'all' ? `${label} ${S.orders.length}` : `${label} ${counts[k] || 0}`;
+      b.textContent = k === 'all' ? `${label} ${total}` : `${label} ${counts[k] || 0}`;
       b.setAttribute('aria-pressed', String(S.filter === k));
       b.onclick = () => { S.filter = k; renderList(); };
       box.append(b);
@@ -1682,15 +1729,18 @@
   function renderList() {
     const box = $('list'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
-    const states = new Map(S.orders.map(o => [o.id, rowState(o, v)]));
+    // 顧客で絞ってから状態を数える（状態の件数は選んだ顧客の中の数）
+    renderCust();
+    const base = S.cust == null ? S.orders : S.orders.filter(o => custOf(o) === S.cust);
+    const states = new Map(base.map(o => [o.id, rowState(o, v)]));
     const counts = {};
     for (const st of states.values()) counts[st.kind] = (counts[st.kind] || 0) + 1;
-    renderFilter(counts);
+    renderFilter(counts, base.length);
     renderDensity(v);
     // 並びは 緑枠（着手可）→ 無印（待ち・未確認など）→ 青枠（済）。同じ枠の中は納品日順（空は最後）（2026-10-26）
     const band = (o) => ({ ready: 0, done: 2 })[states.get(o.id).kind] ?? 1;
     // keepOrder のリスト（Recent 1day）はビューの並び（最終更新の新しい順）のまま（2026-10-29）
-    const shown = (S.filter === 'all' ? S.orders : S.orders.filter(o => states.get(o.id).kind === S.filter)).slice();
+    const shown = (S.filter === 'all' ? base : base.filter(o => states.get(o.id).kind === S.filter)).slice();
     if (!v?.keepOrder) shown.sort((a, b) => (band(a) - band(b)) || String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
     S.counts = counts; S.shown = shown.length;
     for (const o of shown) {
@@ -1727,12 +1777,13 @@
   }
   // 件数の案内。リスト自体が0件と、絞り込みで0件を分けて言う。一覧の読み込み失敗の案内もこれで消える
   function showListMsg() {
-    const n = S.orders.length, shown = S.shown ?? n, fl = FILTERS.find(x => x[0] === S.filter)?.[1] || '';
+    const n = S.orders.length, shown = S.shown ?? n;
+    const fl = [S.cust != null && custLabel(S.cust), S.filter !== 'all' && FILTERS.find(x => x[0] === S.filter)?.[1]].filter(Boolean).map(x => `「${x}」`).join('・');
     if (!S.listAt && !n) return;
     S.listMsgErr = false;
     if (!n) say($('listMsg'), 'このリストに作業はありません');
-    else if (S.filter !== 'all' && !shown) say($('listMsg'), `「${fl}」に当たる受注はありません（全${n}件）`);
-    else if (S.filter !== 'all') say($('listMsg'), `「${fl}」で絞り込み中: 表示${shown}件／全${n}件`);
+    else if (fl && !shown) say($('listMsg'), `${fl}に当たる受注はありません（全${n}件）`);
+    else if (fl) say($('listMsg'), `${fl}で絞り込み中: 表示${shown}件／全${n}件`);
     else say($('listMsg'), `${n}件`);
   }
 

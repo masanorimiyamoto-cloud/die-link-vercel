@@ -677,6 +677,59 @@ test('RS1 路線便の印: 今日・明日・過ぎ を出し、#路線 が無�
   assert.ok(extract('facts').includes('rosenLine(o)'), '数量・納期の表示に集荷日を足す');
 });
 
+// ---- CU1 顧客（Kname）の絞り込み 2026-11-05 ----
+function custEnv(orders) {
+  const mk = (tag) => {
+    const el = { tag, hidden: true, textContent: '', id: '', attrs: {}, kids: [], onclick: null,
+      append(...xs) { for (const x of xs) this.kids.push(x); },
+      setAttribute(k, v) { this.attrs[k] = v; }, focus() {} };
+    Object.defineProperty(el, 'textContent', { get() { return el._t ?? el.kids.map(k => typeof k === 'string' ? k : k.textContent).join(''); }, set(v) { el._t = v === '' ? undefined : v; if (v === '') el.kids = []; } });
+    return el;
+  };
+  const nodes = { custChips: mk('div'), custList: mk('div') };
+  const env = { S: { orders, cust: null, custOpen: false }, renders: 0,
+    $: (id) => id === 'custBtn' ? nodes.custChips.kids.find(k => k.id === 'custBtn') : nodes[id],
+    document: { createElement: mk }, nodes, scroller: () => ({}) };
+  env.renderList = () => { env.renders++; env.renderCust(); };
+  env.keepTopRow = (fn) => fn();
+  vm.createContext(env);
+  vm.runInContext([line(/^  const custOf = .*$/m), line(/^  const custLabel = .*$/m), extract('renderCust'),
+    'globalThis.renderCust = renderCust; globalThis.custOf = custOf;'].join('\n'), env);
+  return env;
+}
+test('CU1 顧客別を押すと今のリストの顧客を件数の多い順に出し、選ぶとその顧客に絞る。解除で全件', () => {
+  const o = (id, kname) => ({ id, spec: kname == null ? {} : { kname } });
+  const e = custEnv([o('a', 'B社'), o('b', 'A社'), o('c', 'B社'), o('d'), o('e', ' A社 '), o('f', 'B社'), o('g', ''), o('h'), o('i')]);
+  e.renderCust();
+  const chips = e.nodes.custChips, list = e.nodes.custList;
+  assert.equal(chips.hidden, false); assert.equal(list.hidden, true, '初めは閉じている');
+  const btn = () => chips.kids.find(k => k.id === 'custBtn');
+  assert.match(btn().textContent, /顧客別/);
+  btn().onclick();
+  assert.equal(list.hidden, false);
+  assert.deepEqual(list.kids.map(k => k.textContent), ['すべて9', 'B社3', 'A社2', '(顧客名なし)4'], '前後の空白は同じ顧客。名前なしは件数によらず最後');
+  list.kids[2].onclick();
+  assert.equal(e.S.cust, 'A社'); assert.equal(list.hidden, true, '選んだら閉じる');
+  assert.match(btn().textContent, /A社/); assert.equal(btn().attrs['aria-pressed'], 'true');
+  const x = chips.kids.find(k => k.textContent === '✕ 解除'); assert.ok(x);
+  x.onclick(); assert.equal(e.S.cust, null);
+  btn().onclick(); list.kids[3].onclick(); assert.equal(e.S.cust, '', '顧客名なしも選べる');
+});
+test('CU1 一覧は顧客で絞ってから状態を数え、件数の案内に顧客名を出す。リストを切り替えたら解除', () => {
+  const src = extract('renderList');
+  assert.ok(/const base = S\.cust == null \? S\.orders : S\.orders\.filter\(o => custOf\(o\) === S\.cust\)/.test(src));
+  assert.ok(src.includes('base.map(o => [o.id, rowState(o, v)])') && src.includes('renderFilter(counts, base.length)'));
+  assert.ok(/S\.filter === 'all' \? base : base\.filter/.test(src));
+  const e = listEnv(async () => ok('taoshi', [{ id: 'T' }], 1));
+  vm.runInContext(line(/^  const custLabel = .*$/m) + '\nglobalThis.custLabel = custLabel;', e);
+  e.S.orders = [{ id: 1 }, { id: 2 }, { id: 3 }]; e.S.listAt = 1; e.S.cust = 'A社'; e.S.shown = 1;
+  e.showListMsg(); assert.match(e.$('listMsg').textContent, /「A社」で絞り込み中: 表示1件／全3件/);
+  e.S.filter = 'ready'; e.S.shown = 0;
+  e.showListMsg(); assert.match(e.$('listMsg').textContent, /「A社」・「着手可」に当たる受注はありません/);
+  e.S.filter = 'all'; e.S.custOpen = true;
+  return e.loadView('taoshi').then(() => { assert.equal(e.S.cust, null); assert.equal(e.S.custOpen, false); });
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

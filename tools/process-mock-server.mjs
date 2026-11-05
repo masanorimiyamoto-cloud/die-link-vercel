@@ -39,10 +39,10 @@ function fixtures() {
       amountFrom: '1000', amountLog: '1000→1200 田中 2026-11-03 14:32', printedAt: '2026-11-01 09:00',
       done: { o: '佐藤 2026-11-02 10:15' }, memo: LONG_MEMO, die: ['型修正あり'], room: ['Nao'], views: ['kikai', 'recent'] }),
     // 機械貼: 材料待ち（予定日経過）
-    order({ item: '検証箱B 材料待ち #ki', kotei: '|機械貼|', progOut: 'シート手配済み', paper: '2026-11-01', ndate: '2026-11-04',
+    order({ item: '検証箱B 材料待ち #ki', spec: { kname: 'サンプル紙器' }, kotei: '|機械貼|', progOut: 'シート手配済み', paper: '2026-11-01', ndate: '2026-11-04',
       printedAt: '2026-11-02 08:30', views: ['kikai'] }),
     // 機械貼: 済（記録あり）。工程と納期変更が同時刻
-    order({ item: '検証箱C 済 #ki#nao', kotei: '|機械貼|Nao|', progIn: '機械貼完了', done: { kikai: '鈴木 2026-11-03 11:00' },
+    order({ item: '検証箱C 済 #ki#nao', spec: { kname: 'テスト商事', material: 'C5×AF' }, kotei: '|機械貼|Nao|', progIn: '機械貼完了', done: { kikai: '鈴木 2026-11-03 11:00' },
       ndate: '2026-11-10', ndateFrom: '2026-11-08', ndateLog: '2026-11-08→2026-11-10 鈴木 2026-11-03 11:00', views: ['kikai', 'nao'] }),
     // 機械貼: 閉じた受注（伝票取消）
     order({ item: '検証箱D 取消 #ki', kotei: '|機械貼|', progOut: '伝票取消', closed: true, amountLocked: true, views: ['kikai'] }),
