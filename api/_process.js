@@ -100,7 +100,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -234,6 +234,8 @@ export async function handleProcess(action, body, who) {
   if (action === 'delete') return deleteOrder(body, who.user);
   if (action === 'approve') return approveOrder(body, who.user);
   if (action === 'deletions') return deletions();
+  if (action === 'koteiCopy') return koteiCopy(body, who.user);
+  if (action === 'koteiCopyStatus') return koteiCopyStatus(body);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -941,4 +943,64 @@ async function undo(body, user) {
     detail: `${r.variant.value} を取り消し（進行社内を ${F.progIn in fields ? (body?.prev || '空白') : 'そのまま'} に）`,
   });
   return json({ ok: true });
+}
+
+// ---- 工程表のコピー印刷（2026-11-05）----
+// 工程表を無くした・もう1枚要るときに、スマホから事務所のプリンタへ刷る。ここでは依頼の表（TableKoteiCopyRequest）に1行書くだけ。
+// 事務所の新PC（kotei_print_file.py --copy）が 依頼済 の行を拾って刷り、印刷中→印刷済／失敗 にする。
+// コピーなので Excel には書かず、受注の 工程表印刷済・工程表印刷日時・進行社内 も変えない（ユーザー指定）。
+// 依頼ID は画面が1回ごとに作る。通信が切れて送り直しても同じ ID なので2行にならない。
+// 同じ受注に 依頼済・印刷中 の依頼が既にあれば新しく作らない（二度押し・別の人の同時依頼で2枚出ないように）
+const KC_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(process.env.KOTEI_COPY_TABLE || 'TableKoteiCopyRequest')}`;
+const KC = { req: '依頼ID', rec: '受注RecordID', state: '状態', book: 'Book', wc: 'WorkCord', item: 'ItemName',
+  by: '依頼者', no: '社員番号', at: '依頼日時', doneAt: '処理日時', memo: '処理メモ' };
+const KC_WAIT = '依頼済', KC_BUSY = '印刷中';
+const kcOut = (r) => {
+  const f = r.fields || {};
+  return { reqId: String(f[KC.req] || ''), state: String(f[KC.state] || ''), at: String(f[KC.at] || ''), doneAt: String(f[KC.doneAt] || ''),
+    by: String(f[KC.by] || ''), memo: String(f[KC.memo] || '').trim().split('\n').pop() || '' };
+};
+async function kcFind(formula, max = 3) {
+  const url = new URL(KC_API);
+  url.searchParams.set('filterByFormula', formula);
+  url.searchParams.set('sort[0][field]', KC.at); url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('maxRecords', String(max));
+  return (await airtable(url)).records || [];
+}
+async function koteiCopy(body, user) {
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  const reqId = String(body?.reqId || '');
+  if (!/^kc-[A-Za-z0-9-]{8,64}$/.test(reqId)) return json({ ok: false, error: '画面が古いので、読み込み直してからもう一度押してください' }, 400);
+  let rec;
+  try {
+    const same = (await kcFind(`{${KC.req}}='${esc(reqId)}'`, 1))[0];
+    if (same) {
+      if (same.fields?.[KC.rec] !== id) return json({ ok: false, error: '依頼の指定が食い違っています。画面を読み込み直してください' }, 409);
+      return json({ ok: true, again: true, request: kcOut(same) });
+    }
+    const open = (await kcFind(`AND({${KC.rec}}='${id}',OR({${KC.state}}='${KC_WAIT}',{${KC.state}}='${KC_BUSY}'))`, 1))[0];
+    if (open) return json({ ok: true, dup: true, request: kcOut(open) });
+    rec = await fetchRecordStrict(id);
+  } catch (e) {
+    return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
+  }
+  if (!rec) return json({ ok: false, error: 'この受注はもうありません' }, 404);
+  const o = describe(rec);
+  if (!['Ta', 'Ko', 'Yo'].includes(String(o.book).slice(0, 2))) return json({ ok: false, error: `Book「${o.book}」の工程表は刷れません（Ta/Ko/Yo だけ）` }, 400);
+  const fields = { [KC.req]: reqId, [KC.rec]: id, [KC.state]: KC_WAIT, [KC.book]: String(o.book || ''), [KC.wc]: String(o.wc ?? ''),
+    [KC.item]: String(o.item || ''), [KC.by]: String(user?.name || ''), [KC.at]: new Date().toISOString() };
+  const no = Number(user?.no); if (Number.isFinite(no)) fields[KC.no] = no;
+  let row;
+  try { row = (await airtable(KC_API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) })).records?.[0]; }
+  catch (e) { return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502); }
+  if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
+  await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: '工程表コピー依頼', detail: `依頼ID ${reqId}` }).catch(() => {});
+  return json({ ok: true, request: kcOut(row) });
+}
+async function koteiCopyStatus(body) {
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  try { return json({ ok: true, requests: (await kcFind(`{${KC.rec}}='${id}'`, 3)).map(kcOut) }); }
+  catch (e) { return json({ ok: false, error: `コピー印刷の状況を読めませんでした（${String(e?.message || e).slice(0, 80)}）` }, 502); }
 }

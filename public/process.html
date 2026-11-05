@@ -120,6 +120,8 @@
   .amt input{ width:7.5em; font-size:22px; font-weight:600; text-align:right; font-variant-numeric:tabular-nums }
   .amt input[type=date]{ width:auto; font-size:19px; text-align:left; color-scheme:dark }
   .amt .note{ font-size:12.5px; color:var(--mut) }
+  .kcopy{ display:flex; flex-direction:column; gap:4px }
+  .kcopy .kcst{ font-size:12.5px; color:var(--mut) }
   .amtbtn{ padding:7px 12px; font-size:14px; font-weight:500; background:var(--surf2); color:var(--txt); border:1px solid var(--line2) }
   /* 数量は青、納期はオレンジで見分ける（やめる ボタンは灰色のまま） */
   .amtbtn.qty{ background:rgba(59,130,246,.12); color:#bfdbfe; border-color:rgba(96,165,250,.4) }
@@ -575,6 +577,8 @@
     <div class="msg" id="stepMsg" role="status"></div>
     <div class="nextinfo" id="nextInfo" hidden></div>
     <div id="goBar"></div>
+    <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
+    <div class="kcopy" id="koteiCopy"></div>
     <div class="imgs" id="stepImgs"></div>
     <details class="aux" id="auxOther"><summary>その他の工程を記録</summary><div class="body"><div class="steps" id="stepsOther"></div></div></details>
     <details class="aux" id="auxStatus"><summary>材料・在庫の状況を記録</summary><div class="body"><div class="steps" id="stepsStatus"></div></div></details>
@@ -2080,6 +2084,75 @@
     return dl;
   }
 
+  /* ---------- 工程表のコピー印刷（2026-11-05） ---------- */
+  // 押すとサーバーが依頼の表に1行書き、事務所の新PC（kotei_print_file.py --copy）が拾って刷る。
+  // Excel・受注の 工程表印刷済・進行社内 は変えない。依頼ID は1回ごとに作り、結果が分からないときは同じ ID で送り直す。
+  // 依頼中（依頼済・印刷中）の間は、カードを開いている間だけ 15秒ごとに状況を読み直す（10分まで）
+  const KC_LABEL = { '依頼済': '印刷待ち', '印刷中': '印刷中', '印刷済': '印刷しました', '失敗': '印刷できませんでした' };
+  const kcPending = (r) => r && (r.state === '依頼済' || r.state === '印刷中');
+  const hm = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' }); };
+  S.kc = {}; // 受注ID → { last: 直近の依頼, at: 読んだ時刻, retry: 結果不明の依頼ID, msg, cls }
+  function renderKoteiCopy(o) {
+    const box = $('koteiCopy'); box.textContent = '';
+    const st = S.kc[o.id] || (S.kc[o.id] = {});
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn'; b.textContent = '🖨 工程表を印刷（コピー）';
+    b.disabled = !!st.sending || kcPending(st.last);
+    const line = document.createElement('div'); line.className = 'kcst';
+    const r = st.last;
+    if (st.msg) { line.textContent = st.msg; line.className = 'msg ' + (st.cls || ''); }
+    else if (r) line.textContent = `${kcPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼 → ${KC_LABEL[r.state] || r.state}${r.doneAt && !kcPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
+    else line.textContent = '事務所のプリンタで工程表をもう1枚刷ります（Excel・受注の記録は変えません）';
+    box.append(b, line);
+    b.onclick = () => kcRequest(o);
+    if (!st.at || Date.now() - st.at > 30000) kcLoad(o.id);
+  }
+  async function kcLoad(id) {
+    const st = S.kc[id] || (S.kc[id] = {});
+    if (st.loading) return; st.loading = true;
+    const j = await api({ action: 'koteiCopyStatus', id }).catch(() => ({ ok: false }));
+    st.loading = false; st.at = Date.now();
+    if (j.ok) {
+      const was = st.last;
+      st.last = j.requests?.[0] || null;
+      if (kcPending(st.last) && !st.pollFrom) st.pollFrom = Date.now();
+      if (was && kcPending(was) && st.last && !kcPending(st.last) && st.last.reqId === was.reqId) {
+        st.msg = st.last.state === '印刷済' ? `工程表を印刷しました（${hm(st.last.doneAt)}）` : `印刷できませんでした${st.last.memo ? '：' + st.last.memo : ''}`;
+        st.cls = st.last.state === '印刷済' ? 'ok' : 'err';
+      }
+    }
+    if (current()?.id === id) renderKoteiCopy(current());
+    kcPoll(id);
+  }
+  function kcPoll(id) {
+    const st = S.kc[id];
+    clearTimeout(st.timer);
+    if (!kcPending(st.last) || Date.now() - (st.pollFrom || 0) > 600000) return;
+    st.timer = setTimeout(() => { if (current()?.id === id && !$('stepCard').hidden) { st.at = 0; kcLoad(id); } }, 15000);
+  }
+  async function kcRequest(o) {
+    const st = S.kc[o.id] || (S.kc[o.id] = {});
+    if (st.sending) return;
+    if (!st.retry && !confirm(`${itemShort(o)}
+${o.book} / ${o.wc}
+
+工程表のコピーを事務所のプリンタで1枚印刷します。
+Excel と受注の記録（工程表印刷済・進行）は変えません。`)) return;
+    const reqId = st.retry || ('kc-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12)));
+    st.sending = true; st.msg = '依頼しています…'; st.cls = ''; renderKoteiCopy(o);
+    const j = await api({ action: 'koteiCopy', id: o.id, reqId });
+    st.sending = false;
+    if (j.unknown) { st.retry = reqId; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2枚にはなりません）'; st.cls = 'warn'; }
+    else if (!j.ok) { st.retry = ''; st.msg = j.error || '依頼できませんでした'; st.cls = 'err'; }
+    else {
+      st.retry = ''; st.last = j.request; st.at = Date.now(); st.pollFrom = Date.now();
+      st.msg = j.dup ? `すでに依頼中です（${hm(j.request.at)} ${j.request.by}）。事務所のPCが刷るまでお待ちください`
+        : '依頼しました。1〜2分で事務所のプリンタから出ます';
+      st.cls = 'ok'; navigator.vibrate?.(40);
+    }
+    if (current()?.id === o.id) renderKoteiCopy(current());
+    if (j.ok) kcPoll(o.id);
+  }
+
   function renderSteps() {
     const o = current(); if (!o) return;
     const v = detailView();
@@ -2097,6 +2170,7 @@
     renderPrimary(o, v, plan);
     renderNext(o, v);
     $('goBar').replaceChildren(goBar(o));
+    renderKoteiCopy(o);
     $('editors').replaceChildren(amountEditor(o), ndateEditor(o), paperEditor(o));
     renderStepImages(o);
     renderStepLists(o, plan);

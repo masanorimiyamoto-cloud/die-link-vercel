@@ -765,6 +765,91 @@ test('AR1 全件はアーカイブ済も納期の新しい順で後ろに足し�
   assert.ok(src.includes('(!!a.archived - !!b.archived)'), '画面でもアーカイブ済は後ろ');
 });
 
+// ---- KC1 工程表のコピー印刷の依頼 2026-11-05（偽の Airtable。本物には繋がない） ----
+async function kcEnv(opt = {}) {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const calls = []; const reqs = new Map(); let n = 0;
+  for (const r of opt.reqs || []) reqs.set(r.id, r);
+  const orders = new Map(Object.entries(opt.orders || {}));
+  const prevFetch = global.fetch;
+  const ok = (b) => new Response(JSON.stringify(b), { status: 200 });
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const m = init.method || 'GET';
+    const parts = u.pathname.split('/'); const table = decodeURIComponent(parts[3] || ''); const rid = parts[4];
+    const kind = table === 'TableKoteiCopyRequest' ? 'kc' : table === 'TableJuchu' ? 'order' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
+    calls.push(`${m} ${kind}${rid ? ' ' + rid : ''}`);
+    if (kind === 'order') return orders.has(rid) ? ok(orders.get(rid)) : new Response('{}', { status: 404 });
+    if (kind === 'worklog') return ok({ records: [] });
+    if (kind === 'kc') {
+      if (m === 'GET') {
+        const fm = u.searchParams.get('filterByFormula') || '';
+        const q = /\{依頼ID\}='([^']+)'/.exec(fm)?.[1];
+        const rec = /\{受注RecordID\}='([^']+)'/.exec(fm)?.[1];
+        const openOnly = fm.includes("{状態}='依頼済'");
+        let list = [...reqs.values()];
+        if (q) list = list.filter(r => r.fields['依頼ID'] === q);
+        if (rec) list = list.filter(r => r.fields['受注RecordID'] === rec);
+        if (openOnly) list = list.filter(r => ['依頼済', '印刷中'].includes(r.fields['状態']));
+        return ok({ records: list });
+      }
+      if (m === 'POST') { const f = JSON.parse(init.body).records[0].fields; const r = { id: 'recKC' + String(++n).padStart(12, '0'), fields: f }; reqs.set(r.id, r); return ok({ records: [r] }); }
+    }
+    return new Response('{}', { status: 500 });
+  };
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+  const who = { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } };
+  const run = async (action, body) => { const r = await mod.handleProcess(action, body, who); return { status: r.status, j: await r.json() }; };
+  return { run, calls, reqs, restore: () => { global.fetch = prevFetch; } };
+}
+const KREC = 'recKOTEICOPY00001', KREQ = 'kc-11111111-2222-3333-4444-555555555555';
+const korder = { id: KREC, fields: { Book: 'Ta', WorkCord: 3666, ItemName: '検証箱 #o', NAmount: 100, Ndate: '2026-11-10', 工程表印刷済: true } };
+test('KC1 依頼は依頼の表に依頼済で1行書くだけ。受注（TableJuchu）には書かない', async () => {
+  const e = await kcEnv({ orders: { [KREC]: korder } });
+  try {
+    const r = await e.run('koteiCopy', { id: KREC, reqId: KREQ });
+    assert.equal(r.j.ok, true, JSON.stringify(r.j)); assert.equal(r.j.request.state, '依頼済');
+    const f = [...e.reqs.values()][0].fields;
+    assert.equal(f['依頼ID'], KREQ); assert.equal(f['受注RecordID'], KREC); assert.equal(f['状態'], '依頼済');
+    assert.equal(f['Book'], 'Ta'); assert.equal(f['WorkCord'], '3666'); assert.equal(f['依頼者'], 'テスト 太郎'); assert.equal(f['社員番号'], 9001);
+    assert.ok(!e.calls.some(c => /^(PATCH|POST|DELETE) order/.test(c)), e.calls.join(','));
+  } finally { e.restore(); }
+});
+test('KC1 同じ依頼IDの送り直し・同じ受注の依頼中があるときは2行目を作らない', async () => {
+  const e = await kcEnv({ orders: { [KREC]: korder } });
+  try {
+    await e.run('koteiCopy', { id: KREC, reqId: KREQ });
+    const again = await e.run('koteiCopy', { id: KREC, reqId: KREQ });
+    assert.equal(again.j.ok, true); assert.equal(again.j.again, true);
+    const other = await e.run('koteiCopy', { id: KREC, reqId: 'kc-99999999-2222-3333-4444-555555555555' });
+    assert.equal(other.j.ok, true); assert.equal(other.j.dup, true);
+    assert.equal(e.reqs.size, 1);
+    [...e.reqs.values()][0].fields['状態'] = '印刷済';
+    const next = await e.run('koteiCopy', { id: KREC, reqId: 'kc-99999999-2222-3333-4444-555555555555' });
+    assert.equal(next.j.ok, true); assert.ok(!next.j.dup); assert.equal(e.reqs.size, 2, '前の依頼が済んでいればもう1枚頼める');
+  } finally { e.restore(); }
+});
+test('KC1 依頼IDなし・受注が無い・Ta/Ko/Yo 以外は依頼しない。状況は直近の依頼を返す', async () => {
+  const e = await kcEnv({ orders: { [KREC]: korder, recKOTEICOPY00002: { id: 'recKOTEICOPY00002', fields: { Book: 'Zz', WorkCord: 1 } } } });
+  try {
+    assert.equal((await e.run('koteiCopy', { id: KREC })).status, 400);
+    assert.equal((await e.run('koteiCopy', { id: 'recKOTEICOPY00009', reqId: KREQ })).status, 404);
+    assert.equal((await e.run('koteiCopy', { id: 'recKOTEICOPY00002', reqId: KREQ })).status, 400);
+    assert.equal(e.reqs.size, 0);
+    await e.run('koteiCopy', { id: KREC, reqId: KREQ });
+    const st = await e.run('koteiCopyStatus', { id: KREC });
+    assert.equal(st.j.ok, true); assert.equal(st.j.requests[0].reqId, KREQ); assert.equal(st.j.requests[0].state, '依頼済');
+  } finally { e.restore(); }
+});
+test('KC1 画面: 確認してから依頼IDを作って送り、結果不明は同じIDで送り直す。依頼中はボタンを止める', () => {
+  const src = extract('kcRequest');
+  assert.ok(src.includes('if (!st.retry && !confirm('));
+  assert.ok(src.includes("const reqId = st.retry || ('kc-'"));
+  assert.ok(src.includes("api({ action: 'koteiCopy', id: o.id, reqId })"));
+  assert.ok(src.includes('if (j.unknown) { st.retry = reqId;'));
+  assert.ok(extract('renderKoteiCopy').includes('b.disabled = !!st.sending || kcPending(st.last);'));
+  assert.ok(extract('renderSteps').includes('renderKoteiCopy(o);'));
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {
