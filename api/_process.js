@@ -382,6 +382,9 @@ async function orders(body) {
   const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const n = Number(wc);
   const wcExpr = Number.isFinite(n) ? String(n) : `'${esc(wc)}'`;
+  // archived=true（詳細画面の「同じ品番の受注をすべて見る」2026-11-06）はアーカイブ済も含め、品名で探すと同じく
+  // 納期の新しい順に MAX_ITEMS 件まで読む
+  if (body?.archived) return cappedSearch(`AND({${F.book}}='${esc(book)}',{${F.wc}}=${wcExpr})`);
   const url = new URL(API);
   url.searchParams.set('filterByFormula', `AND({${F.book}}='${esc(book)}',{${F.wc}}=${wcExpr},{${F.archived}}!=TRUE())`);
   url.searchParams.set('pageSize', '50');
@@ -403,11 +406,16 @@ async function items(body) {
   if (!keys.length) return json({ ok: false, error: 'キーワードを入れてください' }, 400);
   const finds = keys.map(k => `FIND(LOWER('${esc(k)}'),LOWER({${F.item}}&''))`);
   if (!body?.archived) finds.push(`{${F.archived}}!=TRUE()`);
+  return cappedSearch(`AND(${finds.join(',')})`);
+}
+
+// 品名で探す・同じ品番の受注をすべて見る の共通の読み方。アーカイブ済は閉じた受注として印を付ける
+async function cappedSearch(formula) {
   const rows = [];
   let offset;
   do {
     const url = new URL(API);
-    url.searchParams.set('filterByFormula', `AND(${finds.join(',')})`);
+    url.searchParams.set('filterByFormula', formula);
     url.searchParams.set('sort[0][field]', F.ndate);
     url.searchParams.set('sort[0][direction]', 'desc');
     url.searchParams.set('pageSize', '100');

@@ -895,6 +895,35 @@ test('SW1 進行社外が空白の抜きの受注は 紙入荷日なし→シー
   } finally { global.fetch = prevFetch; }
 });
 
+// ---- WC1 同じ品番の受注をすべて見る（アーカイブ済も含む）2026-11-06（偽の Airtable。本物には繋がない） ----
+test('WC1 同じ品番はアーカイブ済も含めて新しい順に上限まで読み、閉じた受注に印。ふだんの品番で探すはアーカイブ済を外したまま', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const calls = []; const prevFetch = global.fetch;
+  const rec = (id, f) => ({ id, fields: { Book: 'Ta', WorkCord: 3848, NAmount: 10, ItemName: 'お守', ...f } });
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); calls.push(u);
+    if (u.pathname.includes('/meta/')) return new Response(JSON.stringify({ tables: [] }), { status: 200 });
+    return new Response(JSON.stringify({ records: [rec('recOLD0000000001', { Ndate: '2025-10-01', 'アーカイブ済': true }), rec('recOPEN000000001', { Ndate: '2026-11-16' })] }), { status: 200 });
+  };
+  try {
+    const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+    const who = { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } };
+    let j = await (await mod.handleProcess('orders', { book: 'Ta', wc: '3848', archived: true }, who)).json();
+    assert.equal(j.ok, true, JSON.stringify(j).slice(0, 200));
+    let u = calls.filter(c => !c.pathname.includes('/meta/')).pop();
+    assert.equal(u.searchParams.get('filterByFormula'), "AND({Book}='Ta',{WorkCord}=3848)");
+    assert.equal(u.searchParams.get('sort[0][direction]'), 'desc');
+    assert.ok(Number(u.searchParams.get('maxRecords')) > 1);
+    assert.deepEqual(j.orders.map(o => [o.id, !!o.archived, !!o.closed]), [['recOPEN000000001', false, false], ['recOLD0000000001', true, true]]);
+    j = await (await mod.handleProcess('orders', { book: 'Ta', wc: '3848' }, who)).json();
+    u = calls.filter(c => !c.pathname.includes('/meta/')).pop();
+    assert.match(u.searchParams.get('filterByFormula'), /\{アーカイブ済\}!=TRUE\(\)/);
+  } finally { global.fetch = prevFetch; }
+  const ui = extract('renderSameWc');
+  assert.ok(ui.includes('search({ archived: true })') && ui.includes('setBook(o.book)'), '詳細画面のボタンは Book も揃えてアーカイブ済込みで探す');
+  assert.ok(extract('reloadFind').includes('archived: !!S.findArch'), '読み直しでも同じ条件');
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

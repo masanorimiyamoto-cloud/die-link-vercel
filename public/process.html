@@ -579,6 +579,8 @@
     <div id="goBar"></div>
     <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
     <div class="kcopy" id="koteiCopy"></div>
+    <!-- 同じ品番（Book / WorkCord）の受注を、アーカイブ済も含めて品番で探すに出す 2026-11-06 -->
+    <div class="kcopy" id="sameWc"></div>
     <div class="imgs" id="stepImgs"></div>
     <details class="aux" id="auxOther"><summary>その他の工程を記録</summary><div class="body"><div class="steps" id="stepsOther"></div></div></details>
     <details class="aux" id="auxStatus"><summary>材料・在庫の状況を記録</summary><div class="body"><div class="steps" id="stepsStatus"></div></div></details>
@@ -787,23 +789,50 @@
 
   /* ---------- 受注を探す ---------- */
   let findGen = 0;
-  async function search() {
+  // archived: 詳細画面の「同じ品番の受注をすべて見る」から。アーカイブ済も含め、新しい順に上限まで（2026-11-06）
+  async function search(opt) {
+    const archived = !!opt?.archived;
     const book = $('book').value.trim(), wc = $('wc').value.trim();
     if (!book || !wc) return say($('findMsg'), 'Book と WorkCord を入れてください', 'err');
-    S.findBy = 'wc'; hideToast();
+    S.findBy = 'wc'; S.findArch = archived; hideToast();
     say($('findMsg'), '探しています…'); $('orders').textContent = ''; $('stepCard').hidden = true; S.sel = null;
     const gen = ++findGen;
-    const j = await api({ action: 'orders', book, wc });
+    const j = await api({ action: 'orders', book, wc, archived });
     if (gen !== findGen || S.mode !== 'find') return;
     if (!j.ok) return say($('findMsg'), j.error || '探せませんでした', 'err');
     S.orders = pinNew(j.orders); S.steps = j.steps; S.rooms = j.rooms || [];
     if (!j.orders.length) return say($('findMsg'), `${book} / ${wc} の受注は見つかりません`, 'err');
     const open = j.orders.filter(o => !o.closed);
+    if (archived) {
+      // 一覧を見るためのボタンなので、1件だけでもカードは開かない
+      const arc = j.orders.filter(o => o.archived).length;
+      say($('findMsg'), `${book} / ${wc} の受注 ${j.orders.length}件（未完了 ${open.length}件・アーカイブ済 ${arc}件）。` +
+        (j.more ? `新しい順に${j.orders.length}件で打ち切りました` : '選ぶか、上の ← → で順に見られます'), j.more ? 'warn' : '');
+      renderOrders(); updateNav();
+      return;
+    }
     say($('findMsg'), open.length > 1 ? `受注が${open.length}件あります。どれか選んでください` : '');
     renderOrders();
     if (open.length === 1) selectOrder(open[0].id);
   }
   $('searchBtn').onclick = () => { if (!busyNow()) search(); };
+  // 詳細画面: 同じ品番（Book / WorkCord）の受注をアーカイブ済も含めて 品番・品名で探す に出す。
+  // WorkCord は Ta・Ko・Yo で別の品目に同じ番号があるので Book も揃える
+  function renderSameWc(o) {
+    const box = $('sameWc'); box.textContent = '';
+    if (!o.book || o.wc === '' || o.wc == null) return;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn';
+    b.textContent = `🔎 同じ品番（${o.book} / ${o.wc}）の受注をすべて見る`;
+    const line = document.createElement('div'); line.className = 'kcst';
+    line.textContent = 'アーカイブ済も含め、納期の新しい順に出します（品番・品名で探す に切り替わります）';
+    b.onclick = () => {
+      if (busyNow()) return;
+      if (S.mode !== 'find') setMode('find');
+      setBook(o.book); $('wc').value = String(o.wc);
+      search({ archived: true });
+    };
+    box.append(b, line);
+  }
 
   // 品名（ItemName）で探す（2026-10-30）。キーワードは2つまでで、両方を含む受注が候補になる。
   // 候補は下に並べ、上の ← → で1件ずつ工程カードを開いて順に見られる
@@ -1910,7 +1939,7 @@
   async function reloadFind(o) {
     const gen = ++findGen;
     const j = S.findBy === 'item' ? await api({ action: 'items', ...S.findKeys })
-      : await api({ action: 'orders', book: o.book, wc: String(o.wc) });
+      : await api({ action: 'orders', book: o.book, wc: String(o.wc), archived: !!S.findArch });
     if (gen !== findGen || S.mode !== 'find') return false;
     if (!j.ok || !Array.isArray(j.orders)) return false;
     S.orders = pinNew(j.orders); S.steps = j.steps || S.steps; S.rooms = j.rooms || S.rooms;
@@ -2174,6 +2203,7 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     renderNext(o, v);
     $('goBar').replaceChildren(goBar(o));
     renderKoteiCopy(o);
+    renderSameWc(o);
     $('editors').replaceChildren(amountEditor(o), ndateEditor(o), paperEditor(o));
     renderStepImages(o);
     renderStepLists(o, plan);
@@ -2594,7 +2624,7 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
   // 一覧を取り直し、選んでいた受注がまだあれば選び直す
   async function refreshCurrent() {
     const id = S.sel;
-    if (S.mode === 'list') await loadView(S.view, true); else await (S.findBy === 'item' ? itemSearch(S.findKeys) : search());
+    if (S.mode === 'list') await loadView(S.view, true); else await (S.findBy === 'item' ? itemSearch(S.findKeys) : search({ archived: S.findArch }));
     if (id && S.orders.some(x => x.id === id)) selectOrder(id); else { $('stepCard').hidden = true; S.sel = null; }
   }
 
