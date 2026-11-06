@@ -867,6 +867,34 @@ test('RS2 画面の路線の祝日（ROSEN_HOLIDAYS）は事務所の rosen_pick
   assert.deepEqual(jsDays, pyDays);
 });
 
+// ---- SW1 進行社外が空白のシート待ち: 紙入荷日が先なら シート手配済み 2026-11-06（偽の Airtable。本物には繋がない） ----
+test('SW1 進行社外が空白の抜きの受注は 紙入荷日なし→シート手配待ち／先の日付→シート手配済み／今日以前→シート材料入荷済', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const calls = []; const prevFetch = global.fetch;
+  const rec = (id, f) => ({ id, fields: { Book: 'Ko', WorkCord: 1, NAmount: 10, ItemName: '箱 #o', '工程(自動)': '|オートン|', Ndate: '2026-12-01', ...f } });
+  const active = [rec('recSHEETNONE00001', {}), rec('recSHEETFUTURE001', { '紙入荷日': '2099-01-01' }), rec('recSHEETPAST00001', { '紙入荷日': '2000-01-01' }),
+    rec('recSHEETKIKAI0001', { ItemName: '箱 #ki', '工程(自動)': '|機械貼|', '紙入荷日': '2099-01-01' })];
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const m = init.method || 'GET';
+    calls.push({ m, u, body: init.body });
+    if (u.pathname.includes('/meta/')) return new Response(JSON.stringify({ tables: [] }), { status: 200 });
+    if (m !== 'GET') return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    const fm = u.searchParams.get('filterByFormula') || '';
+    return new Response(JSON.stringify({ records: fm === 'NOT({アーカイブ済})' ? active : [] }), { status: 200 });
+  };
+  try {
+    const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+    const r = await mod.handleProcess('view', { view: 'all', refresh: true, lite: true }, { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } });
+    const j = await r.json();
+    assert.equal(j.ok, true, JSON.stringify(j).slice(0, 200));
+    const wrote = {};
+    for (const c of calls.filter(c => c.m === 'PATCH' && /TableJuchu/.test(c.u.pathname))) {
+      for (const x of JSON.parse(c.body).records) wrote[x.id] = x.fields['進行社外'];
+    }
+    assert.deepEqual(wrote, { recSHEETNONE00001: 'シート手配待ち', recSHEETFUTURE001: 'シート手配済み', recSHEETPAST00001: 'シート材料入荷済' }, '機械貼だけの受注には書かない');
+  } finally { global.fetch = prevFetch; }
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

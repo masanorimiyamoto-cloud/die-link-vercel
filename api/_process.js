@@ -324,8 +324,11 @@ async function view(body, user) {
 // （進行社内が空白か工程表発行済で、工程の記録も無い）の空白を シート手配待ち にする。
 // 在庫のシートを使うなら、工程カードの「在庫シート利用」で変える（シート手配待ちからも変えられる）
 // 紙入荷日が入っていて今日（日本時間）以前なら、シート手配待ちではなく シート材料入荷済 にする（ユーザー指定）。
+// 紙入荷日が先の日付なら シート手配済み にする（2026-11-06 ユーザー指定。Airtable のオートメーション
+// 「紙入荷日が入ったら進行社外を「シート手配済み」へ」と同じ決まり。あちらは紙入荷日を書いたときに動く）。
 // シート手配待ち・シート手配済み のまま紙入荷日を迎えたものは、Airtable のオートメーション（毎日11:00）が入荷済にする
 const SHEET_WAIT = 'シート手配待ち';
+const SHEET_ORDERED = 'シート手配済み';
 const SHEET_ARRIVED = 'シート材料入荷済';
 const todayJST = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
@@ -334,7 +337,7 @@ const needsSheetWait = (r) => !r.progOut && !r.closed && !r.archived && SHEET_TA
 async function autoSheetWait(rows, user) {
   const today = todayJST();
   const need = rows.filter(needsSheetWait).map(r => ({ r,
-    to: /^\d{4}-\d\d-\d\d$/.test(r.paper) && r.paper <= today ? SHEET_ARRIVED : SHEET_WAIT }));
+    to: !/^\d{4}-\d\d-\d\d$/.test(r.paper) ? SHEET_WAIT : r.paper <= today ? SHEET_ARRIVED : SHEET_ORDERED }));
   for (let i = 0; i < need.length; i += 10) {
     const part = need.slice(i, i + 10);
     try {
@@ -343,7 +346,8 @@ async function autoSheetWait(rows, user) {
     for (const x of part) x.r.progOut = x.to;
     viewCache.clear();
     await writeWorkLog(user, part.map(({ r, to }) => ({ recordIds: [r.id], book: r.book, wc: r.wc, action: '進行社外変更',
-      detail: to === SHEET_ARRIVED ? `${to}（自動。進行社外が空白で、紙入荷日 ${r.paper} を過ぎていたため）` : `${to}（自動。進行社外が空白だったため）` })));
+      detail: to === SHEET_ARRIVED ? `${to}（自動。進行社外が空白で、紙入荷日 ${r.paper} を過ぎていたため）`
+        : to === SHEET_ORDERED ? `${to}（自動。進行社外が空白で、紙入荷日 ${r.paper} が入っていたため）` : `${to}（自動。進行社外が空白だったため）` })));
   }
 }
 
