@@ -905,6 +905,9 @@
   // 納期は着日のまま動かさず、集荷日をここで出す（以前は人が納期を前日にずらして、請求の前に戻していた）。
   // 出荷済（伝票出力済・完納）は印だけ。まだなら 今日・明日・過ぎ を色で出す。事務所側は Z:\Airtable\rosen_pickup_report.py が同じ規則で報告する
   const ROSEN_TAG = /#路線/;
+  // 2026-11-06〜 Room（複数選択）に 路線便 が入っている受注も路線便として扱う（rosen_pickup_report.is_rosen と同じ決まり）
+  const ROSEN_ROOM = '路線便';
+  const isRosen = (o) => ROSEN_TAG.test(o.item || '') || (o.room || []).includes(ROSEN_ROOM);
   const SHIPPED_OUT = new Set(['伝票出力済', '完納済', '完納（数量訂正）']);
   // 集荷のない祝日（月-日。毎年同じ日付で扱う。2026-11-04 ユーザー指定。rosen_pickup_report.py の HOLIDAYS と同じ）
   const ROSEN_HOLIDAYS = new Set(['01-01', '01-02', '01-03', '02-11', '03-20', '04-29', '05-03', '05-04', '05-05', '07-20', '08-11', '09-21', '09-22', '09-23', '10-12', '11-03', '11-23']);
@@ -916,7 +919,7 @@
     return t.toISOString().slice(0, 10);
   }
   function rosenLine(o) {
-    if (!ROSEN_TAG.test(o.item || '') || !o.ndate) return null;
+    if (!isRosen(o) || !o.ndate) return null;
     const p = rosenPickup(o.ndate);
     const [y, m, d] = p.split('-').map(Number);
     const s = document.createElement('span'); s.className = 'rosen';

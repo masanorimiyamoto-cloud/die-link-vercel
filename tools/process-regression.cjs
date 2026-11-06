@@ -643,7 +643,7 @@ function rosenEnv(today) {
   const env = { document: { createElement: mk }, todayJST: () => today };
   vm.createContext(env);
   vm.runInContext([
-    line(/^  const WD = .*$/m), line(/^  const ROSEN_TAG = .*$/m), line(/^  const SHIPPED_OUT = .*$/m), line(/^  const ROSEN_HOLIDAYS = .*$/m),
+    line(/^  const WD = .*$/m), line(/^  const ROSEN_TAG = .*$/m), line(/^  const ROSEN_ROOM = .*$/m), line(/^  const isRosen = .*$/m), line(/^  const SHIPPED_OUT = .*$/m), line(/^  const ROSEN_HOLIDAYS = .*$/m),
     ...['daysFromToday', 'rosenPickup', 'rosenLine'].map(extract),
     'Object.assign(globalThis, { rosenPickup, rosenLine });',
   ].join('\n'), env);
@@ -669,6 +669,9 @@ test('RS1 路線便の印: 今日・明日・過ぎ を出し、#路線 が無�
   const o = (p) => ({ item: 'TP小箱#o#路線', ndate: '2026-11-11', progOut: '', ...p });
   assert.equal(e.rosenLine(o({ item: 'TP小箱#o' })), null);
   assert.equal(e.rosenLine(o({ ndate: '' })), null);
+  // Room に 路線便 があれば、品名に #路線 が無くても出す（2026-11-06）
+  assert.match(rosenText(e.rosenLine(o({ item: 'TP小箱#o', room: ['オートン', '路線便'] }))), /路線 集荷 11\/10\(火\) 今日集荷/);
+  assert.equal(e.rosenLine(o({ item: 'TP小箱#o', room: ['オートン'] })), null);
   let s = e.rosenLine(o());
   assert.match(rosenText(s), /路線 集荷 11\/10\(火\) 今日集荷/); assert.deepEqual(s.classList.list, ['late']);
   s = e.rosenLine(o({ ndate: '2026-11-12' })); assert.match(rosenText(s), /明日集荷/); assert.deepEqual(s.classList.list, ['soon']);
@@ -848,6 +851,20 @@ test('KC1 画面: 確認してから依頼IDを作って送り、結果不明は
   assert.ok(src.includes('if (j.unknown) { st.retry = reqId;'));
   assert.ok(extract('renderKoteiCopy').includes('b.disabled = !!st.sending || kcPending(st.last);'));
   assert.ok(extract('renderSteps').includes('renderKoteiCopy(o);'));
+});
+
+// ---- RS2 路線の祝日は事務所側と同じ 2026-11-05 ----
+// 事務所の Z:\Airtable\rosen_pickup_report.py（_路線集荷予定.txt と S96.5 J列「路線M/D出荷」）と
+// 画面の ROSEN_HOLIDAYS は同じ規則・同じ祝日でなければならない。事務所のファイルが見えない環境では飛ばす
+test('RS2 画面の路線の祝日（ROSEN_HOLIDAYS）は事務所の rosen_pickup_report.py の HOLIDAYS と同じ', () => {
+  const py = ['//server/data/Airtable/rosen_pickup_report.py', 'Z:/Airtable/rosen_pickup_report.py'].find(f => { try { return fs.existsSync(f); } catch { return false; } });
+  if (!py) { console.log('     (事務所のファイルが見えないので比較を飛ばしました)'); return; }
+  const src = fs.readFileSync(py, 'utf8');
+  const m = /HOLIDAYS = \{([^}]*)\}/.exec(src); assert.ok(m, 'HOLIDAYS が見つからない');
+  const pyDays = [...m[1].matchAll(/\((\d+),\s*(\d+)\)/g)].map(x => `${x[1].padStart(2, '0')}-${x[2].padStart(2, '0')}`).sort();
+  const js = /const ROSEN_HOLIDAYS = new Set\(\[([^\]]*)\]\)/.exec(source); assert.ok(js);
+  const jsDays = [...js[1].matchAll(/'(\d\d-\d\d)'/g)].map(x => x[1]).sort();
+  assert.deepEqual(jsDays, pyDays);
 });
 
 (async () => {

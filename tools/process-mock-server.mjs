@@ -70,6 +70,7 @@ function fixtures() {
     // 路線便: 明日着＝今日集荷・3日後着・出荷済（集荷日の印の確認用）
     order({ item: '検証路線 今日集荷 #o#路線', kotei: '|オートン|', ndate: dayJST(1), views: ['auton', 'rosen'] }),
     order({ item: '検証路線 後日 #ki#路線', kotei: '|機械貼|', ndate: dayJST(3), views: ['kikai', 'rosen'] }),
+    order({ item: '検証路線 Room指定 #ki', kotei: '|機械貼|', room: ['路線便'], ndate: dayJST(2), views: ['kikai', 'rosen'] }),
     order({ item: '検証路線 出荷済 #路線', ndate: dayJST(-1), progOut: '完納済', views: [] }),
   ];
 }

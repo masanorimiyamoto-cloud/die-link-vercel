@@ -136,9 +136,9 @@ export const VIEWS = {
   // keepOrder: 画面で納品日順に並べ替えず、ビューの並び（Recent は 最終更新 の新しい順 Z→A）のまま出す（2026-10-29 ユーザー指定）
   recent:  { label: 'Recent 1day',  keepOrder: true, sources: [{ id: 'viwgFO3k8bRAhJVNw', steps: [] }] },          // Grid Recent 1day
   fax:     { label: 'Fax',          sources: [{ id: 'viwvqPJgm9s9BAlvR', steps: [] }] },          // Grid FromFAX 承認待ち
-  // 路線便（品名に #路線）で、まだ出荷していない受注。集荷は納期（着日）の前日。画面が各行に集荷日を出す（2026-11-04）
+  // 路線便（品名に #路線、または Room に 路線便 2026-11-06〜）で、まだ出荷していない受注。集荷は納期（着日）の前日。画面が各行に集荷日を出す（2026-11-04）
   rosen:   { label: '路線 集荷',    sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [],
-    formula: "AND(NOT({アーカイブ済}), FIND('#路線', {ItemName}&''), NOT(OR({進行社外}='伝票出力済', {進行社外}='完納済', {進行社外}='完納（数量訂正）')))" }] },
+    formula: "AND(NOT({アーカイブ済}), OR(FIND('#路線', {ItemName}&''), FIND('路線便', {Room}&'')), NOT(OR({進行社外}='伝票出力済', {進行社外}='完納済', {進行社外}='完納（数量訂正）')))" }] },
 };
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
