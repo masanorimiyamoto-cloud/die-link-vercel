@@ -501,6 +501,11 @@
   .toast .tx b{ font-weight:600 }
   .toast .btn{ padding:8px 12px; font-size:14px }
   body.has-toast .wrap{ padding-bottom:var(--toasth, 170px); scroll-padding-bottom:var(--toasth, 170px) }
+  /* どの画面からでも工程表のQRを読むボタン（2026-11-08）。右下に浮かせ、案内（toast）が出ているときはその上に置く */
+  .qrfab{ position:fixed; right:16px; bottom:calc(16px + env(safe-area-inset-bottom)); z-index:45; padding:10px 15px; border:0; border-radius:999px;
+    background:var(--a); color:#fff; font-size:15px; font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.35); cursor:pointer; opacity:.95 }
+  body.has-toast .qrfab{ bottom:calc(var(--toasth, 170px) + 8px) }
+  body:not(.has-toast) .wrap{ padding-bottom:84px }
 </style>
 </head>
 <body>
@@ -613,6 +618,8 @@
   <button type="button" class="btn ghost" id="toastRetry" hidden>一覧だけ読み直す</button>
   <button type="button" class="btn ghost" id="toastClose">閉じる</button>
 </div>
+
+<button type="button" class="qrfab" id="qrFab" aria-label="工程表のQRを読む">📷 QR</button>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" crossorigin="anonymous"></script>
 <div class="viewer" id="viewer" hidden role="dialog" aria-label="画像">
@@ -771,7 +778,7 @@
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
     } catch (e) { say($('camMsg'), 'カメラを使えません。下に品番を入れてください。', 'err'); return; }
     const v = $('video'); v.srcObject = stream; await v.play().catch(() => {});
-    $('camWrap').hidden = false; $('camBtn').textContent = 'カメラを止める'; say($('camMsg'), '');
+    $('camWrap').hidden = false; $('camBtn').textContent = 'カメラを止める'; $('qrFab').textContent = '✕ カメラ'; say($('camMsg'), '');
     if ('BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch { detector = null; } }
     const c = document.createElement('canvas'); const ctx = c.getContext('2d', { willReadFrequently: true });
     scanTimer = setInterval(async () => {
@@ -790,15 +797,24 @@
       if (!p) { say($('camMsg'), '工程表のQRではないようです', 'warn'); return; }
       stopCam(); navigator.vibrate?.(60);
       if (op) return; // 記録の処理中は対象を変えない
-      setBook(p.book); $('wc').value = p.wc; setMode('find'); search();
+      setBook(p.book); $('wc').value = p.wc; setMode('find'); search({ fromQr: true });
     }, 160);
   }
   function stopCam() {
     clearInterval(scanTimer); scanTimer = null;
     stream?.getTracks().forEach(t => t.stop()); stream = null;
-    $('camWrap').hidden = true; $('camBtn').textContent = '工程表のQRを読む';
+    $('camWrap').hidden = true; $('camBtn').textContent = '工程表のQRを読む'; $('qrFab').textContent = '📷 QR';
   }
   $('camBtn').onclick = () => (stream ? stopCam() : startCam());
+  // 右下の QR ボタン（2026-11-08）。作業リストからでも 品番・品名で探す に切り替えてすぐカメラを開く。
+  // 作業リストの名前（S.view）は残すので、同じ品番が何件もあるときはそのリストでまだの受注を選ぶのに使う
+  $('qrFab').onclick = () => {
+    if (stream) return stopCam();
+    if (busyNow()) return;
+    if (S.mode !== 'find') setMode('find');
+    $('findCard').scrollIntoView({ block: 'start' });
+    startCam();
+  };
 
   /* ---------- 受注を探す ---------- */
   let findGen = 0;
@@ -826,7 +842,21 @@
     }
     say($('findMsg'), open.length > 1 ? `受注が${open.length}件あります。どれか選んでください` : '');
     renderOrders();
-    if (open.length === 1) selectOrder(open[0].id);
+    if (open.length === 1) return selectOrder(open[0].id);
+    // QR から（2026-11-08）: 同じ品番が何件もあるときは、最後に見ていた作業リストで自分の工程がまだの受注が1件だけならそれを開く
+    const pick = opt?.fromQr ? qrPick(open) : null;
+    if (pick) {
+      selectOrder(pick.o.id);
+      say($('stepMsg'), `同じ品番の受注が${open.length}件あります。「${pick.v.label}」でまだの1件を開きました（違うときは「← 閉じる」で下の候補から選んでください）`, 'warn');
+    }
+  }
+  // 同じ品番の未完了のうち、最後に見ていた作業リスト（S.view）の部屋の受注で、その工程がまだのもの。1件に決まらなければ null
+  function qrPick(open) {
+    const v = S.views.find(x => x.key === S.view);
+    if (!hasMine(v)) return null;
+    const tags = viewTags(v);
+    const cand = open.filter(o => !mineDone(o, v) && (!tags.length || itemTags(o).some(t => tags.includes(t))));
+    return cand.length === 1 ? { o: cand[0], v } : null;
   }
   $('searchBtn').onclick = () => { if (!busyNow()) search(); };
   // 詳細画面: 同じ品番（Book / WorkCord）の受注をアーカイブ済も含めて 品番・品名で探す に出す。

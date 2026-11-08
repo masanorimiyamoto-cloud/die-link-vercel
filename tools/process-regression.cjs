@@ -974,6 +974,27 @@ test('MS1 画面: 完了・取消・材料の報告を保存できたらログ�
   assert.ok(extract('write').includes('myStats.refresh(true)'));
 });
 
+// ---- QR1 工程表のQR（2026-11-08） ----
+test('QR1 同じ品番が何件もあるとき、最後に見ていた作業リストで自分の工程がまだの受注が1件だけならそれを選ぶ。決まらなければ選ばない', () => {
+  const env = { S: { view: 'auton', views: [{ key: 'auton', label: 'オートン抜き', mine: ['o'] }, { key: 'all', label: '全件', mine: [] }] } };
+  env.hasMine = (v) => !!(v && (v.mine || []).length);
+  env.viewTags = () => ['オートン'];
+  env.itemTags = (o) => o.tags;
+  env.mineDone = (o) => !!o.done;
+  vm.createContext(env);
+  vm.runInContext(extract('qrPick') + '\nglobalThis.qrPick = qrPick;', env);
+  const a = { id: 'a', tags: ['オートン'], done: true }, b = { id: 'b', tags: ['オートン', '機械貼'], done: false }, c = { id: 'c', tags: ['機械貼'], done: false };
+  assert.equal(env.qrPick([a, b, c])?.o.id, 'b', 'オートンでまだなのは b だけ');
+  assert.equal(env.qrPick([a, { ...b, id: 'b2' }, b]), null, '2件残るなら選ばない');
+  env.S.view = 'all';
+  assert.equal(env.qrPick([a, b, c]), null, '自分の工程の無いリストからは選ばない');
+});
+test('QR1 QRを読んだら fromQr で探す。右下の QR ボタンは作業リストからでも 品番で探す に切り替えてカメラを開く', () => {
+  assert.ok(source.includes("search({ fromQr: true })"));
+  assert.ok(/\$\('qrFab'\)\.onclick = \(\) => \{[^]*?setMode\('find'\)[^]*?startCam\(\)/.test(source));
+  assert.ok(extract('search').includes('qrPick(open)'));
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {
