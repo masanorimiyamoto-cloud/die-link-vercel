@@ -1717,6 +1717,8 @@
   /* ---------- 顧客（Kname）の絞り込み（2026-11-05） ---------- */
   // 「顧客別」を押すと、今のリストにいる顧客を件数の多い順に出す（顧客名なしは最後）。選ぶとその顧客の受注だけにする。
   // 取得済みの一覧を画面の中で絞るだけ（読み直さない）。リストを切り替えたら解除する。Kname が空の受注は「(顧客名なし)」
+  // 2026-11-08 顧客で絞るときは必ず全件から（ユーザー指定）。全件以外で「顧客別」を押したら全件を読んでから顧客を出し、
+  // 「✕ 解除」で元のリストに戻る。アーカイブ済は顧客の数にも絞った結果にも入れない（古いものは 品番・品名で探す で）
   const custOf = (o) => String(o.spec?.kname || '').trim();
   const custLabel = (k) => k || '(顧客名なし)';
   function renderCust() {
@@ -1726,20 +1728,34 @@
     box.hidden = false;
     const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '顧客:'; box.append(l);
     const b = document.createElement('button'); b.type = 'button'; b.id = 'custBtn';
-    b.textContent = S.cust == null ? '顧客別 ▾' : `${custLabel(S.cust)} ▾`;
+    b.textContent = S.cust == null ? '顧客別（全件から） ▾' : `${custLabel(S.cust)} ▾`;
     b.setAttribute('aria-pressed', String(S.cust != null));
     b.setAttribute('aria-expanded', String(!!S.custOpen));
-    b.onclick = () => { S.custOpen = !S.custOpen; renderList(); $('custBtn')?.focus(); };
+    b.onclick = async () => {
+      if (S.view !== 'all') {
+        if (busyNow()) return;
+        const back = S.view;
+        if (!(await loadView('all'))) return;
+        S.custBack = back; S.custOpen = true; renderList(); $('custBtn')?.focus();
+        return;
+      }
+      S.custOpen = !S.custOpen; renderList(); $('custBtn')?.focus();
+    };
     box.append(b);
     if (S.cust != null) {
       const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕ 解除';
-      x.onclick = () => { S.cust = null; S.custOpen = false; keepTopRow(renderList); $('custBtn')?.focus(); };
+      x.onclick = () => {
+        S.cust = null; S.custOpen = false;
+        const back = S.custBack; S.custBack = null;
+        if (back && back !== 'all' && !busyNow()) return loadView(back);
+        keepTopRow(renderList); $('custBtn')?.focus();
+      };
       box.append(x);
     }
     list.hidden = !S.custOpen;
     if (!S.custOpen) return;
     const cnt = new Map();
-    for (const o of S.orders) cnt.set(custOf(o), (cnt.get(custOf(o)) || 0) + 1);
+    for (const o of S.orders) if (!o.archived) cnt.set(custOf(o), (cnt.get(custOf(o)) || 0) + 1);
     const rows = [...cnt].sort((a, b) => (!a[0]) - (!b[0]) || (b[1] - a[1]) || a[0].localeCompare(b[0], 'ja')); // 顧客名なしは件数によらず最後
     const pick = (k) => { S.cust = k; S.custOpen = false; renderList(); $('custBtn')?.focus(); };
     const add = (k, label, n) => {
@@ -1853,7 +1869,7 @@
     const v = S.views.find(x => x.key === S.view);
     // 顧客で絞ってから状態を数える（状態の件数は選んだ顧客の中の数）
     renderCust();
-    const base = S.cust == null ? S.orders : S.orders.filter(o => custOf(o) === S.cust);
+    const base = S.cust == null ? S.orders : S.orders.filter(o => !o.archived && custOf(o) === S.cust);
     const states = new Map(base.map(o => [o.id, rowState(o, v)]));
     const counts = {};
     for (const st of states.values()) counts[st.kind] = (counts[st.kind] || 0) + 1;

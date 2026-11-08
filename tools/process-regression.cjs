@@ -690,7 +690,8 @@ function custEnv(orders) {
     return el;
   };
   const nodes = { custChips: mk('div'), custList: mk('div') };
-  const env = { S: { orders, cust: null, custOpen: false }, renders: 0,
+  const env = { S: { orders, cust: null, custOpen: false, view: 'all' }, renders: 0, loads: [], busyNow: () => false,
+    loadView: async (k) => { env.loads.push(k); env.S.view = k; env.S.cust = null; env.S.custOpen = false; return true; },
     $: (id) => id === 'custBtn' ? nodes.custChips.kids.find(k => k.id === 'custBtn') : nodes[id],
     document: { createElement: mk }, nodes, scroller: () => ({}) };
   env.renderList = () => { env.renders++; env.renderCust(); };
@@ -718,9 +719,25 @@ test('CU1 顧客別を押すと今のリストの顧客を件数の多い順に�
   x.onclick(); assert.equal(e.S.cust, null);
   btn().onclick(); list.kids[3].onclick(); assert.equal(e.S.cust, '', '顧客名なしも選べる');
 });
+test('CU1 全件以外で顧客別を押すと全件を読んでから顧客を出し、解除で元のリストに戻る。アーカイブ済は数えない', async () => {
+  const o = (id, kname, archived) => ({ id, spec: { kname }, archived });
+  const e = custEnv([o('a', 'A社'), o('b', 'A社', true), o('c', 'B社')]);
+  e.S.view = 'kikai';
+  e.renderCust();
+  const btn = () => e.nodes.custChips.kids.find(k => k.id === 'custBtn');
+  assert.match(btn().textContent, /全件から/);
+  await btn().onclick();
+  assert.deepEqual(e.loads, ['all'], '全件を読む');
+  assert.equal(e.S.custOpen, true, '読んだら顧客を開く');
+  assert.deepEqual(e.nodes.custList.kids.map(k => k.textContent), ['すべて3', 'A社1', 'B社1'], 'アーカイブ済は顧客の数に入れない');
+  e.nodes.custList.kids[1].onclick();
+  assert.equal(e.S.cust, 'A社');
+  e.nodes.custChips.kids.find(k => k.textContent === '✕ 解除').onclick();
+  assert.deepEqual(e.loads, ['all', 'kikai'], '解除で元のリストに戻る');
+});
 test('CU1 一覧は顧客で絞ってから状態を数え、件数の案内に顧客名を出す。リストを切り替えたら解除', () => {
   const src = extract('renderList');
-  assert.ok(/const base = S\.cust == null \? S\.orders : S\.orders\.filter\(o => custOf\(o\) === S\.cust\)/.test(src));
+  assert.ok(/const base = S\.cust == null \? S\.orders : S\.orders\.filter\(o => !o\.archived && custOf\(o\) === S\.cust\)/.test(src));
   assert.ok(src.includes('base.map(o => [o.id, rowState(o, v)])') && src.includes('renderFilter(counts, base.length)'));
   assert.ok(/S\.filter === 'all' \? base : base\.filter/.test(src));
   const e = listEnv(async () => ok('taoshi', [{ id: 'T' }], 1));
