@@ -426,6 +426,9 @@
   :root .order.wait{ border-left:5px solid var(--st-wait); padding-left:10px }
   :root .minebadge.wait{ background:var(--st-wait-bg); color:var(--st-wait-txt); border:1.5px solid var(--st-wait); font-size:14px }
   /* 判定できない: 灰色の点線の札（目立たせない） */
+  /* 止まっている受注（2026-11-08）: 納期を過ぎたものは赤の帯と札、まだのものは待ちと同じ黄土 */
+  :root .order.stall-late{ border-left:5px solid var(--st-late); padding-left:10px }
+  :root .minebadge.late{ background:var(--st-late-bg); color:var(--st-late-txt); border:1.5px solid var(--st-late); font-size:14px }
   :root .minebadge.note{ background:transparent; color:var(--st-note); border:1px dashed var(--line2); font-size:13px; font-weight:500 }
   /* 選択中: 状態の枠・地は変えず、外側の枠と「選択中」の札で分ける */
   :root .order.sel{ outline:3px solid var(--sel); outline-offset:2px }
@@ -1141,6 +1144,36 @@
     return { fromItem, all: [...new Set([...fromItem, ...kotei])] };
   }
   function itemTags(o) { return itemTagInfo(o).all; }
+  /* ---------- 止まっている受注（2026-11-08） ---------- */
+  // まだ仕上がっていない受注のうち、次のどれかに当たるもの（忘れられている・遅れそうな受注を見つける）。
+  // ・納期を過ぎている
+  // ・納期まで STALL_NEAR 日以内で、最後の動きから STALL_IDLE 営業日以上 何も記録されていない（動きが分からないものも含める）
+  // ・納期に関係なく、最後の動きから STALL_LONG 営業日以上 何も記録されていない
+  // 最後の動きは latestChanges（工程の記録・数量／納期の変更・工程表の印刷のうち一番新しいもの）。営業日は土日と ROSEN_HOLIDAYS を除く
+  const STALL_IDLE = 3, STALL_NEAR = 7, STALL_LONG = 10;
+  function workdaysSince(t) {
+    const d = new Date(new Date(t + 9 * 3600000).toISOString().slice(0, 10) + 'T00:00:00Z');
+    const end = todayJST();
+    let n = 0;
+    for (d.setUTCDate(d.getUTCDate() + 1); d.toISOString().slice(0, 10) <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6 && !ROSEN_HOLIDAYS.has(d.toISOString().slice(5, 10))) n++;
+    }
+    return n;
+  }
+  function stalledInfo(o) {
+    if (o.closed || o.archived || o.group === '最終' || o.done?.finish || !o.ndate) return null;
+    if (SHIPPED_OUT.has(o.progOut) || o.progOut === '受領伝票発行可能') return null;
+    const due = daysFromToday(o.ndate);
+    const lc = latestChanges(o);
+    const idle = lc ? workdaysSince(lc.t) : null;
+    const stalled = due < 0 || (due <= STALL_NEAR && (idle == null || idle >= STALL_IDLE)) || (idle != null && idle >= STALL_LONG);
+    if (!stalled) return null;
+    const todo = todoRooms(o);
+    const text = due < 0 ? `納期を${-due}日過ぎ` : due === 0 ? '納期は今日' : `納期まで${due}日`;
+    const sub = (idle == null ? '動きの記録なし' : idle === 0 ? '今日動きあり' : `${idle}営業日 動きなし`) + (todo.length ? ` ・次 ${todo[0]}` : '');
+    const title = (lc ? `最後の動き ${fmtChange(lc.t)}` : '工程の記録・工程表の印刷がありません') + (todo.length ? `／残りの工程: ${todo.join(' → ')}` : '');
+    return { due, idle, text, sub, title };
+  }
   function todoRooms(o) {
     if (o.closed || o.group === '最終' || o.done.finish) return [];
     return itemTags(o).filter(tag => !tagDone(o, tag)).map(tag => S.rooms.find(r => r.tag === tag)?.name || tag);
@@ -1574,7 +1607,9 @@
     const v = S.views.find(x => x.key === S.view);
     $('listHeadName').textContent = `作業リスト（${v ? v.label : ''}）`;
     const n = S.orders.length, c = S.counts || {};
+    // 止まっている受注は、読んだ受注のうち当てはまった件数を出す（2026-11-08）
     $('listHeadCnt').textContent = !n ? '0件'
+      : v?.stalled ? `${S.shown ?? 0}件（未完了${n}件中）`
       : (S.filter !== 'all' || S.cust != null) ? `表示${S.shown ?? n}件／全${n}件`
       : [`${n}件`, c.ready && `着手可${c.ready}`, c.done && `済${c.done}`].filter(Boolean).join('・');
     showFresh();
@@ -1740,6 +1775,7 @@
   // 待ちは理由（waitReason）が言えるものだけにし、どれにも当たらなければ「状態未確認」。
   // 自分の工程の決まりが無いリスト・閉じた受注は状態を出さない
   function rowState(o, v) {
+    if (v?.stalled) { const si = stalledInfo(o); return si ? { kind: 'stalled', si } : { kind: 'off' }; }
     if (!hasMine(v)) return { kind: '' };
     const md = mineDone(o, v); if (md) return { kind: 'done', md };
     if (o.closed) return { kind: '' };
@@ -1798,6 +1834,10 @@
       b.classList.add('wait'); b.append('◷ ' + st.text);
       if (st.sub) { sm.textContent = st.sub; b.append(sm); }
       if (st.title) b.title = st.title;
+    } else if (st.kind === 'stalled') {
+      b.classList.add(st.si.due < 0 ? 'late' : 'wait'); b.append('⏸ ' + st.si.text);
+      sm.textContent = st.si.sub; b.append(sm);
+      b.title = st.si.title;
     } else if (st.kind === 'unknown') {
       b.classList.add('note'); b.append('状態未確認');
       b.title = '着手できるか・何を待っているかを判断できる記録がありません';
@@ -1819,9 +1859,11 @@
     // 並びは 緑枠（着手可）→ 無印（待ち・未確認など）→ 青枠（済）。同じ枠の中は納品日順（空は最後）（2026-10-26）
     const band = (o) => ({ ready: 0, done: 2 })[states.get(o.id).kind] ?? 1;
     // keepOrder のリスト（Recent 1day）はビューの並び（最終更新の新しい順）のまま（2026-10-29）
-    const shown = (S.filter === 'all' ? base : base.filter(o => states.get(o.id).kind === S.filter)).slice();
+    const shown = (S.filter === 'all' ? base : base.filter(o => states.get(o.id).kind === S.filter)).filter(o => states.get(o.id).kind !== 'off');
     // 全件のアーカイブ済（2026-11-05）は一番後ろに、納期の新しい順
-    if (!v?.keepOrder) shown.sort((a, b) => (!!a.archived - !!b.archived) || (band(a) - band(b))
+    // 止まっている受注は 納期の近い順（過ぎたものが先）、同じなら動きの無い日数の長い順（2026-11-08）
+    if (v?.stalled) shown.sort((a, b) => (states.get(a.id).si.due - states.get(b.id).si.due) || ((states.get(b.id).si.idle ?? 99) - (states.get(a.id).si.idle ?? 99)));
+    else if (!v?.keepOrder) shown.sort((a, b) => (!!a.archived - !!b.archived) || (band(a) - band(b))
       || (a.archived ? String(b.ndate || '').localeCompare(String(a.ndate || '')) : String(a.ndate || '9999').localeCompare(String(b.ndate || '9999'))));
     S.counts = counts; S.shown = shown.length;
     for (const o of shown) {
@@ -1833,6 +1875,7 @@
       if (st.kind === 'done') el.classList.add('mine');
       if (st.kind === 'ready') el.classList.add('ready');
       if (st.kind === 'wait') el.classList.add('wait');
+      if (st.kind === 'stalled') el.classList.add(st.si.due < 0 ? 'stall-late' : 'wait');
       const mt = document.createElement('div'); mt.className = 'meta';
       mt.textContent = `${o.book} / ${o.wc}`; // 進行は下の流れに出す
       if (o.deli) { const d = document.createElement('span'); d.className = 'deli'; d.textContent = '納品先 ' + o.deli; mt.append(d); }
@@ -1864,6 +1907,10 @@
     if (!S.listAt && !n) return;
     S.listMsgErr = false;
     if (!n) say($('listMsg'), 'このリストに作業はありません');
+    else if ((S.views || []).find(x => x.key === S.view)?.stalled) {
+      say($('listMsg'), shown ? `止まっている受注 ${shown}件（未完了${n}件中）。納期の近い順。札の「動きなし」は最後の工程の記録・数量／納期の変更・工程表の印刷からの営業日`
+        : `止まっている受注はありません（未完了${n}件を確認しました）`);
+    }
     else if (fl && !shown) say($('listMsg'), `${fl}に当たる受注はありません（全${n}件）`);
     else if (fl) say($('listMsg'), `${fl}で絞り込み中: 表示${shown}件／全${n}件`);
     else say($('listMsg'), `${n}件`);

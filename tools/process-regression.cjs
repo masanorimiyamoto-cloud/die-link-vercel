@@ -995,6 +995,39 @@ test('QR1 QRを読んだら fromQr で探す。右下の QR ボタンは作業�
   assert.ok(extract('search').includes('qrPick(open)'));
 });
 
+// ---- ST1 止まっている受注（2026-11-08） ----
+test('ST1 納期過ぎ／納期7日以内で3営業日動きなし（記録なしも）／10営業日動きなし を止まっているとする。営業日は土日・祝日を除く', () => {
+  const at = (d) => Date.parse(`${d}T10:00:00+09:00`);
+  const env = { todayJST: () => '2026-11-09', fmtChange: () => 'x', todoRooms: (o) => o.todo || [],
+    latestChanges: (o) => (o.last ? { t: at(o.last), keys: new Set() } : null) };
+  vm.createContext(env);
+  vm.runInContext([
+    line(/^  const ROSEN_HOLIDAYS = .*$/m), line(/^  const SHIPPED_OUT = .*$/m), line(/^  const STALL_IDLE = .*$/m),
+    extract('daysFromToday'), extract('workdaysSince'), extract('stalledInfo'),
+    'globalThis.stalledInfo = stalledInfo; globalThis.workdaysSince = workdaysSince;',
+  ].join('\n'), env);
+  const o = (x) => ({ done: {}, group: '', progOut: '', ...x });
+  // 11/3 は祝日: 11/2(月)からの営業日は 11/4・5・6・9 の4日
+  assert.equal(env.workdaysSince(at('2026-11-02')), 4);
+  assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', last: '2026-11-08' })).text, '納期を3日過ぎ');
+  const near = env.stalledInfo(o({ ndate: '2026-11-12', last: '2026-11-03', todo: ['機械貼'] }));
+  assert.ok(near && near.idle === 4 && near.sub.includes('次 機械貼'), '納期3日前で4営業日動きなし');
+  assert.equal(env.stalledInfo(o({ ndate: '2026-11-12', last: '2026-11-06' })), null, '1営業日前に動きがあれば止まっていない');
+  assert.ok(env.stalledInfo(o({ ndate: '2026-11-12' })), '納期が近くて動きの記録が無いものも出す');
+  assert.ok(env.stalledInfo(o({ ndate: '2026-12-20', last: '2026-10-20' })), '納期が先でも10営業日以上動きなしは出す');
+  assert.equal(env.stalledInfo(o({ ndate: '2026-12-20', last: '2026-11-02' })), null, '納期が先で4営業日なら出さない');
+  assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', group: '最終' })), null, '仕上がり済は出さない');
+  assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', progOut: '受領伝票発行可能' })), null, '伝票に進んだものは出さない');
+  assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', closed: true })), null);
+});
+test('ST1 サーバー: 止まっている のリストは仕上がり・伝票に進んだ受注とアーカイブ済を読まない', async () => {
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+  const v = mod.VIEWS.stalled;
+  assert.ok(v && v.stalled && mod.publicViews().find(x => x.key === 'stalled').stalled);
+  const f = v.sources[0].formula;
+  for (const w of ['NOT({アーカイブ済})', "{進行社内グループ}!='最終'", "'受領伝票発行可能'", "'伝票出力済'", "'完納済'"]) assert.ok(f.includes(w), w);
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

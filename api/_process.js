@@ -139,6 +139,10 @@ export const VIEWS = {
   // 路線便（品名に #路線、または Room に 路線便 2026-11-06〜）で、まだ出荷していない受注。集荷は納期（着日）の前日。画面が各行に集荷日を出す（2026-11-04）
   rosen:   { label: '路線 集荷',    sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [],
     formula: "AND(NOT({アーカイブ済}), OR(FIND('#路線', {ItemName}&''), FIND('路線便', {Room}&'')), NOT(OR({進行社外}='伝票出力済', {進行社外}='完納済', {進行社外}='完納（数量訂正）')))" }] },
+  // 止まっている受注（2026-11-08）。まだ仕上がっていない・伝票に進んでいない受注を読み、どれが止まっているかは画面が決める
+  // （最後の動き＝工程の記録・数量／納期の変更・工程表の印刷 と 納期から。決まりは process.html の stalledInfo）
+  stalled: { label: '止まっている', stalled: true, sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [],
+    formula: "AND(NOT({アーカイブ済}), NOT({Ndate}=BLANK()), {進行社内グループ}!='最終', NOT(OR({進行社外}='受領伝票発行可能', {進行社外}='伝票出力済', {進行社外}='完納済', {進行社外}='完納（数量訂正）', {進行社外}='伝票取消', {進行社外}='一旦キャンセルです')))" }] },
 };
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
@@ -372,7 +376,7 @@ async function viewImages(body) {
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [], readyOut: v.readyOut || [], keepOrder: !!v.keepOrder }));
+  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [], readyOut: v.readyOut || [], keepOrder: !!v.keepOrder, stalled: !!v.stalled }));
 }
 
 async function orders(body) {

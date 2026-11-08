@@ -95,7 +95,7 @@ async function handle(body) {
   if (a === 'view') {
     const fail = ctl.failView > 0; if (fail) ctl.failView--;
     const key = body.view || 'cad';
-    const rows = DB.filter(o => key === 'all' || o.views.includes(key)).map(pub).map(o => ({ ...o, images: [] }));
+    const rows = DB.filter(o => key === 'all' || key === 'stalled' || o.views.includes(key)).map(pub).map(o => ({ ...o, images: [] }));
     if (ctl.delayView) await new Promise(r => setTimeout(r, ctl.delayView)); // 待たせても内容は要求を受けた時点のもの
     if (fail) return { status: 502, body: { ok: false, error: 'mock 502' } };
     return { body: { ok: true, view: key, views, steps, rooms: ROOMS, rows, cachedAt: Date.now() } };
