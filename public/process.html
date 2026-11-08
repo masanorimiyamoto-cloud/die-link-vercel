@@ -1149,6 +1149,7 @@
   // ・納期を過ぎている
   // ・納期まで STALL_NEAR 日以内で、最後の動きから STALL_IDLE 営業日以上 何も記録されていない（動きが分からないものも含める）
   // ・納期に関係なく、最後の動きから STALL_LONG 営業日以上 何も記録されていない
+  // 工程表の無い Yo の受注は出さない
   // 最後の動きは latestChanges（工程の記録・数量／納期の変更・工程表の印刷のうち一番新しいもの）。営業日は土日と ROSEN_HOLIDAYS を除く
   const STALL_IDLE = 3, STALL_NEAR = 7, STALL_LONG = 10;
   function workdaysSince(t) {
@@ -1163,6 +1164,8 @@
   function stalledInfo(o) {
     if (o.closed || o.archived || o.group === '最終' || o.done?.finish || !o.ndate) return null;
     if (SHIPPED_OUT.has(o.progOut) || o.progOut === '受領伝票発行可能') return null;
+    // Yo は工程表を出さずに作る受注が多く、毎回「動きの記録なし」で並んでしまうので、工程表の無い Yo は出さない（2026-11-08 ユーザー指定）
+    if (o.book === 'Yo' && !o.printedAt) return null;
     const due = daysFromToday(o.ndate);
     const lc = latestChanges(o);
     const idle = lc ? workdaysSince(lc.t) : null;

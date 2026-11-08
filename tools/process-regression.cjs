@@ -1019,6 +1019,8 @@ test('ST1 納期過ぎ／納期7日以内で3営業日動きなし（記録な�
   assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', group: '最終' })), null, '仕上がり済は出さない');
   assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', progOut: '受領伝票発行可能' })), null, '伝票に進んだものは出さない');
   assert.equal(env.stalledInfo(o({ ndate: '2026-11-06', closed: true })), null);
+  assert.equal(env.stalledInfo(o({ book: 'Yo', ndate: '2026-11-09' })), null, '工程表の無い Yo は出さない');
+  assert.ok(env.stalledInfo(o({ book: 'Yo', ndate: '2026-11-09', printedAt: '2026-11-02 10:00', last: '2026-11-02' })), '工程表のある Yo は出す');
 });
 test('ST1 サーバー: 止まっている のリストは仕上がり・伝票に進んだ受注とアーカイブ済を読まない', async () => {
   const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
