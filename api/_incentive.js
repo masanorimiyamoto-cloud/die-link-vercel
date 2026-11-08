@@ -120,3 +120,58 @@ export async function runIncentive({ full = false } = {}) {
   return { from, logs: logs.length, rows: want.length, written: upserts.length, zeroed: zeros.length,
     total: want.reduce((s, c) => s + c.count, 0) };
 }
+
+// ---- 本人の実績（2026-11-08）----
+// 工程画面・照合画面のログイン帯に「今日 ○件・今月 ○件」を出す（今は本人が自分の件数を知る方法が無いため）。数え方は countDaily と同じ。
+// 今日と昨日は作業ログから数える（毎晩の集計は 23:50 なので、今日と昨日の最後の分はまだ日別の表に無い）。
+// 一昨日以前（今月の1日から）は TableIncentiveDaily から読む。
+// API の回数を抑えるため、作業ログの集計は全員分をまとめて2分使い回し、日別の表は本人・日付ごとにその日の間使い回す。
+// fresh（本人が記録した直後）は、集計が20秒より古ければ読み直す
+const LIVE_CACHE_MS = 2 * 60 * 1000;
+const LIVE_FRESH_MS = 20 * 1000;
+let liveCache = null;           // { at, today, counts }
+const pastCache = new Map();    // `${社員番号}|${今日}` → [{ date, step, count }]
+
+// live（countDaily の結果）と past（日別の表の行）から本人の 今日・昨日・今月 をまとめる（純粋な計算）
+export function summarizeMine(no, live, past, today, yesterday) {
+  const monthFrom = today.slice(0, 8) + '01';
+  const rows = [
+    ...past.filter(r => r.date >= monthFrom && r.date < yesterday),
+    ...[...live.values()].filter(c => c.no === no && (c.date === today || c.date === yesterday)),
+  ].filter(r => r.count > 0);
+  const sum = (list) => {
+    const by = new Map();
+    for (const r of list) by.set(r.step, (by.get(r.step) || 0) + r.count);
+    const steps = [...by].map(([step, count]) => ({ step, count })).sort((a, b) => b.count - a.count || a.step.localeCompare(b.step));
+    return { total: steps.reduce((s, x) => s + x.count, 0), steps };
+  };
+  return {
+    today: { date: today, ...sum(rows.filter(r => r.date === today)) },
+    yesterday: { date: yesterday, total: sum(rows.filter(r => r.date === yesterday)).total },
+    month: { from: monthFrom, ...sum(rows.filter(r => r.date >= monthFrom)) },
+  };
+}
+
+export async function myStats(no, { fresh = false } = {}) {
+  const today = daysAgoJST(0), yesterday = daysAgoJST(1);
+  const age = liveCache && liveCache.today === today ? Date.now() - liveCache.at : Infinity;
+  if (age > (fresh ? LIVE_FRESH_MS : LIVE_CACHE_MS)) {
+    // 昨日の日本時間 0:00 から（取り消しの相手を見るため、昨日の分も読む）
+    const since = new Date(Date.parse(`${yesterday}T00:00:00+09:00`) - 1000).toISOString();
+    const logs = await readAll(WORKLOG,
+      `AND(IS_AFTER({${WL.at}}, '${since}'), OR({${WL.credit}}, ${CANCEL_ACTIONS.map(a => `{${WL.action}}='${a}'`).join(', ')}))`,
+      Object.values(WL));
+    liveCache = { at: Date.now(), today, counts: countDaily(logs) };
+  }
+  const pk = `${no}|${today}`;
+  let past = pastCache.get(pk);
+  if (!past) {
+    const monthFrom = today.slice(0, 8) + '01';
+    past = monthFrom >= yesterday ? [] : (await readAll(DAILY,
+      `AND({${D.no}}=${no}, NOT(IS_BEFORE({${D.date}}, '${monthFrom}')), IS_BEFORE({${D.date}}, '${yesterday}'), {${D.count}}>0)`,
+      [D.date, D.step, D.count])).map(r => ({ date: String(r.fields?.[D.date] || ''), step: String(r.fields?.[D.step] || ''), count: Number(r.fields?.[D.count] || 0) }));
+    if (pastCache.size > 300) pastCache.clear();
+    pastCache.set(pk, past);
+  }
+  return summarizeMine(no, liveCache.counts, past, today, yesterday);
+}

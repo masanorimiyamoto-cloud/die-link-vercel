@@ -16,7 +16,7 @@ import {
   isLocalReq, checkCsrf, findStaffByNo, listStaff, updateStaff, getStaffById,
   getSessionUser, forgetStaffCache, writeWorkLog,
 } from './_auth.js';
-import { runIncentive } from './_incentive.js';
+import { runIncentive, myStats } from './_incentive.js';
 
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
@@ -32,6 +32,7 @@ export async function handleAuth(req) {
     if (req.method === 'GET' && action === 'me') return await me(req, dev);
     if (req.method === 'GET' && action === 'staff') return await staffList(req);
     if (req.method === 'GET' && action === 'incentive') return await incentive(req);
+    if (req.method === 'GET' && action === 'mystats') return await mine(req);
     if (req.method !== 'POST') return json({ ok: false, error: 'Method Not Allowed' }, 405);
     if (!checkCsrf(req)) return json({ ok: false, error: 'CSRF invalid' }, 403);
     if (action === 'login') return await login(req, dev);
@@ -114,6 +115,17 @@ async function incentive(req) {
   const full = new URL(req.url).searchParams.get('full') === '1';
   const r = await runIncentive({ full });
   return json({ ok: true, ...r });
+}
+
+// 本人の実績（今日・昨日・今月の件数と工程ごとの内訳）。ログイン帯の「今日 ○件・今月 ○件」に出す（2026-11-08）。
+// 見られるのは自分の分だけ。&fresh=1 は記録した直後（集計が20秒より古ければ読み直す）
+async function mine(req) {
+  const s = await getSessionUser(req);
+  if (!s) return json({ ok: false, error: 'ログインしてください', needLogin: true }, 401);
+  const no = Number(s.user.no);
+  if (!Number.isFinite(no)) return json({ ok: true, none: true });
+  const fresh = new URL(req.url).searchParams.get('fresh') === '1';
+  return json({ ok: true, ...(await myStats(no, { fresh })) });
 }
 
 async function requireAdmin(req) {

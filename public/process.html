@@ -234,6 +234,11 @@
   @keyframes flash{ 0%,30%{ box-shadow:0 0 0 3px #fde68a, 0 0 16px rgba(253,230,138,.5) } 100%{ box-shadow:0 0 0 0 transparent } }
   /* 白／黒の切替ボタン（右上、名前の左） */
   .barr{ display:flex; align-items:center; gap:10px }
+  /* 名前の横の「今日 ○件・今月 ○件」（2026-11-08）。スマホで入りきらなければ次の行に回し、横にはみ出させない */
+  .bar > a{ white-space:nowrap; flex-shrink:0 }
+  .barr{ flex-wrap:wrap; justify-content:flex-end; min-width:0 }
+  #who{ display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:4px 6px }
+  #who .dl-stats summary{ font-size:13px; color:var(--txt) }
   .themebtn{ padding:5px 11px; font-size:13px; font-weight:500; border-radius:999px; background:var(--surf2); color:var(--mut); border:1px solid var(--line2) }
 
   /* ---------- 白モード（Airtable と同じ白い背景）。黒モードで決め打ちの色を、白の上で読める濃さに置き換える ---------- */
@@ -639,6 +644,8 @@
   const me = await DLAuth.requireLogin();
   if (!me) return;
   $('who').innerHTML = ''; const b = document.createElement('b'); b.textContent = me.name; $('who').append(b, ' さん');
+  // 自分の実績「今日 ○件・今月 ○件」（2026-11-08）。押すと工程ごとの内訳。完了・取消・材料の報告を保存できたら数え直す
+  const myStats = DLAuth.statsChip(); $('who').append(' ', myStats);
 
   // filter: 状態の絞り込み（all / ready / wait / done）。listAt: 一覧を反映した時刻（サーバーが Airtable を読んだ時刻）。listFail: 最後の読み込みが失敗
   const S = { orders: [], steps: [], views: [], rooms: [], view: '', mode: 'list', sel: null, pendingStep: null,
@@ -688,9 +695,15 @@
   const outcomeUnknown = (j, need) => !!j.unknown || (j.ok && !need(j));
   // 書き込み中（記録・取消・数量・納期・Room）。この間は一覧を自動で読み直さない
   let writing = 0;
+  // 実績の件数が変わる書き込み（完了・取消・材料の入荷報告）。保存できたらログイン帯の件数を数え直す（2026-11-08）
+  const CREDIT_ACTIONS = new Set(['complete', 'cancel', 'stock']);
   async function write(body) {
     writing++;
-    try { return await api(body); } finally { writing--; }
+    try {
+      const j = await api(body);
+      if (j.ok && CREDIT_ACTIONS.has(body.action)) myStats.refresh(true);
+      return j;
+    } finally { writing--; }
   }
   // 書き込みの操作（記録・取消・材料・Room・数量・納期・紙入荷日・新規受注・削除）の開始から、画面へ反映するまで（2026-11-03）。
   // writing は自動の読み直しを止めるための数で、二重の送信は止めない。その間は別の書き込みを重ねず、受注・画面の切り替えも止める。

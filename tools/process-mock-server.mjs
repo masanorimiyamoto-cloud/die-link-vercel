@@ -158,6 +158,15 @@ http.createServer(async (req, res) => {
   let raw = ''; for await (const c of req) raw += c;
   if (u.pathname === '/api/session') {
     if (u.searchParams.get('action') === 'me') return send(res, 200, { ok: true, user: { name: USER, id: 'mock' } });
+    // 本人の実績（2026-11-08）。見本の件数に、この画面で記録した完了の数を足す
+    if (u.searchParams.get('action') === 'mystats') {
+      if (ctl.noStats) return send(res, 200, { ok: true, none: true });
+      const d = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+      const done = ctl.log.filter(x => x.action === 'complete').length;
+      const today = [{ step: 'オートン抜き完了', count: 3 + done }, { step: '抜型仕舞い', count: 2 }];
+      return send(res, 200, { ok: true, today: { date: d, total: 5 + done, steps: today }, yesterday: { date: d, total: 7 },
+        month: { from: d.slice(0, 8) + '01', total: 41 + done, steps: [{ step: 'オートン抜き完了', count: 28 + done }, { step: '抜型仕舞い', count: 9 }, { step: '抜型照合', count: 4 }] } });
+    }
     return send(res, 200, { ok: true }, { 'set-cookie': 'xcsrf=MOCK; Path=/' });
   }
   if (u.pathname === '/api/airtable-update-progress' && req.method === 'POST') {

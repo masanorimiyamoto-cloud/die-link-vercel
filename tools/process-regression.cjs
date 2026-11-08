@@ -924,6 +924,56 @@ test('WC1 同じ品番はアーカイブ済も含めて新しい順に上限ま�
   assert.ok(extract('reloadFind').includes('archived: !!S.findArch'), '読み直しでも同じ条件');
 });
 
+// ---- MS1 本人の実績（今日・昨日・今月）2026-11-08（偽の Airtable。本物には繋がない） ----
+test('MS1 本人の分だけ数える。取り消した完了は数えず、別の人のやり直しはその人に付く。一昨日以前は日別の表、今日・昨日は作業ログ', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_incentive.js')).href);
+  const jst = (n) => new Date(Date.now() + 9 * 3600 * 1000 - n * 86400000).toISOString().slice(0, 10);
+  const today = jst(0), yesterday = jst(1);
+  const at = (d, hm) => new Date(Date.parse(`${d}T${hm}:00+09:00`)).toISOString();
+  const WL = { at: 'fldal1FMiPlRVn9BF', no: 'fldmjyRUDyPPaFFnb', name: 'fldEBJAH0707h1ity', action: 'fldHbWQ5VemkIPMmS',
+    step: 'flds9HiDR5e1eiFGf', orderId: 'fldOfsIbZmKNfeik8', credit: 'fldIHadyI8FqyEqQ5' };
+  const log = (id, d, hm, no, action, step, order, credit) => ({ id, fields: { [WL.at]: at(d, hm), [WL.no]: no, [WL.name]: 'n' + no,
+    [WL.action]: action, [WL.step]: step, [WL.orderId]: order, ...(credit ? { [WL.credit]: true } : {}) } });
+  const logs = [
+    log('l1', today, '09:00', 1001, '工程完了', 'オートン抜き完了', 'recA', true),
+    log('l2', today, '09:05', 1001, '工程完了', 'オートン抜き完了', 'recB', true),
+    log('l3', today, '09:06', 1001, '工程取消', 'オートン抜き完了', 'recB'),          // 押し間違い → 数えない
+    log('l4', today, '10:00', 1001, '工程完了', '手貼り完了', 'recC', true),
+    log('l5', today, '10:10', 1001, '工程取消', '手貼り完了', 'recC'),
+    log('l6', today, '10:20', 1002, '工程完了', '手貼り完了', 'recC', true),         // 別の人がやり直し → その人に付く
+    log('l7', today, '11:00', 1001, '抜型照合', '抜型照合', 'recD', true),
+    log('l8', yesterday, '16:00', 1001, '状況報告', 'シート材料入荷済', 'recE', true),
+  ];
+  const D = { date: 'fld9QfTWCVyARS1KA', step: 'fldcYOdk3kKZ4E56t', count: 'fldqLboYbHkmWrVqN' };
+  const monthFrom = today.slice(0, 8) + '01';
+  const daily = monthFrom < yesterday ? [{ id: 'd1', fields: { [D.date]: monthFrom, [D.step]: 'オートン抜き完了', [D.count]: 5 } }] : [];
+  const calls = []; const prevFetch = global.fetch;
+  global.fetch = async (url) => {
+    const u = new URL(String(url)); calls.push(u);
+    const recs = u.pathname.includes('tblQFZ7QEuRaBW4oj') ? logs : u.pathname.includes('tblaO7MWgAW0VvCwU') ? daily : [];
+    return new Response(JSON.stringify({ records: recs }), { status: 200 });
+  };
+  try {
+    const r = await mod.myStats(1001);
+    assert.equal(r.today.total, 2, '今日はオートン1・抜型照合1');
+    assert.deepEqual(r.today.steps.map(x => x.step).sort(), ['オートン抜き完了', '抜型照合'].sort());
+    assert.equal(r.yesterday.total, 1);
+    assert.equal(r.month.total, 3 + (daily.length ? 5 : 0) - (yesterday < monthFrom ? 1 : 0));
+    const dq = calls.find(u => u.pathname.includes('tblaO7MWgAW0VvCwU'));
+    if (daily.length) assert.match(dq.searchParams.get('filterByFormula'), /\{fldZOZLQTiElEHx7D\}=1001/, '日別の表は本人の行だけ読む');
+    const n = calls.length;
+    await mod.myStats(1001);
+    assert.equal(calls.length, n, '2分以内・同じ日なら読み直さない');
+    const r2 = await mod.myStats(1002);
+    assert.equal(r2.today.total, 1, 'やり直した人に1件');
+  } finally { global.fetch = prevFetch; }
+});
+test('MS1 画面: 完了・取消・材料の報告を保存できたらログイン帯の件数を数え直す', () => {
+  assert.ok(/CREDIT_ACTIONS = new Set\(\['complete', 'cancel', 'stock'\]\)/.test(source));
+  assert.ok(extract('write').includes('myStats.refresh(true)'));
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {
