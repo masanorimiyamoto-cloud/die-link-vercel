@@ -3,7 +3,8 @@
     "allow": [
       "Bash(node -e ' *)",
       "Bash(where node.exe)",
-      "Bash(command -v npx)"
+      "Bash(command -v npx)",
+      "mcp__claude_ai_Airtable__update_automation"
     ]
   }
 }
