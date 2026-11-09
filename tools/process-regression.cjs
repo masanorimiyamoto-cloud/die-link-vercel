@@ -931,13 +931,14 @@ test('WC1 同じ品番はアーカイブ済も含めて新しい順に上限ま�
     const who = { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } };
     let j = await (await mod.handleProcess('orders', { book: 'Ta', wc: '3848', archived: true }, who)).json();
     assert.equal(j.ok, true, JSON.stringify(j).slice(0, 200));
-    let u = calls.filter(c => !c.pathname.includes('/meta/')).pop();
+    const orderCalls = () => calls.filter(c => !c.pathname.includes('/meta/') && !c.pathname.includes('tblPbnYc3tIr9VYJ6')); // 推定所要時間の読み取りは除く
+    let u = orderCalls().pop();
     assert.equal(u.searchParams.get('filterByFormula'), "AND({Book}='Ta',{WorkCord}=3848)");
     assert.equal(u.searchParams.get('sort[0][direction]'), 'desc');
     assert.ok(Number(u.searchParams.get('maxRecords')) > 1);
     assert.deepEqual(j.orders.map(o => [o.id, !!o.archived, !!o.closed]), [['recOPEN000000001', false, false], ['recOLD0000000001', true, true]]);
     j = await (await mod.handleProcess('orders', { book: 'Ta', wc: '3848' }, who)).json();
-    u = calls.filter(c => !c.pathname.includes('/meta/')).pop();
+    u = orderCalls().pop();
     assert.match(u.searchParams.get('filterByFormula'), /\{アーカイブ済\}!=TRUE\(\)/);
   } finally { global.fetch = prevFetch; }
   const ui = extract('renderSameWc');
@@ -1049,6 +1050,66 @@ test('ST1 サーバー: 止まっている のリストは仕上がり・伝票�
   assert.ok(v && v.stalled && mod.publicViews().find(x => x.key === 'stalled').stalled);
   const f = v.sources[0].formula;
   for (const w of ['NOT({アーカイブ済})', "{進行社内グループ}!='最終'", "'受領伝票発行可能'", "'伝票出力済'", "'完納済'"]) assert.ok(f.includes(w), w);
+});
+
+// ---- EST1 推定所要時間 2026-11-09（偽の Airtable。本物には繋がない） ----
+test('EST1 一覧の行に推定（TableWorkTimeEstimate）を Book|WorkCord で付ける。3回以上だけ・アーカイブ済には付けない・読めなくても一覧は返す', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const calls = []; const prevFetch = global.fetch; let estFail = false;
+  const rec = (id, f) => ({ id, fields: { NAmount: 100, ItemName: '箱', Ndate: '2026-12-01', '進行社外': '在庫シート利用', ...f } });
+  const active = [rec('recESTHIT00000001', { Book: 'Ta', WorkCord: 336 }), rec('recESTNONE0000001', { Book: 'Ko', WorkCord: 99999 }),
+    rec('recESTBAD00000001', { Book: 'Zz', WorkCord: 1 })];
+  const archived = [rec('recESTARCH0000001', { Book: 'Ta', WorkCord: 336, Ndate: '2025-01-01' })];
+  const est = [{ id: 'recE1', fields: { 'キー': 'Ta|336', '1個あたり分': 13.85, '1個あたり分_下': 10.7, '1個あたり分_上': 14.882, '回数': 125, '人数_中央値': 1 } },
+    { id: 'recE2', fields: { 'キー': 'Ko|1', '1個あたり分': 1, '回数': 9 } }]; // 頼んでいないキーは使わない
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const m = init.method || 'GET'; calls.push({ m, u });
+    if (u.pathname.includes('/meta/')) return new Response(JSON.stringify({ tables: [] }), { status: 200 });
+    if (u.pathname.includes('tblPbnYc3tIr9VYJ6')) return estFail ? new Response('{}', { status: 403 }) : new Response(JSON.stringify({ records: est }), { status: 200 });
+    if (m !== 'GET') return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    const fm = u.searchParams.get('filterByFormula') || '';
+    return new Response(JSON.stringify({ records: fm === '{アーカイブ済}' ? archived : fm === 'NOT({アーカイブ済})' ? active : [] }), { status: 200 });
+  };
+  try {
+    const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+    const who = { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } };
+    const j = await (await mod.handleProcess('view', { view: 'all', refresh: true, lite: true }, who)).json();
+    assert.equal(j.ok, true, JSON.stringify(j).slice(0, 200));
+    const by = Object.fromEntries(j.rows.map(r => [r.id, r.est]));
+    assert.deepEqual(by.recESTHIT00000001, { pp: 13.85, lo: 10.7, hi: 14.882, n: 125, people: 1 });
+    assert.equal(by.recESTNONE0000001, undefined); assert.equal(by.recESTBAD00000001, undefined);
+    assert.equal(by.recESTARCH0000001, undefined, 'アーカイブ済には付けない');
+    const q = calls.filter(c => c.u.pathname.includes('tblPbnYc3tIr9VYJ6'));
+    assert.equal(q.length, 1, '1回の読み取りでまとめて引く');
+    const fm = q[0].u.searchParams.get('filterByFormula');
+    assert.ok(fm.startsWith(`AND({回数}>=${mod.EST_MIN_JOBS},OR(`) && fm.includes("{キー}='Ta|336'") && fm.includes("{キー}='Ko|99999'") && !fm.includes('Zz'), fm);
+    // 2回目は使い回す（表は毎晩しか変わらない）
+    await (await mod.handleProcess('view', { view: 'all', refresh: true, lite: true }, who)).json();
+    assert.equal(calls.filter(c => c.u.pathname.includes('tblPbnYc3tIr9VYJ6')).length, 1);
+    // 推定の表が読めなくても一覧は返す（別の品番で試す）
+    estFail = true; active.push(rec('recESTFAIL0000001', { Book: 'Yo', WorkCord: 5 }));
+    const j2 = await (await mod.handleProcess('view', { view: 'all', refresh: true, lite: true }, who)).json();
+    assert.equal(j2.ok, true); assert.equal(j2.rows.find(r => r.id === 'recESTFAIL0000001').est, undefined);
+    assert.ok(j2.rows.find(r => r.id === 'recESTHIT00000001').est, '使い回し中の推定はそのまま');
+  } finally { global.fetch = prevFetch; }
+});
+test('EST1 画面: 数量×1個あたり分で延べ時間と幅・回数を出す。閉じた受注・数量なし・推定なしは出さない', () => {
+  const made = [];
+  const mk = (tag) => { const el = { tag, className: '', textContent: '', title: '', kids: [], append(...xs) { this.kids.push(...xs); } }; made.push(el); return el; };
+  const env = { document: { createElement: mk } };
+  vm.createContext(env);
+  vm.runInContext([extract('fmtMinutes'), extract('estLine'), 'Object.assign(globalThis, { fmtMinutes, estLine });'].join('\n'), env);
+  const text = (el) => el.kids.map(k => typeof k === 'string' ? k : k.textContent).join(' ');
+  assert.equal(env.fmtMinutes(4.2), '4分'); assert.equal(env.fmtMinutes(43), '45分'); assert.equal(env.fmtMinutes(92), '1時間30分');
+  assert.equal(env.fmtMinutes(120), '2時間'); assert.equal(env.fmtMinutes(700), '11.5時間');
+  const e = { pp: 1.5, lo: 1, hi: 2.2, n: 12, people: 2 };
+  const s = env.estLine({ amount: 60, est: e });
+  assert.equal(text(s), '推定 延べ1時間30分 1時間〜2時間10分・過去12回・2人なら約45分');
+  assert.equal(env.estLine({ amount: 60, est: e, closed: true }), null);
+  assert.equal(env.estLine({ amount: null, est: e }), null);
+  assert.equal(env.estLine({ amount: 60 }), null);
+  assert.equal(text(env.estLine({ amount: 10, est: { pp: 2, lo: 2, hi: 2, n: 3, people: 1 } })), '推定 延べ20分 過去3回', '幅が同じなら幅を出さない・1人なら人数割りを出さない');
+  assert.ok(extract('facts').includes('const es = estLine(o); if (es) f.append(es);'));
 });
 
 (async () => {

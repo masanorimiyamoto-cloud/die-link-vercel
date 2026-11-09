@@ -187,6 +187,10 @@
   /* 路線便の集荷日（納期＝着日の前日）。数量・納期の後ろに1行で出す */
   .facts .rosen{ flex-basis:100%; padding:2px 8px; border:1px dashed currentColor; border-radius:8px; color:var(--txt) }
   .facts .rosen b{ font-size:19px }
+  /* 推定所要時間（2026-11-09）。数量・納期より控えめに、1行を使う */
+  .facts .est{ flex-basis:100% }
+  .facts .est b, #list.compact .facts .est b{ font-size:17px }
+  .facts .est .est-sub{ margin-left:8px; letter-spacing:0 }
   .facts .rosen:not(.late):not(.soon) .when{ background:rgba(148,163,184,.18) }
   /* 抜型状況（Airtable の選択肢の色に寄せる）。未仕舞は注意として目立たせる */
   .pc.die.d-check{ background:rgba(168,85,247,.16); color:#e9d5ff }
@@ -972,7 +976,36 @@
     if (lc && lc.keys.has('ndate')) n.append(chgMark(lc, 'chg'));
     f.append(q, n);
     const rs = rosenLine(o); if (rs) f.append(rs);
+    const es = estLine(o); if (es) f.append(es);
     return f;
+  }
+
+  /* ---------- 推定所要時間（2026-11-09） ---------- */
+  // サーバーが付ける o.est = { pp: 1個あたり分（直近10回の中央値）, lo/hi: 25%・75%点, n: 過去の回数, people: 人数の中央値 }。
+  // 元は事務所の Access（作業記録の分給の行＋納品履歴の数量）。TableWorkTimeEstimate を毎晩作り直している。
+  // 延べ＝作業者全員の分の合計。今回の数量×1個あたり分で出す。過去3回以上の品番だけサーバーが付ける。
+  // 当たり具合は誤差の中央値で約3割なので「推定」「幅」を必ず添える。閉じた受注・数量の無い受注には出さない
+  function fmtMinutes(m) {
+    if (!(m > 0)) return '0分';
+    if (m < 10) return Math.max(1, Math.round(m)) + '分';
+    if (m < 60) return Math.round(m / 5) * 5 + '分';
+    if (m >= 600) return Math.round(m / 30) / 2 + '時間';
+    const r = Math.round(m / 10) * 10, h = Math.floor(r / 60), mm = r % 60;
+    return h + '時間' + (mm ? mm + '分' : '');
+  }
+  function estLine(o) {
+    const e = o.est, amount = Number(o.amount);
+    if (!e || o.closed || !(amount > 0) || !(e.pp > 0)) return null;
+    const total = amount * e.pp;
+    const s = document.createElement('span'); s.className = 'est';
+    const b = document.createElement('b'); b.textContent = '延べ' + fmtMinutes(total);
+    const sub = document.createElement('span'); sub.className = 'est-sub';
+    const lo = fmtMinutes(amount * Math.min(e.lo, e.pp)), hi = fmtMinutes(amount * Math.max(e.hi, e.pp));
+    const p = Math.round(e.people || 1);
+    sub.textContent = (lo !== hi ? `${lo}〜${hi}・` : '') + `過去${e.n}回` + (p >= 2 ? `・${p}人なら約${fmtMinutes(total / p)}` : '');
+    s.append('推定', b, sub);
+    s.title = `過去の作業記録から、1個あたり約${e.pp}分 × 数量${amount.toLocaleString('ja-JP')}。延べ＝かかわった人全員の分の合計。目安です`;
+    return s;
   }
 
   /* ---------- 路線便の集荷日（2026-11-04） ---------- */
@@ -2477,6 +2510,7 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
           if (!j.ok || !j.order) return sayAt(box, j.error || '新規受注を作れませんでした', 'err');
           navigator.vibrate?.([40, 40, 40]);
           const no = j.order;
+          if (o.est && !no.est) no.est = o.est; // 同じ品番なので推定所要時間も同じ（次の読み込みを待たずに出す）
           const text = `新規受注を作りました（${no.book} / ${no.wc}・数量 ${Number(no.amount).toLocaleString('ja-JP')}・納期 ${label}）。Excel には次の取り込みで入ります`;
           // 作った受注は候補の一番上に「今作成」の印で出し、そこまで動かして光らせる（カードは開かない）。
           // 作業リストから作ったときは品番で探すに切り替え、新しい受注と元の受注を並べる（ビューに出るかは条件次第のため）

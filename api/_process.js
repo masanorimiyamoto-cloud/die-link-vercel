@@ -208,6 +208,50 @@ function describe(rec) {
   };
 }
 
+// ---- 推定所要時間（2026-11-09）----
+// TableWorkTimeEstimate（事務所の新PC の work_time_estimate.py が Access の作業記録＋納品履歴から毎晩作り直す）を
+// Book|WorkCord で引き、一覧の行に est を付ける。画面は 今回の数量×1個あたり分 で延べの時間を出す。
+// 過去3回以上の品番だけ（少ないと当てにならない）。作業者名は表に無い。
+// 読めなくても一覧は止めない（est が付かないだけ）。品番ごとに30分使い回す（表は毎晩しか変わらない）
+const EST_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${process.env.WORK_TIME_TABLE_ID || 'tblPbnYc3tIr9VYJ6'}`;
+const EST = { key: 'キー', pp: '1個あたり分', lo: '1個あたり分_下', hi: '1個あたり分_上', n: '回数', people: '人数_中央値' };
+export const EST_MIN_JOBS = 3;
+const EST_CACHE_MS = 30 * 60 * 1000;
+const estCache = new Map(); // 'Ta|336' -> { at, est|null }
+const estKey = (r) => {
+  const book = String(r?.book || '').trim(); const wc = Number(r?.wc);
+  return /^(Ko|Ta|Yo)$/.test(book) && Number.isInteger(wc) && wc > 0 ? `${book}|${wc}` : '';
+};
+async function attachEstimates(rows) {
+  const want = [...new Set(rows.filter(r => !r.archived).map(estKey).filter(Boolean))];
+  const now = Date.now();
+  const miss = want.filter(k => { const c = estCache.get(k); return !c || now - c.at >= EST_CACHE_MS; });
+  const chunks = [];
+  for (let i = 0; i < miss.length; i += 40) chunks.push(miss.slice(i, i + 40));
+  await Promise.all(chunks.map(async (keys) => {
+    try {
+      const url = new URL(EST_API);
+      url.searchParams.set('filterByFormula', `AND({${EST.n}}>=${EST_MIN_JOBS},OR(${keys.map(k => `{${EST.key}}='${k}'`).join(',')}))`);
+      url.searchParams.set('pageSize', '100');
+      for (const f of Object.values(EST)) url.searchParams.append('fields[]', f);
+      const j = await airtable(url);
+      const got = new Map();
+      for (const rec of j.records || []) {
+        const f = rec.fields || {};
+        const pp = Number(f[EST.pp]), n = Number(f[EST.n]);
+        if (!keys.includes(f[EST.key]) || !(pp > 0) || !(n >= EST_MIN_JOBS)) continue;
+        got.set(f[EST.key], { pp, lo: Number(f[EST.lo]) || pp, hi: Number(f[EST.hi]) || pp, n, people: Number(f[EST.people]) || 1 });
+      }
+      for (const k of keys) estCache.set(k, { at: now, est: got.get(k) || null });
+    } catch { /* 読めなければ今回は付けない（次の読み込みでまた試す） */ }
+  }));
+  for (const r of rows) {
+    const c = !r.archived && estCache.get(estKey(r));
+    if (c?.est) r.est = c.est; else delete r.est;
+  }
+  return rows;
+}
+
 async function getRecord(id) {
   if (!/^rec[A-Za-z0-9]{14}$/.test(String(id || ''))) return null;
   try { return await airtable(`${API}/${id}`); } catch { return null; }
@@ -312,7 +356,7 @@ async function view(body, user) {
     }
   }
   let rows = [...byId.values()];
-  await autoSheetWait(rows, user);
+  await Promise.all([autoSheetWait(rows, user), attachEstimates(rows)]);
   // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）。アーカイブ済は後ろに納期の新しい順
   if (v.sources.length > 1) rows.sort((a, b) => (!!a.archived - !!b.archived)
     || (a.archived ? String(b.ndate || '').localeCompare(String(a.ndate || ''))
@@ -396,6 +440,7 @@ async function orders(body) {
   const j = await airtable(url);
   const list = (j.records || []).map(describe).sort((a, b) =>
     (a.closed - b.closed) || String(a.ndate || '9999').localeCompare(String(b.ndate || '9999')));
+  await attachEstimates(list);
   return json({ ok: true, orders: list, steps: publicSteps(), rooms: await roomChoices() });
 }
 
@@ -440,6 +485,7 @@ async function cappedSearch(formula) {
   const list = rows.slice(0, MAX_ITEMS).sort((a, b) => (a.closed - b.closed) || (a.closed
     ? String(b.ndate || '').localeCompare(String(a.ndate || ''))
     : String(a.ndate || '9999').localeCompare(String(b.ndate || '9999'))));
+  await attachEstimates(list);
   return json({ ok: true, orders: list, more, steps: publicSteps(), rooms: await roomChoices() });
 }
 
