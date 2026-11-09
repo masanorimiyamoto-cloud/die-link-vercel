@@ -2076,12 +2076,13 @@
 
   /* ---------- 上部の主操作（2026-11-03） ---------- */
   // 表示の優先度だけを決める（記録できるかどうかの判定は変えない。送信は chooseStep → doComplete → write のまま）。
-  // ・CAD／オートン抜き／機械貼／手貼り: その工程
+  // ・CAD: CADカット完了 と 仕上がりました の2つ（2026-11-09 ユーザー指定）
+  // ・オートン抜き／機械貼／手貼り: その工程
   // ・たおし抜き: 工程(自動) に K判・M判 の片方だけがあればその工程。両方・どちらも無ければ2つを同じ強さで出す
   // ・2F 小／Nao: シール貼完了 と 仕上がりました のまだのものを同じ強さで出す（自動ではどちらも選ばない）
   // ・お守箔焼印・断裁ステッチ・プレ・全件・Recent・Fax・検索・定義の足りないもの: 「工程を選んで記録」（工程の一覧を開く）
   // 閉じた受注・自分の工程が済の受注には、自動で選んだ完了ボタンを出さない
-  const PRIMARY = { cad: ['cad'], auton: ['o'], kikai: ['kikai'], tebari: ['tebari'], taoshi: 'taoshi', f2: ['seal', 'finish'], nao: ['seal', 'finish'] };
+  const PRIMARY = { cad: ['cad', 'finish'], auton: ['o'], kikai: ['kikai'], tebari: ['tebari'], taoshi: 'taoshi', f2: ['seal', 'finish'], nao: ['seal', 'finish'] };
   function primaryPlan(o, v) {
     const plan = { keys: [], closed: !!o.closed, md: v && hasMine(v) ? mineDone(o, v) : null };
     if (plan.closed || plan.md || !v || !hasMine(v)) return plan;

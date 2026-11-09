@@ -287,6 +287,10 @@ test('N1 主操作: 機械貼は機械貼完了。お守箔焼印・断裁・プ
   assert.equal(keys(e, ord({ kotei: '|機械貼|' }), 'kikai'), 'kikai');
   for (const k of ['omamori', 'dansai', 'pre', 'all', null]) assert.equal(keys(e, ord({ kotei: '|オートン|' }), k), '', String(k));
 });
+test('N1 主操作: CAD は CADカット完了 と 仕上がりました の2つ', () => {
+  const e = planEnv();
+  assert.equal(keys(e, ord({ kotei: '|CAD|' }), 'cad'), 'cad,finish');
+});
 test('N1 主操作: たおしは K判・M判 の片方だけなら確定、両方・なしは2つ（自動で選ばない）', () => {
   const e = planEnv();
   assert.equal(keys(e, ord({ kotei: '|たおしK判|' }), 'taoshi'), 'tk');
