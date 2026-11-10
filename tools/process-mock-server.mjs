@@ -45,6 +45,7 @@ function fixtures() {
     order({ item: '検証箱C 済 #ki#nao', spec: { kname: 'テスト商事', material: 'C5×AF' }, kotei: '|機械貼|Nao|', progIn: '機械貼完了', done: { kikai: '鈴木 2026-11-03 11:00' },
       ndate: '2026-11-10', ndateFrom: '2026-11-08', ndateLog: '2026-11-08→2026-11-10 鈴木 2026-11-03 11:00', views: ['kikai', 'nao'] }),
     // 機械貼: 閉じた受注（伝票取消）
+    order({ item: '検証箱G 伝票待ち #ki', kotei: '|機械貼|', progIn: '仕上がりました', group: '最終', progOut: '受領伝票発行可能', done: { finish: '鈴木 2026-11-09 16:00' }, views: ['kikai'] }),
     order({ item: '検証箱D 取消 #ki', kotei: '|機械貼|', progOut: '伝票取消', closed: true, amountLocked: true, views: ['kikai'] }),
     // 機械貼: 記録なし・不正な日時・ログと今の値の不一致（強調しない）
     order({ item: '検証箱E 不正日時 #ki', kotei: '|機械貼|', amount: 500, amountLog: '400→450 田中 2026-11-03 09:00',

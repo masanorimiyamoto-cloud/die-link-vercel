@@ -802,7 +802,7 @@ async function kcEnv(opt = {}) {
   global.fetch = async (url, init = {}) => {
     const u = new URL(String(url)); const m = init.method || 'GET';
     const parts = u.pathname.split('/'); const table = decodeURIComponent(parts[3] || ''); const rid = parts[4];
-    const kind = table === 'TableKoteiCopyRequest' ? 'kc' : table === 'TableJuchu' ? 'order' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
+    const kind = table === 'TableKoteiCopyRequest' || table === 'TableSlipIssueRequest' ? 'kc' : table === 'TableJuchu' ? 'order' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
     calls.push(`${m} ${kind}${rid ? ' ' + rid : ''}`);
     if (kind === 'order') return orders.has(rid) ? ok(orders.get(rid)) : new Response('{}', { status: 404 });
     if (kind === 'worklog') return ok({ records: [] });
@@ -815,7 +815,7 @@ async function kcEnv(opt = {}) {
         let list = [...reqs.values()];
         if (q) list = list.filter(r => r.fields['依頼ID'] === q);
         if (rec) list = list.filter(r => r.fields['受注RecordID'] === rec);
-        if (openOnly) list = list.filter(r => ['依頼済', '印刷中'].includes(r.fields['状態']));
+        if (openOnly) list = list.filter(r => ['依頼済', '印刷中', '発行中'].includes(r.fields['状態']));
         return ok({ records: list });
       }
       if (m === 'POST') { const f = JSON.parse(init.body).records[0].fields; const r = { id: 'recKC' + String(++n).padStart(12, '0'), fields: f }; reqs.set(r.id, r); return ok({ records: [r] }); }
@@ -865,6 +865,57 @@ test('KC1 依頼IDなし・受注が無い・Ta/Ko/Yo 以外は依頼しない�
     const st = await e.run('koteiCopyStatus', { id: KREC });
     assert.equal(st.j.ok, true); assert.equal(st.j.requests[0].reqId, KREQ); assert.equal(st.j.requests[0].state, '依頼済');
   } finally { e.restore(); }
+});
+// ---- SL1 受領伝票のすぐ発行 2026-11-10（偽の Airtable。本物には繋がない） ----
+const SREC = 'recSLIPISSUE00001', SREQ = 'sl-11111111-2222-3333-4444-555555555555';
+const sorder = (f) => ({ id: SREC, fields: { Book: 'Ta', WorkCord: 3666, ItemName: '検証箱 #o', NAmount: 100, Ndate: '2026-11-10', 進行社外: '受領伝票発行可能', ...f } });
+test('SL1 受領伝票発行可能なら依頼の表に依頼済で1行書くだけ。受注には書かない', async () => {
+  const e = await kcEnv({ orders: { [SREC]: sorder() } });
+  process.env.SLIP_ISSUE_ENABLED = '0';
+  try {
+    const off = await e.run('slipIssue', { id: SREC, reqId: SREQ });
+    assert.equal(off.status, 503); assert.equal(e.reqs.size, 0, '事務所PCの準備前は書かない');
+    process.env.SLIP_ISSUE_ENABLED = '1';
+    const r = await e.run('slipIssue', { id: SREC, reqId: SREQ });
+    assert.equal(r.j.ok, true, JSON.stringify(r.j)); assert.equal(r.j.request.state, '依頼済');
+    const f = [...e.reqs.values()][0].fields;
+    assert.equal(f['依頼ID'], SREQ); assert.equal(f['受注RecordID'], SREC); assert.equal(f['依頼者'], 'テスト 太郎');
+    assert.ok(!e.calls.some(c => /^(PATCH|POST|DELETE) order/.test(c)), e.calls.join(','));
+    const again = await e.run('slipIssue', { id: SREC, reqId: SREQ });
+    assert.equal(again.j.again, true);
+    const other = await e.run('slipIssue', { id: SREC, reqId: 'sl-99999999-2222-3333-4444-555555555555' });
+    assert.equal(other.j.dup, true); assert.equal(e.reqs.size, 1, '依頼中なら2行目を作らない');
+    const st = await e.run('slipIssueStatus', { id: SREC });
+    assert.equal(st.j.requests[0].reqId, SREQ);
+  } finally { e.restore(); }
+});
+test('SL1 受領伝票発行可能でない・伝票IDあり・アーカイブ済は断り、依頼の表に書かない', async () => {
+  for (const [f, re] of [[{ 進行社外: '' }, /受領伝票発行可能」ではない.*空白/], [{ 進行社外: 'シート材料入荷済' }, /今: シート材料入荷済/],
+    [{ 進行社外: '伝票出力済' }, /ではない/], [{ 伝票ID: 'Ta_11_20261110_5001' }, /発行済み.*5001/], [{ アーカイブ済: true }, /アーカイブ済/]]) {
+    const e = await kcEnv({ orders: { [SREC]: sorder(f) } });
+    try {
+      const r = await e.run('slipIssue', { id: SREC, reqId: SREQ });
+      assert.equal(r.status, 409, JSON.stringify(f)); assert.equal(r.j.refused, true); assert.match(r.j.error, re);
+      assert.equal(e.reqs.size, 0);
+    } finally { e.restore(); }
+  }
+  const e = await kcEnv({ orders: {} });
+  try {
+    assert.equal((await e.run('slipIssue', { id: SREC, reqId: 'kc-11111111-2222' })).status, 400, '依頼IDの形が違えば断る');
+    assert.equal((await e.run('slipIssue', { id: SREC, reqId: SREQ })).status, 404);
+  } finally { e.restore(); }
+});
+test('SL1 画面: 受領伝票発行可能でなければ送らずに断る。発行済みはボタンを出さない', () => {
+  const src = extract('slRequest');
+  assert.ok(src.indexOf('slipRefusal(o)') < src.indexOf("api({ action: 'slipIssue'"), '送る前に断る');
+  assert.ok(src.indexOf('slipRefusal(o)') < src.indexOf('confirm('), '確認より前に断る');
+  const ctx = { SL_READY: '受領伝票発行可能' };
+  vm.runInNewContext(extract('slipRefusal') + '; this.f = slipRefusal;', ctx);
+  assert.equal(ctx.f({ progOut: '受領伝票発行可能' }), '');
+  assert.match(ctx.f({ progOut: '' }), /空白/);
+  assert.match(ctx.f({ progOut: '受領伝票発行可能', slipId: 'X1' }), /発行済み/);
+  assert.match(ctx.f({ progOut: '受領伝票発行可能', archived: true }), /アーカイブ済/);
+  assert.ok(extract('renderSlipIssue').includes('SL_AFTER.has(o.progOut)'), '伝票の後の段階ではボタンを出さない');
 });
 test('KC1 画面: 確認してから依頼IDを作って送り、結果不明は同じIDで送り直す。依頼中はボタンを止める', () => {
   const src = extract('kcRequest');

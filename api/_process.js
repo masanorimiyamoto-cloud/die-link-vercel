@@ -1105,6 +1105,8 @@ async function slipIssue(body, user) {
     if (!rec) return json({ ok: false, error: 'この受注はもうありません' }, 404);
     const why = slipRefusal(rec.fields || {});
     if (why) return json({ ok: false, refused: true, error: why }, 409);
+    // 事務所PCの依頼モードが動くまでは受けない（拾われずに 発行待ち のまま残るのを防ぐ）。動いたら Vercel に SLIP_ISSUE_ENABLED=1
+    if (process.env.SLIP_ISSUE_ENABLED !== '1') return json({ ok: false, refused: true, error: '事務所PCの準備がまだなので、すぐ発行はまだ使えません（定時の自動発行で出ます）' }, 503);
     const open = (await slFind(`AND({${KC.rec}}='${id}',OR({${KC.state}}='${SL_WAIT}',{${KC.state}}='${SL_BUSY}'))`, 1))[0];
     if (open) return json({ ok: true, dup: true, request: slOut(open) });
   } catch (e) {
