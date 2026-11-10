@@ -82,6 +82,7 @@ const pub = (o) => { const { views, ...rest } = o; return JSON.parse(JSON.string
 const nowStamp = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
 const send = (res, status, body, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }); res.end(JSON.stringify(body)); };
 
+const SLIPS = new Map();
 async function handle(body) {
   const a = body.action;
   const views = publicViews(), steps = publicSteps();
@@ -137,6 +138,14 @@ async function handle(body) {
   if (a === 'ndate') { const line = `${o.ndate || '空白'}→${body.ndate} ${USER} ${nowStamp()}`; o.ndateFrom ||= o.ndate || '空白'; o.ndate = body.ndate; o.ndateLog = line; return { body: { ok: true, ndate: o.ndate, line } }; }
   if (a === 'paper') { o.paper = body.paper; return { body: { ok: true, paper: o.paper } }; }
   if (a === 'room') { o.room = body.on ? [...new Set([...o.room, body.room])] : o.room.filter(r => r !== body.room); return { body: { ok: true, room: o.room } }; }
+  // 受領伝票のすぐ発行（2026-11-10）: 受領伝票発行可能だけ受け、5秒後に発行済にする
+  if (a === 'slipIssueStatus') return { body: { ok: true, requests: (SLIPS.get(o.id) || []).map(r => ({ ...r, state: Date.now() - r.t > 5000 ? '発行済' : '依頼済', doneAt: new Date(r.t + 5000).toISOString(), slipId: 'Ko_MOCK_5001' })) } };
+  if (a === 'slipIssue') {
+    if (o.progOut !== '受領伝票発行可能' || o.slipId) return { status: 409, body: { ok: false, refused: true, error: `進行社外が「受領伝票発行可能」ではないので発行できません（今: ${o.progOut || '空白'}）` } };
+    const r = { reqId: body.reqId, state: '依頼済', at: new Date().toISOString(), by: USER, memo: '', t: Date.now() };
+    SLIPS.set(o.id, [r, ...(SLIPS.get(o.id) || [])]);
+    return { body: { ok: true, request: r } };
+  }
   if (a === 'stock') { o.progOut = body.on ? body.out : 'シート手配済み'; return { body: { ok: true, progOut: o.progOut } }; }
   if (a === 'neworder') {
     if (!body.force && DB.some(x => x.item === o.item && x.ndate === body.ndate && String(x.amount) === String(body.amount))) return { status: 409, body: { ok: false, dup: true, error: '同じ納期・数量の受注が既にあります' } };

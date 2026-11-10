@@ -122,6 +122,7 @@
   .amt .note{ font-size:12.5px; color:var(--mut) }
   .kcopy{ display:flex; flex-direction:column; gap:4px }
   .kcopy .kcst{ font-size:12.5px; color:var(--mut) }
+  .amtbtn.off{ opacity:.55 }
   .amtbtn{ padding:7px 12px; font-size:14px; font-weight:500; background:var(--surf2); color:var(--txt); border:1px solid var(--line2) }
   /* 数量は青、納期はオレンジで見分ける（やめる ボタンは灰色のまま） */
   .amtbtn.qty{ background:rgba(59,130,246,.12); color:#bfdbfe; border-color:rgba(96,165,250,.4) }
@@ -596,6 +597,8 @@
     <div id="goBar"></div>
     <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
     <div class="kcopy" id="koteiCopy"></div>
+    <!-- 受領伝票のすぐ発行（事務所のプリンタ。受領伝票発行可能の受注だけ）2026-11-10 -->
+    <div class="kcopy" id="slipIssue"></div>
     <!-- 同じ品番（Book / WorkCord）の受注を、アーカイブ済も含めて品番で探すに出す 2026-11-06 -->
     <div class="kcopy" id="sameWc"></div>
     <div class="imgs" id="stepImgs"></div>
@@ -2328,6 +2331,92 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     if (j.ok) kcPoll(o.id);
   }
 
+  /* ---------- 受領伝票のすぐ発行（2026-11-10） ---------- */
+  // 定時の自動発行を待たずに、事務所のプリンタでこの受注の受領伝票を出す。押すとサーバーが依頼の表に1行書き、
+  // 事務所PC（receipt_slip_issue.py の依頼モード）が拾って発行する。進行社外が 受領伝票発行可能 でなければ断る
+  // （サーバーも同じく断る）。伝票ID がある・伝票の後の段階（伝票出力済・完納・取消）ならボタンを出さない。
+  // 依頼ID・送り直し・状況の読み直しは工程表のコピー印刷と同じ
+  const SL_READY = '受領伝票発行可能';
+  const SL_AFTER = new Set(['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消']);
+  const SL_LABEL = { '依頼済': '発行待ち', '発行中': '発行中', '発行済': '発行しました', '失敗': '発行できませんでした' };
+  const slPending = (r) => r && (r.state === '依頼済' || r.state === '発行中');
+  function slipRefusal(o) {
+    if (o.archived) return 'アーカイブ済の受注なので発行できません';
+    if (o.slipId) return `受領伝票は発行済みです（伝票ID ${o.slipId}）`;
+    if (o.progOut !== SL_READY) return `進行社外が「${SL_READY}」ではないので発行できません（今: ${o.progOut || '空白'}）`;
+    return '';
+  }
+  S.sl = {}; // 受注ID → { last, at, retry, msg, cls, sending, loading, timer, pollFrom }
+  function renderSlipIssue(o) {
+    const box = $('slipIssue'); box.textContent = '';
+    const st = S.sl[o.id] || (S.sl[o.id] = {});
+    const line = document.createElement('div'); line.className = 'kcst';
+    if ((o.slipId || SL_AFTER.has(o.progOut)) && !slPending(st.last) && !st.msg) {
+      if (o.slipId) { line.textContent = `受領伝票は発行済みです（伝票ID ${o.slipId}）`; box.append(line); }
+      return;
+    }
+    const ready = !slipRefusal(o);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn' + (ready ? '' : ' off');
+    b.textContent = '🧾 受領伝票をすぐ発行';
+    b.disabled = !!st.sending || slPending(st.last);
+    const r = st.last;
+    if (st.msg) { line.textContent = st.msg; line.className = 'msg ' + (st.cls || ''); }
+    else if (r) line.textContent = `${slPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼 → ${SL_LABEL[r.state] || r.state}${r.doneAt && !slPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
+    else line.textContent = ready ? '定時の自動発行を待たずに、事務所のプリンタでこの受注の受領伝票を出します'
+      : `受領伝票発行可能になると発行できます（今の進行社外: ${o.progOut || '空白'}）`;
+    box.append(b, line);
+    b.onclick = () => slRequest(o);
+    if (!st.at || Date.now() - st.at > 30000) slLoad(o.id);
+  }
+  async function slLoad(id) {
+    const st = S.sl[id] || (S.sl[id] = {});
+    if (st.loading) return; st.loading = true;
+    const j = await api({ action: 'slipIssueStatus', id }).catch(() => ({ ok: false }));
+    st.loading = false; st.at = Date.now();
+    if (j.ok) {
+      const was = st.last;
+      st.last = j.requests?.[0] || null;
+      if (slPending(st.last) && !st.pollFrom) st.pollFrom = Date.now();
+      if (was && slPending(was) && st.last && !slPending(st.last) && st.last.reqId === was.reqId) {
+        st.msg = st.last.state === '発行済' ? `受領伝票を発行しました（${hm(st.last.doneAt)}${st.last.slipId ? '・' + st.last.slipId : ''}）` : `発行できませんでした${st.last.memo ? '：' + st.last.memo : ''}`;
+        st.cls = st.last.state === '発行済' ? 'ok' : 'err';
+      }
+    }
+    if (current()?.id === id) renderSlipIssue(current());
+    slPoll(id);
+  }
+  function slPoll(id) {
+    const st = S.sl[id];
+    clearTimeout(st.timer);
+    if (!slPending(st.last) || Date.now() - (st.pollFrom || 0) > 600000) return;
+    st.timer = setTimeout(() => { if (current()?.id === id && !$('stepCard').hidden) { st.at = 0; slLoad(id); } }, 15000);
+  }
+  async function slRequest(o) {
+    const st = S.sl[o.id] || (S.sl[o.id] = {});
+    if (st.sending) return;
+    const why = slipRefusal(o);
+    if (why) { st.msg = why; st.cls = 'err'; renderSlipIssue(o); return; }
+    if (!st.retry && !confirm(`${itemShort(o)}
+${o.book} / ${o.wc}　数量 ${o.amount ?? '?'}・納期 ${o.ndate || '未定'}
+
+この受注の受領伝票を、事務所のプリンタですぐ発行します。
+数量・納期は伝票の後は変えられません。よろしいですか？`)) return;
+    const reqId = st.retry || ('sl-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12)));
+    st.sending = true; st.msg = '依頼しています…'; st.cls = ''; renderSlipIssue(o);
+    const j = await api({ action: 'slipIssue', id: o.id, reqId });
+    st.sending = false;
+    if (j.unknown) { st.retry = reqId; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2枚にはなりません）'; st.cls = 'warn'; }
+    else if (!j.ok) { st.retry = ''; st.msg = j.error || '依頼できませんでした'; st.cls = 'err'; }
+    else {
+      st.retry = ''; st.last = j.request; st.at = Date.now(); st.pollFrom = Date.now();
+      st.msg = j.dup ? `すでに依頼中です（${hm(j.request.at)} ${j.request.by}）。事務所のPCが発行するまでお待ちください`
+        : '依頼しました。1〜2分で事務所のプリンタから出ます';
+      st.cls = 'ok'; navigator.vibrate?.(40);
+    }
+    if (current()?.id === o.id) renderSlipIssue(current());
+    if (j.ok) slPoll(o.id);
+  }
+
   function renderSteps() {
     const o = current(); if (!o) return;
     const v = detailView();
@@ -2346,6 +2435,7 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     renderNext(o, v);
     $('goBar').replaceChildren(goBar(o));
     renderKoteiCopy(o);
+    renderSlipIssue(o);
     renderSameWc(o);
     $('editors').replaceChildren(amountEditor(o), ndateEditor(o), paperEditor(o));
     renderStepImages(o);

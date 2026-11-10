@@ -100,7 +100,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -195,6 +195,7 @@ function describe(rec) {
     ndateFrom: (() => { const m = /^(\d{4}-\d\d-\d\d|空白)→/.exec(String(f[F.ndateLog] || '').trim()); return m ? m[1] : ''; })(),
     ndateLog: String(f[F.ndateLog] || '').trim().split('\n').pop() || '',
     // 伝票を出した後は数量を変えられない（画面でボタンを出さないため）
+    slipId: String(f[F.slipId] || ''), // 受領伝票の伝票ID（発行済みなら入っている）。詳細画面の「受領伝票をすぐ発行」に使う
     amountLocked: !!f[F.slipId] || ['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消'].includes(String(f[F.progOut] || '')),
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
     images: imagesOf(f),
@@ -284,6 +285,8 @@ export async function handleProcess(action, body, who) {
   if (action === 'deletions') return deletions();
   if (action === 'koteiCopy') return koteiCopy(body, who.user);
   if (action === 'koteiCopyStatus') return koteiCopyStatus(body);
+  if (action === 'slipIssue') return slipIssue(body, who.user);
+  if (action === 'slipIssueStatus') return slipIssueStatus(body);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -1059,6 +1062,70 @@ async function koteiCopy(body, user) {
   if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
   await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: '工程表コピー依頼', detail: `依頼ID ${reqId}` }).catch(() => {});
   return json({ ok: true, request: kcOut(row) });
+}
+// ---- 受領伝票のすぐ発行（2026-11-10）----
+// 受領伝票発行可能 になった受注の伝票を、定時の自動発行を待たずに事務所のプリンタで出す。ここでは依頼の表
+// （TableSlipIssueRequest）に1行書くだけ。事務所PC（receipt_slip_issue.py の依頼モード）が拾ってその受注だけ発行し、
+// 発行中→発行済／失敗 にする。
+// 依頼できるのは 進行社外=受領伝票発行可能 で、伝票ID が空・アーカイブ済でない受注だけ。それ以外は断る（ユーザー指定）。
+// 事務所PCも発行の直前に同じことを確かめる（その間に定時の自動発行が出していれば出さない＝二重発行しない）。
+// 依頼ID・二度押しの扱いは工程表のコピー印刷と同じ
+const SL_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(process.env.SLIP_ISSUE_TABLE || 'TableSlipIssueRequest')}`;
+const SL_READY = '受領伝票発行可能';
+const SL_WAIT = '依頼済', SL_BUSY = '発行中';
+const slOut = (r) => ({ ...kcOut(r), slipId: String(r.fields?.['伝票ID'] || '') });
+async function slFind(formula, max = 3) {
+  const url = new URL(SL_API);
+  url.searchParams.set('filterByFormula', formula);
+  url.searchParams.set('sort[0][field]', KC.at); url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('maxRecords', String(max));
+  return (await airtable(url)).records || [];
+}
+// 発行を頼めない理由（頼めるなら ''）。画面も同じ判定で先に断る
+function slipRefusal(f) {
+  if (f[F.archived]) return 'アーカイブ済の受注なので発行できません';
+  if (f[F.slipId]) return `受領伝票は発行済みです（伝票ID ${f[F.slipId]}）`;
+  const out = String(f[F.progOut] || '');
+  if (out !== SL_READY) return `進行社外が「${SL_READY}」ではないので発行できません（今: ${out || '空白'}）`;
+  return '';
+}
+async function slipIssue(body, user) {
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  const reqId = String(body?.reqId || '');
+  if (!/^sl-[A-Za-z0-9-]{8,64}$/.test(reqId)) return json({ ok: false, error: '画面が古いので、読み込み直してからもう一度押してください' }, 400);
+  let rec;
+  try {
+    const same = (await slFind(`{${KC.req}}='${esc(reqId)}'`, 1))[0];
+    if (same) {
+      if (same.fields?.[KC.rec] !== id) return json({ ok: false, error: '依頼の指定が食い違っています。画面を読み込み直してください' }, 409);
+      return json({ ok: true, again: true, request: slOut(same) });
+    }
+    rec = await fetchRecordStrict(id);
+    if (!rec) return json({ ok: false, error: 'この受注はもうありません' }, 404);
+    const why = slipRefusal(rec.fields || {});
+    if (why) return json({ ok: false, refused: true, error: why }, 409);
+    const open = (await slFind(`AND({${KC.rec}}='${id}',OR({${KC.state}}='${SL_WAIT}',{${KC.state}}='${SL_BUSY}'))`, 1))[0];
+    if (open) return json({ ok: true, dup: true, request: slOut(open) });
+  } catch (e) {
+    return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
+  }
+  const o = describe(rec);
+  const fields = { [KC.req]: reqId, [KC.rec]: id, [KC.state]: SL_WAIT, [KC.book]: String(o.book || ''), [KC.wc]: String(o.wc ?? ''),
+    [KC.item]: String(o.item || ''), [KC.by]: String(user?.name || ''), [KC.at]: new Date().toISOString() };
+  const no = Number(user?.no); if (Number.isFinite(no)) fields[KC.no] = no;
+  let row;
+  try { row = (await airtable(SL_API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) })).records?.[0]; }
+  catch (e) { return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502); }
+  if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
+  await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: '受領伝票すぐ発行依頼', detail: `依頼ID ${reqId}` }).catch(() => {});
+  return json({ ok: true, request: slOut(row) });
+}
+async function slipIssueStatus(body) {
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  try { return json({ ok: true, requests: (await slFind(`{${KC.rec}}='${id}'`, 3)).map(slOut) }); }
+  catch (e) { return json({ ok: false, error: `伝票の発行の状況を読めませんでした（${String(e?.message || e).slice(0, 80)}）` }, 502); }
 }
 async function koteiCopyStatus(body) {
   const id = String(body?.id || '');
