@@ -32,15 +32,35 @@
   }
 
   let mePromise = null;
+  let meFailed = false; // 最後の確認が通信の失敗だった（＝未ログインと決まったわけではない）
   function me(force) {
     if (!mePromise || force) {
       mePromise = fetch('/api/session?action=me', { credentials: 'same-origin', cache: 'no-store' })
-        .then(r => r.json())
-        .then(j => (j && j.user) || null)
-        .catch(() => null);
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(j => { meFailed = false; return (j && j.user) || null; })
+        .catch(() => { meFailed = true; return null; });
     }
     return mePromise;
   }
+
+  // API が「ログインしてください」（401）を返したら、知らせてログイン画面へ送る（2026-11-10 照合・棚登録・図面の API をログイン必須にした）。
+  // 画面ごとに 401 の扱いを書かなくて済むよう、ここで fetch を包む。/api/session（PIN 違いの 401）とログイン画面は対象外
+  const rawFetch = window.fetch.bind(window);
+  let kicked = false;
+  window.fetch = async function (input, init) {
+    const r = await rawFetch(input, init);
+    try {
+      if (r.status === 401 && !kicked && location.pathname !== '/login.html') {
+        const u = new URL(typeof input === 'string' ? input : (input && input.url) || String(input), location.href);
+        if (u.origin === location.origin && u.pathname.startsWith('/api/') && u.pathname !== '/api/session') {
+          kicked = true;
+          alert('ログインが切れています。ログインし直してください。');
+          location.href = loginUrl();
+        }
+      }
+    } catch (e) { /* 判定に失敗しても元の応答はそのまま返す */ }
+    return r;
+  };
 
   // ログイン後に戻る先は同じサイト内のパスだけにする（外部への誘導を防ぐ）
   function safeNext(next) {
@@ -124,6 +144,9 @@
   // ページの一番上に細いログイン帯を出す。未ログインだと照合・仕舞いの実績が残らないことを知らせる
   async function statusBar(opts = {}) {
     const u = await me();
+    // 照合・棚登録・図面はログイン必須（2026-11-10）。未ログインと分かったらログイン画面へ。
+    // 通信の失敗で確かめられなかっただけのときは送らず、帯で知らせる（電波の弱い場所で画面を追い出さない）
+    if (!u && !meFailed && !opts.optional) { location.replace(loginUrl()); return null; }
     const bar = document.createElement('div');
     bar.setAttribute('role', 'status');
     bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;'
@@ -142,7 +165,7 @@
       bar.statsChip = statsChip();
       left.append(' ', bar.statsChip);
     } else {
-      left.textContent = opts.warn || 'ログインしていません。照合・仕舞いの実績が記録されません';
+      left.textContent = opts.warn || (meFailed ? 'ログインを確かめられません（通信を確認してください）' : 'ログインしていません。照合・棚登録・図面は使えません');
       link.textContent = 'ログイン';
     }
     bar.append(left, link);

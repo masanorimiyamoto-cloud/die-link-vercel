@@ -13,6 +13,7 @@
 // セキュリティ・Drive取得は box-shape-match.js / material-match.js と同方式。
 // ============================================================================
 import { callVisionJSON } from './_vision.js';
+import { requireUser } from './_auth.js';
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -85,7 +86,9 @@ function sameOrigin(req) {
   const self = new URL(req.url).origin;
   const origin = req.headers.get('origin') || '';
   const referer = req.headers.get('referer') || '';
-  return origin.startsWith(self) || referer.startsWith(self);
+  // 前方一致だと https://自ドメイン.evil.com も通るので、オリジンを取り出して完全一致で比べる
+  const same = (v) => { try { return new URL(v).origin === self; } catch { return false; } };
+  return same(origin) || same(referer);
 }
 
 /* ---------- Drive参照図面の特定（-zu 線画を最優先） ---------- */
@@ -163,6 +166,9 @@ export default async function handler(req) {
       const cookie = cookies['xcsrf'] || '';
       const header = req.headers.get('x-csrf') || '';
       if (!cookie || !header || cookie !== header) return json({ ok: false, error: 'CSRF invalid' }, 403);
+      // ログイン必須（2026-11-10）。xcsrf は誰にでも発行されるので、CSRF だけでは外から AI を呼べてしまう
+      const auth = await requireUser(req);
+      if (auth.deny) return auth.deny;
     }
 
     const payload = await req.json().catch(() => ({}));

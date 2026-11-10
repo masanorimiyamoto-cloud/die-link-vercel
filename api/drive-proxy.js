@@ -1,4 +1,5 @@
 // api/drive-proxy.js
+import { requireUser } from './_auth.js';
 export const config = { runtime: 'edge' };
 
 /* ========== utils ========== */
@@ -7,22 +8,6 @@ function json(body, status = 200) {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
-}
-function parseCookies(req){
-  const h = req.headers.get('cookie') || '';
-  const o = {};
-  h.split(';').forEach(kv => {
-    const [k, ...vs] = kv.split('=');
-    if (!k) return;
-    o[k.trim()] = decodeURIComponent((vs.join('=') || '').trim());
-  });
-  return o;
-}
-function sameOrigin(req){
-  const self    = new URL(req.url).origin;
-  const origin  = req.headers.get('origin')  || '';
-  const referer = req.headers.get('referer') || '';
-  return origin.startsWith(self) || referer.startsWith(self);
 }
 function bytesToBase64Url(bytes){
   let s = '';
@@ -91,23 +76,19 @@ export default async function handler(req){
     }
 
     const u    = new URL(req.url);
-    const dev  = u.searchParams.get('dev') === '1';
     const id   = (u.searchParams.get('id') || '').trim();
     const name = (u.searchParams.get('name') || 'download.bin').trim().replace(/"/g,'');
 
     if (!id) return json({ ok:false, error:'missing id' }, 400);
 
     const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.hostname);
-    if (!isLocal && !dev) {
-      if (!sameOrigin(req)) {
-        return json({ ok:false, error:'Origin/Referer mismatch' }, 403);
-      }
-      const cookies = parseCookies(req);
-      const cookie = cookies['xcsrf'] || '';
-      const header = req.headers.get('x-csrf') || '';
-      if (!cookie || !header || cookie !== header) {
-        return json({ ok:false, error:'CSRF invalid' }, 403);
-      }
+    // ログイン必須（2026-11-10）。読むだけの GET なので CSRF の確認はやめ、ログインで守る
+    // （ログインの Cookie は SameSite=Lax なので、他のサイトに埋め込まれた画像・iframe には付かない）。
+    // X-CSRF ヘッダを要求していたころは、ヘッダを付けられない iframe（PDF の図面）が必ず 403 になっていた。
+    // 以前は ?dev=1 を付けると本番でも検証を飛ばせた。省くのはローカルだけにする
+    if (!isLocal) {
+      const auth = await requireUser(req);
+      if (auth.deny) return auth.deny;
     }
 
     const token = await getGoogleAccessToken();

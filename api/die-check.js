@@ -1,4 +1,5 @@
 // pages/api/die-check.js
+import { requireUser } from './_auth.js';
 export const config = { runtime: 'edge' };
 
 /* ===========================================================
@@ -99,7 +100,9 @@ function sameOrigin(req) {
   const selfOrigin = new URL(req.url).origin;
   const origin  = req.headers.get('origin')  || '';
   const referer = req.headers.get('referer') || '';
-  return (origin.startsWith(selfOrigin) || referer.startsWith(selfOrigin));
+  // 前方一致だと https://自ドメイン.evil.com も通るので、オリジンを取り出して完全一致で比べる
+  const same = (v) => { try { return new URL(v).origin === selfOrigin; } catch { return false; } };
+  return same(origin) || same(referer);
 }
 
 /* ------------------------------
@@ -331,6 +334,9 @@ export default async function handler(req) {
     if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
       return renderHTML({ ok:false, title:'NG', html:'<pre>CSRF 検証NG</pre>', code:403 });
     }
+    // ログイン必須（2026-11-10）。得意先・品名・図面の添付を返すので、外から読めないようにする
+    const auth = await requireUser(req);
+    if (auth.deny) return auth.deny;
 
     // 3) JSON ボディ
     let body = {};

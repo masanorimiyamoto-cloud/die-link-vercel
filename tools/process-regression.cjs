@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
+// ログインの署名（api/_auth.js）は読み込み時にこの値を読むので、どのテストより先に入れておく（試験用。本番の値ではない）
+process.env.SESSION_SECRET = 'TEST_ONLY_SESSION_SECRET_0123456789abcdef';
 
 // PROCESS_HTML で別の版を指定できる（修正前の版で落ちることの確認用）
 const source = fs.readFileSync(process.env.PROCESS_HTML || path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
@@ -991,6 +993,61 @@ test('MS1 本人の分だけ数える。取り消した完了は数えず、別�
     assert.equal(r2.today.total, 1, 'やり直した人に1件');
   } finally { global.fetch = prevFetch; }
 });
+// ---- IN1 毎晩の集計は直近の分のログだけ読む（2026-11-10。偽の Airtable。本物には繋がない） ----
+test('IN1 毎晩の集計は書く範囲（直近45日）のログだけ読み、全部読んだときと同じ行を書く。full は 10/8 から読む', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_incentive.js')).href);
+  const jst = (n) => new Date(Date.now() + 9 * 3600 * 1000 - n * 86400000).toISOString().slice(0, 10);
+  const at = (d, hm) => new Date(Date.parse(`${d}T${hm}:00+09:00`)).toISOString();
+  const WL = { at: 'fldal1FMiPlRVn9BF', no: 'fldmjyRUDyPPaFFnb', name: 'fldEBJAH0707h1ity', action: 'fldHbWQ5VemkIPMmS',
+    step: 'flds9HiDR5e1eiFGf', orderId: 'fldOfsIbZmKNfeik8', credit: 'fldIHadyI8FqyEqQ5' };
+  const log = (id, d, hm, no, action, step, order, credit) => ({ id, fields: { [WL.at]: at(d, hm), [WL.no]: no, [WL.name]: 'n' + no,
+    [WL.action]: action, [WL.step]: step, [WL.orderId]: order, ...(credit ? { [WL.credit]: true } : {}) } });
+  const from = [mod.START_DATE, jst(45)].sort().pop();
+  const old = jst(200), edge = from; // old は範囲より前、edge は範囲の最初の日
+  const logs = [
+    log('a1', old, '09:00', 1001, '工程完了', 'オートン抜き完了', 'recA', true),   // 範囲より前に完了したまま → 書く対象外
+    log('b1', old, '09:10', 1001, '工程完了', '手貼り完了', 'recB', true),         // 範囲より前に完了 →
+    log('b2', jst(3), '10:00', 1001, '工程取消', '手貼り完了', 'recB'),            //   範囲の中で取消 →
+    log('b3', jst(2), '11:00', 1002, '工程完了', '手貼り完了', 'recB', true),      //   別の人がやり直し（その人に1件）
+    log('c1', old, '09:20', 1001, '工程完了', '機械貼完了', 'recC', true),         // 範囲より前に完了 →
+    log('c2', jst(1), '12:00', 1001, '工程取消', '機械貼完了', 'recC'),            //   範囲の中で取消（0件）
+    log('d1', edge, '00:05', 1003, '工程完了', 'CADカット完了', 'recD', true),     // 範囲の最初の日の 0:05（日本時間）
+    log('e1', jst(5), '09:00', 1003, '抜型照合', '抜型照合', 'recE', true),
+    log('f1', jst(4), '09:00', 1003, '工程完了', 'オートン抜き完了', 'recF', true),
+    log('f2', jst(4), '09:01', 1003, '工程取消', 'オートン抜き完了', 'recF'),
+  ];
+  const rowsFrom = (list) => [...mod.countDaily(list).values()].filter(c => c.date >= from)
+    .map(c => `${c.key}=${c.count}`).sort();
+  const since = mod.logsSince(from);
+  const windowed = logs.filter(l => l.fields[WL.at] > since);
+  assert.ok(windowed.length < logs.length && windowed.some(l => l.id === 'd1'), '範囲より前のログは読まず、最初の日の朝は読む');
+  assert.deepEqual(rowsFrom(windowed), rowsFrom(logs), '直近の分だけ読んでも、全部読んだときと同じ行になる');
+  assert.equal(rowsFrom(windowed).length, 3, '書くのは やり直した人の手貼り・CAD・抜型照合 の3行');
+
+  const calls = []; const prevFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); calls.push({ u, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null });
+    if ((init.method || 'GET') !== 'GET') return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    const f = u.searchParams.get('filterByFormula') || '';
+    const m = /IS_AFTER\(\{fldal1FMiPlRVn9BF\}, '([^']+)'\)/.exec(f);
+    const recs = u.pathname.includes('tblQFZ7QEuRaBW4oj') ? logs.filter(l => !m || l.fields[WL.at] > m[1]) : [];
+    return new Response(JSON.stringify({ records: recs }), { status: 200 });
+  };
+  try {
+    const r = await mod.runIncentive();
+    const q = calls.find(c => c.u.pathname.includes('tblQFZ7QEuRaBW4oj')).u.searchParams.get('filterByFormula');
+    assert.ok(q.includes(`'${since}'`), '毎晩の集計は直近45日の1日前から読む');
+    assert.equal(r.logs, windowed.length);
+    assert.equal(r.rows, 3); assert.equal(r.written, 3); assert.equal(r.total, 3);
+    const wrote = calls.filter(c => c.method === 'PATCH').flatMap(c => c.body.records.map(x => x.fields.fldCqMq8twEDgwn3a)).sort();
+    assert.deepEqual(wrote, rowsFrom(logs).map(s => s.split('=')[0]));
+    calls.length = 0;
+    await mod.runIncentive({ full: true });
+    const qf = calls.find(c => c.u.pathname.includes('tblQFZ7QEuRaBW4oj')).u.searchParams.get('filterByFormula');
+    assert.ok(qf.includes(`'${mod.logsSince(mod.START_DATE)}'`), 'full は 10/8 の1日前から読む');
+  } finally { global.fetch = prevFetch; }
+});
 test('MS1 画面: 完了・取消・材料の報告を保存できたらログイン帯の件数を数え直す', () => {
   assert.ok(/CREDIT_ACTIONS = new Set\(\['complete', 'cancel', 'stock'\]\)/.test(source));
   assert.ok(extract('write').includes('myStats.refresh(true)'));
@@ -1110,6 +1167,91 @@ test('EST1 画面: 数量×1個あたり分で延べ時間と幅・回数を出�
   assert.equal(env.estLine({ amount: 60 }), null);
   assert.equal(text(env.estLine({ amount: 10, est: { pp: 2, lo: 2, hi: 2, n: 3, people: 1 } })), '推定 延べ20分 過去3回', '幅が同じなら幅を出さない・1人なら人数割りを出さない');
   assert.ok(extract('facts').includes('const es = estLine(o); if (es) f.append(es);'));
+});
+
+// ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
+test('AU1 未ログインは 401（needLogin）。社員表を読めないときは 503 で未ログインと取り違えない。伝票照合は照合した人を作業ログに残す', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const imp = (f) => import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', f)).href);
+  const auth = await imp('_auth.js');
+  const ORIGIN = 'https://app.example.com';
+  const sid = { ok: 'recAU1ok000000001', down: 'recAU1down0000002', gone: 'recAU1gone0000003' };
+  const token = (id) => auth.signSession(auth.makeSessionPayload({ id, no: 1001, name: '試験 太郎', role: 'スタッフ', gen: 1 }));
+  const req = async (p, { id, csrf = true, method = 'POST', body } = {}) => new Request(ORIGIN + p, {
+    method, headers: { origin: ORIGIN, 'content-type': 'application/json', ...(csrf ? { 'x-csrf': 't' } : {}),
+      cookie: [csrf ? 'xcsrf=t' : '', id ? `dl_sess=${await token(id)}` : ''].filter(Boolean).join('; ') },
+    ...(body ? { body: JSON.stringify(body) } : {}) });
+  const calls = []; const prevFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const method = init.method || 'GET';
+    calls.push({ u, method, body: init.body ? JSON.parse(init.body) : null });
+    const ok = (b) => new Response(JSON.stringify(b), { status: 200 });
+    if (u.pathname.endsWith('/' + sid.ok)) return ok({ id: sid.ok, fields: { 氏名: '試験 太郎', 社員番号: 1001, PIN暗号値: 'x', 有効: true, ログイン世代: 1 } });
+    if (u.pathname.endsWith('/' + sid.down)) return new Response('{"error":"bad"}', { status: 400 }); // 読めない（404 ではない）
+    if (u.pathname.endsWith('/' + sid.gone)) return new Response('{"error":"NOT_FOUND"}', { status: 404 });
+    if (method === 'PATCH') return ok({ records: init.body ? JSON.parse(init.body).records.map(r => ({ id: r.id })) : [] });
+    return ok({ records: [] });
+  };
+  try {
+    let a = await auth.requireUser(await req('/api/x'));
+    assert.equal(a.deny.status, 401); assert.equal((await a.deny.json()).needLogin, true, 'Cookie が無ければ needLogin');
+    a = await auth.requireUser(await req('/api/x', { id: sid.ok }));
+    assert.equal(a.user.name, '試験 太郎'); assert.equal(a.user.no, 1001);
+    a = await auth.requireUser(await req('/api/x', { id: sid.down }));
+    assert.equal(a.deny.status, 503, '社員表を読めないときは未ログイン扱いにしない');
+    assert.ok(!(await a.deny.json()).needLogin);
+    a = await auth.requireUser(await req('/api/x', { id: sid.gone }));
+    assert.equal(a.deny.status, 401, '社員の行が無ければ無効');
+
+    // 各 API: 未ログインは 401、外部（Airtable・Google・AI）には何も送らない
+    const edge = [
+      ['slip-verify.js', '/api/slip-verify', { action: 'verify', items: [{ id: 'recSLIP0000000001', status: 'OK' }] }],
+      ['airtable-update-progress.js', '/api/airtable-update-progress', { action: 'stored', items: [{ book: 'Ta', wc: '1', loc: 'A-1' }] }],
+      ['airtable-update-progress.js', '/api/airtable-update-progress', { action: 'orders', book: 'Ta', wc: '1' }],
+      ['die-check.js', '/api/die-check', { book: 'Ta', wc: '1', json: true }],
+      ['box-detect.js', '/api/box-detect', { image: 'AAAA' }],
+      ['material-match.js', '/api/material-match', { book: 'Ta', wc: '1', image: 'AAAA' }],
+      ['die-align-verify.js', '/api/die-align-verify', { book: 'Ta', wc: '1', image: 'AAAA' }],
+    ];
+    process.env.AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN || 'TEST_ONLY_NOT_A_TOKEN'; // die-check は AIRTABLE_TOKEN を見る
+    for (const [file, p, body] of edge) {
+      const h = (await imp(file)).default; calls.length = 0;
+      const r = await h(await req(p, { body }));
+      assert.equal(r.status, 401, `${p} ${body.action || ''} は未ログインで 401`);
+      assert.equal(calls.length, 0, `${p} は未ログインのとき外部に何も送らない`);
+    }
+    for (const p of ['/api/drive-find?book=Ta&wc=1', '/api/drive-proxy?id=abc']) {
+      const h = (await imp(p.slice(5).split('?')[0] + '.js')).default; calls.length = 0;
+      const r = await h(await req(p, { method: 'GET', csrf: false }));
+      assert.equal(r.status, 401, `${p} は未ログインで 401`); assert.equal(calls.length, 0);
+    }
+    // 図面の表示は X-CSRF ヘッダが無くても、ログインしていれば検証を通る（iframe の PDF）。先へ進んで Google の設定不足で止まる
+    const px = await (await imp('drive-proxy.js')).default(await req('/api/drive-proxy?id=abc', { method: 'GET', csrf: false, id: sid.ok }));
+    assert.notEqual(px.status, 401); assert.notEqual(px.status, 403);
+
+    // 棚登録（Node ランタイム）: CSRF なしは 403、未ログインは 401
+    const gs = (await imp('gsheet-seen-bulk.js')).default;
+    const nodeCall = async (headers) => {
+      const out = {}; const res = { status(c) { out.status = c; return res; }, json(b) { out.body = b; return res; } };
+      await gs({ method: 'POST', url: '/api/gsheet-seen-bulk', headers: { host: 'app.example.com', origin: ORIGIN, ...headers }, body: { items: [{ book: 'Ta', wc: '1', loc: 'A-1' }] } }, res);
+      return out;
+    };
+    assert.equal((await nodeCall({})).status, 403);
+    const g401 = await nodeCall({ cookie: 'xcsrf=t', 'x-csrf': 't' });
+    assert.equal(g401.status, 401); assert.equal(g401.body.needLogin, true);
+
+    // 伝票照合: ログインしていれば書き、照合した人を作業ログ（伝票照合・実績対象なし）に残す
+    const slip = (await imp('slip-verify.js')).default; calls.length = 0;
+    const r = await slip(await req('/api/slip-verify', { id: sid.ok, body: { action: 'verify', items: [{ id: 'recSLIP0000000001', status: 'UpdatedBySlip', namount: 1200 }] } }));
+    const j = await r.json();
+    assert.equal(r.status, 200); assert.equal(j.updated, 1); assert.equal(j.operator, '試験 太郎');
+    const logPost = calls.find(c => c.method === 'POST' && c.u.pathname.includes('tblQFZ7QEuRaBW4oj'));
+    assert.ok(logPost, '作業ログに書く');
+    const lf = logPost.body.records[0].fields;
+    assert.equal(lf.fldHbWQ5VemkIPMmS, '伝票照合'); assert.equal(lf.fldmjyRUDyPPaFFnb, 1001);
+    assert.match(lf.fldJvGOGNVnGzadUW, /^UpdatedBySlip（数量 1200・進行社外 完納（数量訂正））$/);
+    assert.equal(lf.fldOfsIbZmKNfeik8, 'recSLIP0000000001'); assert.ok(!('fldIHadyI8FqyEqQ5' in lf), 'インセンティブには数えない');
+  } finally { global.fetch = prevFetch; }
 });
 
 (async () => {

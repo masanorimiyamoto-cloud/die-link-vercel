@@ -2,7 +2,7 @@
 // 工程完了画面（public/process.html）のサーバー処理。先頭が _ なので単独の関数にはならず、
 // api/airtable-update-progress.js から呼ばれる（Vercel Hobby の関数数を増やさないため）。
 //
-//   action=orders   { book, wc }                 … その品番の受注一覧（ログイン不要の読み取り）
+//   action=orders   { book, wc }                 … その品番の受注一覧（2026-11-10 から入口の airtable-update-progress.js でログイン必須）
 //   action=items    { k1, k2, archived }         … ItemName にキーワード（2つまで・両方含む）がある受注の一覧（ログイン必須）。archived でアーカイブ済も含む
 //   action=view     { view }                     … 作業リスト。Airtable のビューをそのまま読む（ログイン必須）
 //                   絞り込みと並び順はビュー側の設定が効くので、条件を変えたいときは Airtable でビューを直す。

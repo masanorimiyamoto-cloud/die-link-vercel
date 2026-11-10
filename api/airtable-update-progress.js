@@ -30,9 +30,11 @@
 //  裏を返すと、書く値を間違えると選択肢が勝手に増える。ラベルは Airtable の
 //  抜型状況(fldQBOQKnKS2TIx3s)の選択肢名と一致させること。
 //
-//  2026-10-03: 個人ログイン（api/session.js?action= / _auth-api.js）に対応。ログイン中なら操作者を TableWorkLog に残し、
-//  応答の operator に名前を返す。未ログインでも従来どおり動く（並行運用のため）。
-import { getSessionUser, writeWorkLog } from './_auth.js';
+//  2026-10-03: 個人ログイン（api/session.js?action= / _auth-api.js）に対応。操作者を TableWorkLog に残し、
+//  応答の operator に名前を返す。
+//  2026-11-10: ログイン必須にした（スマホは全員ログインして使っている）。xcsrf は誰にでも発行されるので、
+//  未ログインでも動くままだと外から受注を書き換えられた。未ログインは 401（needLogin）。
+import { requireUser, writeWorkLog } from './_auth.js';
 // 工程完了画面（orders / complete / undo）も関数数を増やさないためここで受ける。
 import { PROCESS_ACTIONS, handleProcess } from './_process.js';
 export const config = { runtime: 'edge' };
@@ -175,7 +177,9 @@ function sameOrigin(req) {
   const selfOrigin = new URL(req.url).origin;
   const origin  = req.headers.get('origin')  || '';
   const referer = req.headers.get('referer') || '';
-  return (origin.startsWith(selfOrigin) || referer.startsWith(selfOrigin));
+  // 前方一致だと https://自ドメイン.evil.com も通るので、オリジンを取り出して完全一致で比べる
+  const same = (v) => { try { return new URL(v).origin === selfOrigin; } catch { return false; } };
+  return same(origin) || same(referer);
 }
 
 // --- fetch with retry (429/5xx) ---
@@ -273,8 +277,9 @@ export default async function handler(req) {
   try {
     let body = {};
     try { body = await req.json(); } catch {}
-    // ログイン中の本人（未ログインなら null。記録できないだけで処理は続ける）
-    const who = await getSessionUser(req).catch(() => null);
+    // ログイン中の本人。未ログインは 401 で止める
+    const who = await requireUser(req);
+    if (who.deny) return who.deny;
     const logEntries = [];
 
     const action = String(body?.action || '').trim();

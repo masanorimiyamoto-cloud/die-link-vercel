@@ -31,6 +31,9 @@
 //   VerificationDetails(longText) は Mismatch のときだけ書く（紙に書かれていた値は
 //   NAmountを更新しないため他に残らない）。他の3状態はスナップショット比較で説明が
 //   付くため自由記述の情報価値が薄く、毎回空文字でクリアする（details は無視）。
+// 2026-11-10: ログイン必須にし、照合した人を作業ログ（伝票照合）に残す。それまでは CSRF だけで、
+//   外からでも 完納済 を書けた。作業ログは実績対象にしない（インセンティブには数えない）。
+import { requireUser, writeWorkLog } from './_auth.js';
 export const config = { runtime: 'edge' };
 
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
@@ -84,7 +87,9 @@ function sameOrigin(req) {
   const selfOrigin = new URL(req.url).origin;
   const origin  = req.headers.get('origin')  || '';
   const referer = req.headers.get('referer') || '';
-  return (origin.startsWith(selfOrigin) || referer.startsWith(selfOrigin));
+  // 前方一致だと https://自ドメイン.evil.com も通るので、オリジンを取り出して完全一致で比べる
+  const same = (v) => { try { return new URL(v).origin === selfOrigin; } catch { return false; } };
+  return same(origin) || same(referer);
 }
 
 // --- fetch with retry (429/5xx) ---
@@ -192,6 +197,8 @@ export default async function handler(req) {
   if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
     return json({ ok: false, error: 'CSRF 検証NG' }, 403);
   }
+  const auth = await requireUser(req);
+  if (auth.deny) return auth.deny;
 
   try {
     let body = {};
@@ -263,7 +270,15 @@ export default async function handler(req) {
       if (!items.length) return json({ ok: false, error: 'items がありません' }, 400);
 
       const ids = await patchItems(items);
-      return json({ ok: true, updated: ids.length, ids }, 200);
+      // 誰がどの明細をどう照合したか（書けなくても照合は成功として返す）
+      const wrote = new Set(ids);
+      await writeWorkLog(auth.user, items.filter(it => wrote.has(it.id)).map(it => {
+        const f = it.fields;
+        const extra = [FIELD_NAMOUNT in f ? `数量 ${f[FIELD_NAMOUNT]}` : '', FIELD_NDATE in f ? `納期 ${f[FIELD_NDATE]}` : '',
+          FIELD_PROGRESS_OUT in f ? `進行社外 ${f[FIELD_PROGRESS_OUT]}` : ''].filter(Boolean).join('・');
+        return { action: '伝票照合', recordIds: [it.id], detail: `${f[FIELD_VSTATUS]}${extra ? `（${extra}）` : ''}` };
+      })).catch(() => {});
+      return json({ ok: true, updated: ids.length, ids, operator: auth.user.name }, 200);
     }
 
     return json({ ok: false, error: 'action は fetch / verify を指定してください' }, 400);

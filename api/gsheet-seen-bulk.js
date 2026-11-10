@@ -12,6 +12,16 @@
 //   - Node v18+ (fetch, crypto 利用)
 
 import crypto from "node:crypto";
+import { checkCsrf, getSessionUser } from "./_auth.js";
+
+// _auth.js は Edge の Request（req.headers.get / 絶対URL）を前提にしているので、Node の req をその形に合わせる
+function asFetchReq(req) {
+  const host = req.headers.host || "localhost";
+  return {
+    url: `https://${host}${req.url || "/"}`,
+    headers: { get: (k) => { const v = req.headers[String(k).toLowerCase()]; return Array.isArray(v) ? v.join(", ") : (v ?? null); } },
+  };
+}
 
 const GS_SPREADSHEET_ID = process.env.GS_SPREADSHEET_ID || "";
 const GS_WORKSHEET_NAME = process.env.GS_WORKSHEET_NAME || "wsTableCD";
@@ -184,6 +194,16 @@ export default async function handler(req, res) {
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method Not Allowed" });
     }
+
+    // CSRF とログインを必須にする（2026-11-10）。それまでは何の確認も無く、外からシートの棚番号を書き換えられた
+    const freq = asFetchReq(req);
+    if (!checkCsrf(freq)) {
+      return res.status(403).json({ ok: false, error: "CSRF 検証NG（画面を読み込み直してください）" });
+    }
+    let who;
+    try { who = await getSessionUser(freq); }
+    catch { return res.status(503).json({ ok: false, error: "ログインを確かめられませんでした。少し待ってからもう一度試してください" }); }
+    if (!who) return res.status(401).json({ ok: false, error: "ログインしてください", needLogin: true });
 
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) {

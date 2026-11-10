@@ -10,7 +10,8 @@
 //  ・社員番号が無いログ（10/7 以前）は数えない。対象は 2026-10-08（日本時間）以降。
 //  ・日付は記録した時刻の日本時間の日。
 // 実行: 毎晩の Vercel Cron（vercel.json）と、管理者が /api/session?action=incentive を開いたとき。
-//  直近45日を作り直す（翌日以降の取消も反映するため）。&full=1 で 10/8 から全部作り直す。
+//  直近45日を作り直す（翌日以降の取消も反映するため）。作業ログもその45日分だけ読む（logsSince）。
+//  &full=1 で 10/8 から全部作り直す（ログも全部読む）。
 // 欄はすべてフィールドIDで読み書きする（10/4 に欄名の変更でログが捨てられた教訓）。
 
 const AIRTABLE_PAT     = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN || '';
@@ -88,11 +89,22 @@ export function countDaily(logs) {
   return counts;
 }
 
+// 作業ログをどの時刻より後から読むか（from は日本時間の日付）。
+// 以前は毎回 10/7 から全部読んでいたので、ログが増えるほど遅くなり、いずれ関数の時間切れで集計が止まる（2026-11-10）。
+// 書くのは from 以降の日付の行だけで、その行は from より前のログに左右されない:
+//  ・照合・仕舞いは1行ずつ数える（他の行と無関係）
+//  ・完了／取消は 受注ID＋工程 の「最後の1行」だけで決まる。最後の行が from 以降ならそれより前の行は結果に効かず、
+//    最後の行が from より前ならその完了は from より前の日付なので、もともと書く対象に入らない
+// なので from の日本時間 0:00 から読めば、全部読んだときと同じ結果になる（境目のずれに備えて1日前から読む）。
+// from より前の日付の行は今までどおり直さない（45日より前の完了を取り消したときは &full=1 で作り直す）
+export function logsSince(from) {
+  return new Date(Date.parse(`${from}T00:00:00+09:00`) - 86400000).toISOString();
+}
+
 export async function runIncentive({ full = false } = {}) {
   const from = full ? START_DATE : [START_DATE, daysAgoJST(WINDOW_DAYS)].sort().pop();
-  // 取消の相手（その前の完了）を見落とさないよう、ログは常に START_DATE の前日から読む
   const logs = await readAll(WORKLOG,
-    `AND(IS_AFTER({${WL.at}}, '2026-10-07T00:00:00.000Z'), OR({${WL.credit}}, ${CANCEL_ACTIONS.map(a => `{${WL.action}}='${a}'`).join(', ')}))`,
+    `AND(IS_AFTER({${WL.at}}, '${logsSince(from)}'), OR({${WL.credit}}, ${CANCEL_ACTIONS.map(a => `{${WL.action}}='${a}'`).join(', ')}))`,
     Object.values(WL));
   const counts = countDaily(logs);
   const want = [...counts.values()].filter(c => c.date >= from);

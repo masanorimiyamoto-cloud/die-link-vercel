@@ -1,4 +1,5 @@
 // api/drive-find.js
+import { requireUser, isLocalReq } from './_auth.js';
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -54,6 +55,11 @@ function normalizeWc(s){
 
 export default async function handler(req){
   try{
+    // ログイン必須（2026-11-10）。それまでは何の確認も無く、品番を入れれば誰でも図面のファイルIDを取れた
+    if (!isLocalReq(req)) {
+      const auth = await requireUser(req);
+      if (auth.deny) return auth.deny;
+    }
     const u = new URL(req.url);
     const book = (u.searchParams.get('book')||'').trim();
     const wcRaw= (u.searchParams.get('wc')  ||'').trim();

@@ -165,7 +165,9 @@ export function checkCsrf(req) {
   const self = new URL(req.url).origin;
   const origin = req.headers.get('origin') || '';
   const referer = req.headers.get('referer') || '';
-  if (!(origin.startsWith(self) || referer.startsWith(self))) return false;
+  // 前方一致だと https://自ドメイン.evil.com も通るので、オリジンを取り出して完全一致で比べる
+  const same = (v) => { try { return new URL(v).origin === self; } catch { return false; } };
+  if (!(same(origin) || same(referer))) return false;
   const cookie = parseCookies(req)['xcsrf'] || '';
   const header = req.headers.get('x-csrf') || '';
   return !!cookie && cookie === header;
@@ -243,10 +245,19 @@ export async function updateStaff(id, fields) {
 /* ---------------- ログイン中の本人を確かめる ---------------- */
 const staffCache = new Map(); // sid -> { at, active, gen, role, name }
 
+// 社員表を読めなかったとき（Airtable の不調・通信の失敗）は「ログインしていない」と取り違えない（2026-11-10）。
+// 前に確かめた結果があればそれを使い、無ければ投げる（requireUser が 503 で返す）。
+// 社員の行が無い（404）ときだけ無効として扱う
 async function currentStaffState(sid) {
   const c = staffCache.get(sid);
   if (c && Date.now() - c.at < STAFF_CACHE_MS) return c;
-  const s = await getStaffById(sid);
+  let s = null;
+  if (/^rec[A-Za-z0-9]{14}$/.test(String(sid || ''))) {
+    try { s = toStaff(await airtable(`${STAFF_API}/${sid}`)); }
+    catch (e) {
+      if (!/^airtable (403|404)\b/.test(String(e?.message || ''))) { if (c) return c; throw e; }
+    }
+  }
   const v = s ? { at: Date.now(), active: s.active && !!s.pinHash, gen: s.gen, role: s.role, name: s.name } : { at: Date.now(), active: false };
   staffCache.set(sid, v);
   return v;
@@ -263,6 +274,21 @@ export async function getSessionUser(req) {
   const st = await currentStaffState(p.sid);
   if (!st.active || st.gen !== p.gen) return null;
   return { user: { id: p.sid, no: p.no, name: st.name || p.name, role: st.role }, payload: p };
+}
+
+// ログイン必須の API 用（2026-11-10）。戻り値は getSessionUser と同じ { user, payload }。
+// ログインしていなければ { deny: Response(401, needLogin) }、社員表を読めず確かめられなければ { deny: Response(503) }。
+// xcsrf は /api/session が誰にでも発行するので、CSRF の確認だけでは外から呼べてしまう。書き込み・図面・AI はこれで守る
+export async function requireUser(req) {
+  const deny = (body, status) => ({ deny: new Response(JSON.stringify({ ok: false, ...body }), {
+    status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } }) });
+  let s;
+  try { s = await getSessionUser(req); }
+  catch (e) {
+    console.error('requireUser failed', e?.message || e);
+    return deny({ error: 'ログインを確かめられませんでした。少し待ってからもう一度試してください' }, 503);
+  }
+  return s || deny({ error: 'ログインしてください', needLogin: true }, 401);
 }
 
 /* ---------------- 作業ログ ---------------- */

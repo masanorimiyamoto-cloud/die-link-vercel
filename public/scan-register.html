@@ -205,8 +205,6 @@
 <script>
 // ========= 設定 (Settings) =========
 const SHEET_ENDPOINT = "/api/gsheet-seen-bulk";
-const AIRTABLE_ENDPOINT = "/api/airtable-update-loc"
-const AIRTABLE_ENABLED = false;
 const PROGRESS_ENDPOINT = "/api/airtable-update-progress"; // 抜型状況 に「抜型を棚に仕舞い完了」を追加 ＋ Location / LastSeen
 const PROGRESS_ENABLED = true;
 const SCAN_RESOLUTION = 960; // 抜型QR（18mm角）は小さいため解像度を確保（600→960）
@@ -551,26 +549,17 @@ async function submitUpdate() {
 
   try {
     // 1) Google Sheets
+    const csrfG = await ensureCsrf();
     const rG = await fetch(SHEET_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", ...(csrfG ? { "X-CSRF": csrfG } : {}) },
       body: JSON.stringify({ items })
     });
-    const jG = await rG.json();
-    if (!jG.ok) throw new Error("GoogleSheets Error");
+    const jG = await rG.json().catch(() => ({}));
+    if (!rG.ok || !jG.ok) throw new Error(jG.error || `GoogleSheets Error (HTTP ${rG.status})`);
     
-    // 2) Airtable
-    if (AIRTABLE_ENABLED) {
-        try {
-            await fetch(AIRTABLE_ENDPOINT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ items })
-            });
-        } catch(e) { console.warn("Airtable skip", e); }
-    }
-
-    // 3) Airtable 抜型状況 に「抜型を棚に仕舞い完了」を追加 ＋ Location（棚番号）/ LastSeen（当日）
+    // 2) Airtable 抜型状況 に「抜型を棚に仕舞い完了」を追加 ＋ Location（棚番号）/ LastSeen（当日）
     if (PROGRESS_ENABLED) {
         try {
             const csrf = await ensureCsrf();
