@@ -88,6 +88,7 @@ const nowStamp = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 
 const send = (res, status, body, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }); res.end(JSON.stringify(body)); };
 
 const SLIPS = new Map();
+const RECENT_ENTRIES = [];
 async function handle(body) {
   const a = body.action;
   const views = publicViews(), steps = publicSteps();
@@ -120,6 +121,26 @@ async function handle(body) {
     const keys = [body.k1, body.k2].filter(Boolean).map(k => k.toLowerCase());
     const list = DB.filter(o => keys.every(k => o.item.toLowerCase().includes(k))).map(pub);
     return { body: { ok: true, orders: list, more: false, steps, rooms: ROOMS } };
+  }
+  if (a === 'orderTemplates') {
+    if (body.recent) {
+      const list = [...RECENT_ENTRIES, ...DB.slice(0, 3)].filter((o, i, all) => all.findIndex(x => x.book === o.book && x.wc === o.wc && x.spec?.kname === o.spec?.kname && x.deli === o.deli) === i);
+      return { body: { ok: true, templates: list.slice(0, 12).map(pub), more: false } };
+    }
+    if (body.id) {
+      const o = find();
+      return o ? { body: { ok: true, templates: [pub(o)], more: false } }
+        : { status: 404, body: { ok: false, error: '元の受注がありません。品目を探し直してください' } };
+    }
+    const terms = String(body.query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const list = DB.filter(o => (!body.book || o.book === body.book) && terms.every(t => [t, t.replace(/[０-９ａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))].some(k => `${o.book} ${o.wc} ${o.spec?.kname || ''} ${o.item}`.toLowerCase().includes(k))))
+      .sort((a, b) => String(b.ndate).localeCompare(String(a.ndate)));
+    const unique = new Map();
+    for (const o of list) {
+      const key = JSON.stringify([o.book, String(o.wc), o.spec?.kname || '', o.deli || '']);
+      if (!unique.has(key)) unique.set(key, pub(o));
+    }
+    return { body: { ok: true, templates: [...unique.values()], more: false } };
   }
   if (a === 'deletions') return { body: { ok: true, rows: LEDGER.slice(0, 30) } };
   if (a === 'delete') {
@@ -173,8 +194,9 @@ async function handle(body) {
   if (a === 'stock') { o.progOut = body.on ? body.out : 'シート手配済み'; return { body: { ok: true, progOut: o.progOut } }; }
   if (a === 'neworder') {
     if (!body.force && DB.some(x => x.item === o.item && x.ndate === body.ndate && String(x.amount) === String(body.amount))) return { status: 409, body: { ok: false, dup: true, error: '同じ納期・数量の受注が既にあります' } };
-    const no = order({ ...pub(o), id: rid(), amount: Number(body.amount), ndate: body.ndate, memo: body.memo, done: {}, progIn: '', addPending: true, approved: true, views: o.views });
-    DB.push(no); return { body: { ok: true, order: pub(no) } };
+    const no = order({ ...pub(o), id: rid(), amount: Number(body.amount), ndate: body.ndate, memo: body.memo, done: {}, progIn: '', progOut: '',
+      group: '', slipId: '', closed: false, archived: false, amountLocked: false, printedAt: '', addPending: true, approved: true, views: o.views });
+    DB.push(no); RECENT_ENTRIES.unshift(no); return { body: { ok: true, order: pub(no) } };
   }
   if (a === 'approve') { const was = o.approved; o.approved = true; return { body: { ok: true, approved: true, ...(was ? { unchanged: true } : {}) } }; }
   if (a === 'delete') {
@@ -211,7 +233,7 @@ http.createServer(async (req, res) => {
     return send(res, r.status || 200, r.body);
   }
   if (u.pathname.startsWith('/api/')) { console.error('UNMOCKED', req.method, u.pathname); return send(res, 500, { ok: false, error: 'unmocked API (mock server)' }); }
-  if (u.pathname === '/__mock' && req.method === 'POST') { const b = JSON.parse(raw || '{}'); if (b.reset) { DB = fixtures(); LEDGER = []; ctl.log = []; } Object.assign(ctl, b.ctl || {}); return send(res, 200, { ok: true, ctl }); }
+  if (u.pathname === '/__mock' && req.method === 'POST') { const b = JSON.parse(raw || '{}'); if (b.reset) { DB = fixtures(); LEDGER = []; RECENT_ENTRIES.length = 0; ctl.log = []; } Object.assign(ctl, b.ctl || {}); return send(res, 200, { ok: true, ctl }); }
   if (u.pathname === '/__mock/log') return send(res, 200, ctl.log);
   if (u.pathname === '/__mock/img.svg') { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="140"><rect width="200" height="140" fill="#e2e8f0"/><text x="20" y="80" font-size="22">MOCK IMAGE</text></svg>'); }
   const file = path.join(ROOT, path.normalize(u.pathname).replace(/^([/\\])+/, ''));

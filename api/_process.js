@@ -100,7 +100,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'orderTemplates', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -269,6 +269,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'orders') return orders(body);
   if (!who) return json({ ok: false, error: 'ログインしてください', needLogin: true }, 401);
   if (action === 'items') return items(body);
+  if (action === 'orderTemplates') return orderTemplates(body, who.user);
   if (action === 'view') return view(body, who.user);
   if (action === 'viewImages') return viewImages(body);
   if (action === 'complete') return complete(body, who.user);
@@ -453,6 +454,71 @@ async function orders(body) {
 // 件数が多いと Airtable の読み取りが重いので MAX_ITEMS で打ち切り、打ち切ったことを画面に伝える。
 // 打ち切るときに新しい受注が残るよう、Airtable からは納期の新しい順に読む
 const MAX_ITEMS = 200;
+// 新規入力では、過去の受注を品目・得意先・納品先ごとにまとめる。作業リストと違い、読み取りだけ。
+const orderTemplateKey = (o) => JSON.stringify([o.book, String(o.wc), o.spec?.kname || '', o.deli || '']);
+async function orderTemplates(body, user) {
+  try {
+    // 最近使った品目も、選んだ時点で元の受注を読み直す。削除済みなら古い控えから登録しない。
+    if (body?.id) {
+      if (!/^rec[A-Za-z0-9]{14}$/.test(String(body.id))) return json({ ok: false, error: '品目の指定が正しくありません' }, 400);
+      const rec = await fetchRecordStrict(body.id);
+      if (!rec) return json({ ok: false, error: '元の受注がありません。品目を探し直してください' }, 404);
+      return json({ ok: true, templates: [describe(rec)], more: false });
+    }
+    if (body?.recent) {
+      const no = Number(user?.no);
+      if (!Number.isFinite(no)) return json({ ok: true, templates: [], more: false });
+      const logUrl = new URL(WORKLOG_API);
+      logUrl.searchParams.set('filterByFormula', `AND({操作}='新規受注',{社員番号}=${no})`);
+      logUrl.searchParams.set('sort[0][field]', '日時'); logUrl.searchParams.set('sort[0][direction]', 'desc');
+      logUrl.searchParams.set('maxRecords', '50'); logUrl.searchParams.append('fields[]', '受注ID');
+      const logs = (await airtable(logUrl)).records || [];
+      const ids = [...new Set(logs.flatMap(r => String(r.fields?.['受注ID'] || '').match(/rec[A-Za-z0-9]{14}/g) || []))].slice(0, 50);
+      if (!ids.length) return json({ ok: true, templates: [], more: false });
+      const url = new URL(API);
+      url.searchParams.set('filterByFormula', `OR(${ids.map(id => `RECORD_ID()='${id}'`).join(',')})`);
+      url.searchParams.set('pageSize', '100');
+      for (const f of [F.book, F.wc, F.item, F.kname, F.deli, F.ndate, F.amount]) url.searchParams.append('fields[]', f);
+      const records = new Map(((await airtable(url)).records || []).map(r => [r.id, r]));
+      const unique = new Map();
+      for (const id of ids) {
+        const r = records.get(id); if (!r || !r.fields?.[F.book] || r.fields?.[F.wc] == null) continue;
+        const o = describe(r), key = orderTemplateKey(o);
+        if (!unique.has(key)) unique.set(key, o);
+      }
+      return json({ ok: true, templates: [...unique.values()].slice(0, 12), more: false });
+    }
+    const query = String(body?.query || '').trim();
+    if (query.length > 100) return json({ ok: false, error: '検索は100文字以内で入れてください' }, 400);
+    const book = String(body?.book || '').trim();
+    const terms = query.split(/\s+/).filter(Boolean);
+    const conditions = ["{Book}!=''", '{WorkCord}!=BLANK()'];
+    if (book) conditions.push(`{Book}='${esc(book)}'`);
+    for (const term of terms) {
+      // 半角カナの品名はそのまま探す。全角の英数字は、入力どおりの形と半角の両方を調べる。
+      const forms = [...new Set([term, term.replace(/[０-９Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))])];
+      conditions.push(`OR(${forms.map(k => `FIND(LOWER('${esc(k)}'),LOWER({Book}&' '&{WorkCord}&' '&{Kname}&' '&{ItemName}))`).join(',')})`);
+    }
+    const rows = []; let offset;
+    do {
+      const url = new URL(API);
+      url.searchParams.set('filterByFormula', `AND(${conditions.join(',')})`);
+      url.searchParams.set('sort[0][field]', F.ndate); url.searchParams.set('sort[0][direction]', 'desc');
+      url.searchParams.set('pageSize', '100'); url.searchParams.set('maxRecords', String(MAX_ITEMS + 1));
+      for (const f of [F.book, F.wc, F.item, F.kname, F.deli, F.ndate, F.amount]) url.searchParams.append('fields[]', f);
+      if (offset) url.searchParams.set('offset', offset);
+      const page = await airtable(url); rows.push(...(page.records || [])); offset = page.offset;
+    } while (offset && rows.length <= MAX_ITEMS);
+    const unique = new Map();
+    for (const rec of rows.slice(0, MAX_ITEMS)) {
+      const o = describe(rec), key = orderTemplateKey(o);
+      if (!unique.has(key)) unique.set(key, o);
+    }
+    return json({ ok: true, templates: [...unique.values()], more: rows.length > MAX_ITEMS || !!offset });
+  } catch (e) {
+    return json({ ok: false, error: `品目を読めませんでした（${String(e?.message || e).slice(0, 100)}）` }, 502);
+  }
+}
 async function items(body) {
   const keys = [body?.k1, body?.k2].map(k => String(k ?? '').trim()).filter(Boolean);
   if (!keys.length) return json({ ok: false, error: 'キーワードを入れてください' }, 400);

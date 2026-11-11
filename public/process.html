@@ -72,6 +72,15 @@
   .newo .lbl{ font-size:13px; color:var(--mut) }
   .newo .approved{ align-self:center; font-size:14px; font-weight:700; color:var(--ok, inherit) }
   .newo .row input{ flex:1 1 0 }
+  .entry{ display:flex; flex-direction:column; gap:10px }
+  .entry p{ margin:0; color:var(--mut); font-size:13px; line-height:1.6 }
+  .entry .row{ flex-wrap:wrap }
+  .entry .row input{ flex:1 1 160px; min-width:0 }
+  .entry .choices{ display:flex; flex-direction:column; gap:8px }
+  .entry .choice{ width:100%; text-align:left; display:flex; flex-direction:column; gap:5px; padding:12px; min-height:64px; background:var(--surf2); color:var(--txt); border:1px solid var(--line); border-radius:10px }
+  .entry .choice span{ font-size:13px; color:var(--mut); overflow-wrap:anywhere }
+  .entry .chosen{ padding:10px; border:1px solid var(--a); border-radius:10px; display:flex; flex-direction:column; gap:5px }
+  .entry .newo{ margin-top:0 }
   .delbtn{ align-self:flex-start; padding:7px 12px; font-size:14px; font-weight:500; background:transparent; color:var(--err); border:1px solid var(--err) }
   .row{ display:flex; gap:8px; align-items:center }
   input, select{ font:inherit; font-size:19px; padding:10px 12px; border-radius:var(--r); border:1px solid var(--line2);
@@ -83,6 +92,7 @@
   .tabs{ display:flex; gap:4px; background:var(--surf); border:1px solid var(--line); padding:4px; border-radius:12px }
   .tabs button{ flex:1; padding:11px 6px; font-size:16px; font-weight:500; background:transparent; color:var(--mut); border-radius:9px }
   .tabs button.on{ background:var(--hover); color:var(--txt); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.4), inset 0 0 0 1px var(--line2) }
+  @media(max-width:420px){ .tabs button{ font-size:14px; min-width:0 } }
   /* ビューの切替は丸い札。選んだものだけ色を付ける */
   .chips{ display:flex; gap:6px; flex-wrap:wrap; align-items:center }
   .chips button{ padding:7px 13px; font-size:14px; font-weight:500; border-radius:999px; background:var(--surf2); color:var(--mut); border:1px solid var(--line) }
@@ -548,6 +558,7 @@
   <nav class="tabs" role="tablist">
     <button type="button" id="tabList" role="tab">作業リスト</button>
     <button type="button" id="tabFind" role="tab">品番・品名で探す</button>
+    <button type="button" id="tabNew" role="tab">＋ 新規入力</button>
   </nav>
 
   <!-- 作業リスト（Airtable のビューをそのまま表示） -->
@@ -584,6 +595,25 @@
     <div class="msg" id="findMsg" role="status"></div>
     <div class="legend"><span class="ct">更新</span> 取得できた記録（工程・数量・納期・工程表発行）のうち最新。受注の最終更新とは限りません</div>
     <div id="orders" style="display:flex;flex-direction:column;gap:8px"></div>
+  </section>
+
+  <section class="card entry" id="entryCard" hidden>
+    <h1>新規入力</h1>
+    <p>最近登録した品目を選ぶと、すぐ数量・納期を入力できます。</p>
+    <div class="msg" id="entryMsg" role="status"></div>
+    <div id="entryRecentSection" hidden><b>最近登録した品目</b><div class="choices" id="entryRecent"></div></div>
+    <div class="entry" id="entrySearchArea">
+      <b>ほかの品目を探す</b>
+      <div class="row">
+        <select id="entryBook" aria-label="新規入力のBook"><option value="">すべて</option><option>Ko</option><option>Ta</option><option>Yo</option></select>
+        <input id="entryQuery" placeholder="コード・品名・顧客名" aria-label="新規入力のコード・品名・顧客名" autocomplete="off" />
+        <button class="btn" id="entrySearch" type="button">品目を探す</button>
+      </div>
+    </div>
+    <div id="entrySelected" class="chosen" hidden></div>
+    <div class="newo" id="entryForm" hidden></div>
+    <b id="entryResultLabel" hidden>品目を選ぶ</b>
+    <div class="choices" id="entryResults"></div>
   </section>
 
   <!-- 2. 工程を選んで完了 -->
@@ -764,7 +794,7 @@
   // 書き込み中に、受注・リスト・画面を切り替える操作を止める（押されたら知らせるだけ）
   function busyNow() {
     if (!op) return false;
-    say(detailOpen() ? $('stepMsg') : (S.mode === 'list' ? $('listMsg') : $('findMsg')), '記録を処理しています。終わるまでお待ちください', 'warn');
+    say(detailOpen() ? $('stepMsg') : (S.mode === 'new' ? $('entryMsg') : S.mode === 'list' ? $('listMsg') : $('findMsg')), '記録を処理しています。終わるまでお待ちください', 'warn');
     return true;
   }
   // 工程カードの書き込みボタン（data-w）の押せる・押せないを、そのときの状態からまとめて決め直す。
@@ -773,11 +803,12 @@
     const o = current();
     const lock = !!op || !!(S.unsure && o && S.unsure.id === o.id);
     $('stepCard').querySelectorAll('[data-w]').forEach(b => { b.disabled = lock || b.dataset.off === '1'; });
+    $('entryForm').querySelectorAll('[data-w]').forEach(b => { b.disabled = lock || b.dataset.off === '1'; });
     $('closeDetail').disabled = !!op;
   }
   // 工程カードの案内（stepMsg）に出し、押した欄の近くにも同じ文を出す（読み上げは stepMsg の1か所だけ）
   function sayAt(near, text, cls) {
-    say($('stepMsg'), text, cls);
+    say(S.mode === 'new' ? $('entryMsg') : $('stepMsg'), text, cls);
     if (!near) return;
     let m = [...near.children].find(x => x.classList.contains('nearmsg'));
     if (!m) { m = document.createElement('div'); m.setAttribute('aria-hidden', 'true'); near.append(m); }
@@ -1554,25 +1585,124 @@
     }
   }
 
+  /* ---------- 新規入力: 過去の受注カードを開かず、品目から数量・納期へ ---------- */
+  let entryGen = 0;
+  const entryKey = (o) => JSON.stringify([o.book, String(o.wc), o.spec?.kname || '', o.deli || '']);
+  const entryHistoryKey = 'process.newRecent.' + (me.id || me.no || me.name);
+  function entryHistory() {
+    try {
+      const list = JSON.parse(store.get(entryHistoryKey) || '[]');
+      return Array.isArray(list) ? list.filter(o => o && /^rec[A-Za-z0-9]{14}$/.test(o.id) && o.book && o.wc != null).slice(0, 12) : [];
+    } catch { return []; }
+  }
+  function rememberEntry(o) {
+    const snapshot = { id: o.id, book: o.book, wc: o.wc, item: o.item, spec: { kname: o.spec?.kname || '' }, deli: o.deli || '' };
+    store.set(entryHistoryKey, JSON.stringify([snapshot, ...entryHistory().filter(x => entryKey(x) !== entryKey(o))].slice(0, 12)));
+  }
+  function entryChoice(o) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'choice';
+    const title = document.createElement('b'); title.textContent = itemShort(o);
+    const code = document.createElement('span'); code.textContent = `${o.book} / ${o.wc}　${o.spec?.kname || '顧客名なし'}`;
+    b.append(title, code);
+    if (o.deli) { const line = document.createElement('span'); line.textContent = '納品先: ' + o.deli; b.append(line); }
+    b.onclick = () => selectEntry(o.id);
+    return b;
+  }
+  function renderEntryHistory() {
+    const list = entryHistory(); $('entryRecentSection').hidden = !list.length;
+    const box = $('entryRecent'); box.textContent = '';
+    for (const o of list) box.append(entryChoice(o));
+  }
+  function openOrderEntry() {
+    S.orders = []; S.sel = null;
+    $('entrySelected').hidden = true; $('entryForm').hidden = true;
+    $('entrySearchArea').hidden = false;
+    $('entryResults').textContent = ''; $('entryResultLabel').hidden = true;
+    renderEntryHistory();
+    say($('entryMsg'), 'コード・品名・顧客名で探すか、最近登録した品目を選んでください');
+    loadEntryHistory(entryGen);
+  }
+  async function loadEntryHistory(gen) {
+    const j = await api({ action: 'orderTemplates', recent: true });
+    if (gen !== entryGen || S.mode !== 'new' || !j.ok || !Array.isArray(j.templates)) return;
+    const unique = new Map();
+    for (const o of [...j.templates, ...entryHistory()]) if (!unique.has(entryKey(o))) unique.set(entryKey(o), o);
+    // 履歴の控えには品目の表示に必要な値だけ残す。工程記録や図面は保存しない。
+    const list = [...unique.values()].slice(0, 12).map(o => ({ id: o.id, book: o.book, wc: o.wc, item: o.item, spec: { kname: o.spec?.kname || '' }, deli: o.deli || '' }));
+    store.set(entryHistoryKey, JSON.stringify(list)); renderEntryHistory();
+  }
+  async function searchEntry() {
+    if (busyNow()) return;
+    const gen = ++entryGen;
+    const query = $('entryQuery').value.trim(), book = $('entryBook').value;
+    $('entryQuery').blur();
+    $('entryForm').hidden = true; $('entrySelected').hidden = true; S.sel = null;
+    $('entryResults').textContent = ''; $('entryResultLabel').hidden = true;
+    say($('entryMsg'), '品目を探しています…');
+    const j = await api({ action: 'orderTemplates', query, book });
+    if (gen !== entryGen || S.mode !== 'new') return;
+    if (!j.ok || !Array.isArray(j.templates)) return say($('entryMsg'), j.error || '品目を読めませんでした。もう一度探してください', 'err');
+    for (const o of j.templates) $('entryResults').append(entryChoice(o));
+    $('entryResultLabel').hidden = !j.templates.length;
+    say($('entryMsg'), j.templates.length ? `${j.templates.length}品目。選ぶと数量・納期を入力できます。` +
+      (j.more ? '候補が多いため一部を表示しています。顧客名や品名を足して絞れます' : '') : '品目が見つかりません。コード・品名・顧客名を変えて探してください', j.more ? 'warn' : '');
+  }
+  async function selectEntry(id) {
+    if (busyNow()) return;
+    const gen = ++entryGen;
+    $('entryForm').hidden = true; $('entrySelected').hidden = true; S.sel = null;
+    $('entrySearchArea').hidden = false;
+    say($('entryMsg'), '品目を確認しています…');
+    const j = await api({ action: 'orderTemplates', id });
+    if (gen !== entryGen || S.mode !== 'new') return;
+    const o = j.templates?.[0];
+    if (!j.ok || !o || o.id !== id) return say($('entryMsg'), j.error || '品目を確認できません。もう一度探してください', 'err');
+    S.orders = [o]; S.sel = o.id;
+    const box = $('entrySelected'); box.textContent = ''; box.hidden = false;
+    const name = document.createElement('b'); name.textContent = itemShort(o);
+    const customer = document.createElement('span'); customer.textContent = `${o.book} / ${o.wc}　顧客: ${o.spec?.kname || '顧客名なし'}`;
+    box.append(name, customer);
+    if (o.deli) { const d = document.createElement('span'); d.textContent = '納品先: ' + o.deli; box.append(d); }
+    $('entryRecentSection').hidden = true; $('entryResults').textContent = ''; $('entryResultLabel').hidden = true;
+    $('entrySearchArea').hidden = true;
+    $('entryForm').hidden = false; say($('entryMsg'), '数量と納期を入力してください');
+    renderNewOrder(o, {
+      box: $('entryForm'), expanded: true,
+      onCancel: () => { entryGen++; openOrderEntry(); },
+      onCreated: (no, text) => {
+        openOrderEntry();
+        say($('entryMsg'), text + '。続けて別の品目も登録できます', 'ok');
+      },
+    });
+    scrollToCard($('entrySelected'));
+  }
+  $('entrySearch').onclick = searchEntry;
+  $('entryQuery').addEventListener('keydown', e => { if (e.key === 'Enter') searchEntry(); });
+
   /* ---------- タブ ---------- */
   function setMode(m) {
     hideToast();
     S.mode = m; store.set('process.mode', m);
     // 読み込み途中の一覧の応答は、切り替えた後の画面には使わない
     listGen++; listBusy = 0;
+    findGen++; entryGen++;
     $('tabList').classList.toggle('on', m === 'list'); $('tabFind').classList.toggle('on', m === 'find');
     $('tabList').setAttribute('aria-selected', String(m === 'list')); $('tabFind').setAttribute('aria-selected', String(m === 'find'));
+    $('tabNew').classList.toggle('on', m === 'new'); $('tabNew').setAttribute('aria-selected', String(m === 'new'));
     $('listCard').hidden = m !== 'list'; $('findCard').hidden = m !== 'find';
+    $('entryCard').hidden = m !== 'new';
     $('listHead').hidden = m !== 'list';
     $('findHead').hidden = m !== 'find';
     document.body.classList.toggle('has-head', m === 'list' || m === 'find');
     fitHead();
     $('stepCard').hidden = true; S.sel = null; $('variants').hidden = true;
-    if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
+    if (m === 'new') { stopCam(); openOrderEntry(); }
+    else if (m === 'list') { stopCam(); loadView(S.view || store.get('process.view') || ''); }
     else { S.orders = []; renderOrders(); say($('findMsg'), ''); }
   }
   $('tabList').onclick = () => { if (!busyNow()) setMode('list'); };
   $('tabFind').onclick = () => { if (!busyNow()) setMode('find'); };
+  $('tabNew').onclick = () => { if (!busyNow()) setMode('new'); };
 
   // 作業リストの自動の読み直し。受注を開いて操作している間・書き込み中・画像を全画面で見ている間は、押す位置や入力がずれないよう読み直さない。
   // 2026-10-23 以前は「行を選んでいる（S.sel）」で止めていたため、記録して一覧に戻った後（行の選択表示は残る）も止まったままだった。
@@ -2630,35 +2760,36 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   /* ---------- 同じ品目の新規受注（2026-10-30） ---------- */
   // 品目の情報（品名・得意先・納品先・材料・後工程・図面）は元の受注からサーバーが写す。ここで入れるのは数量・納期・連絡事項だけ。
   // 作るとすぐ承認済になり、Airtable_Fetch.py が Excel に行を足す
-  function renderNewOrder(o) {
-    const box = $('newOrder'); box.textContent = '';
+  function renderNewOrder(o, opt = {}) {
+    const box = opt.box || $('newOrder'); box.textContent = '';
     const open = document.createElement('button'); open.type = 'button'; open.className = 'amtbtn qty'; open.textContent = '＋ この品目で新規受注';
     open.dataset.w = '1';
     const delSlot = document.createElement('span'); delSlot.id = 'delSlot'; // 削除ボタンは renderDelete がここへ置く
     const top = document.createElement('div'); top.className = 'row'; top.append(open, approveCtl(o, box), delSlot);
     box.append(top);
-    open.onclick = () => {
+    const showForm = () => {
       box.textContent = '';
       const head = document.createElement('div'); head.className = 'lbl';
-      head.textContent = `同じ品目で新規受注（${o.book} / ${o.wc}）。品名・得意先・納品先・後工程・図面は今の受注から写します。作るとすぐ承認済になり Excel に入ります`;
+      head.textContent = `新規受注（${o.book} / ${o.wc}）。顧客: ${o.spec?.kname || '顧客名なし'}。品名・得意先・納品先・後工程・図面を引き継ぎます。登録後、Excelへの取り込みを待ちます`;
       const amt = document.createElement('input'); amt.inputMode = 'numeric'; amt.placeholder = '数量'; amt.autocomplete = 'off'; amt.setAttribute('aria-label', '数量');
       const nd = document.createElement('input'); nd.type = 'date'; nd.setAttribute('aria-label', '納期');
       const r1 = document.createElement('div'); r1.className = 'row'; r1.append(amt, nd);
       const memo = document.createElement('input'); memo.placeholder = '連絡事項（任意）'; memo.autocomplete = 'off'; memo.setAttribute('aria-label', '連絡事項');
       const save = document.createElement('button'); save.type = 'button'; save.className = 'btn'; save.textContent = '登録する'; save.dataset.w = '1';
-      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = opt.expanded ? '← 品目を選び直す' : 'やめる';
       const r2 = document.createElement('div'); r2.className = 'row'; r2.append(save, cancel);
       box.append(head, r1, memo, r2);
       applyLocks();
       amt.focus();
-      cancel.onclick = () => renderNewOrder(o);
+      cancel.onclick = () => { if (!busyNow()) { if (opt.onCancel) opt.onCancel(); else renderNewOrder(o); } };
       save.onclick = async () => {
         const n = amt.value.trim().replace(/[,，\s]/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
         if (!/^\d+$/.test(n) || !(Number(n) > 0)) return sayAt(box, '数量は1以上の整数で入れてください', 'err');
         if (!/^\d{4}-\d\d-\d\d$/.test(nd.value)) return sayAt(box, '納期を選んでください', 'err');
         const [y, m, d] = nd.value.split('-').map(Number);
         const label = `${m}/${d}(${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
-        if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}\n数量 ${Number(n).toLocaleString('ja-JP')}・納期 ${label}\n\nこの内容で新規受注を作りますか？`)) return;
+        if (busyNow()) return;
+        if (!confirm(`${itemShort(o)}\n${o.book} / ${o.wc}　顧客: ${o.spec?.kname || '顧客名なし'}\n${o.deli ? '納品先: ' + o.deli + '\n' : ''}数量 ${Number(n).toLocaleString('ja-JP')}・納期 ${label}\n\nこの内容で新規受注を作りますか？`)) return;
         await runOp(o, async () => {
           const send = async (force) => {
             sayAt(box, '新規受注を作っています…');
@@ -2677,6 +2808,8 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
           const no = j.order;
           if (o.est && !no.est) no.est = o.est; // 同じ品番なので推定所要時間も同じ（次の読み込みを待たずに出す）
           const text = `新規受注を作りました（${no.book} / ${no.wc}・数量 ${Number(no.amount).toLocaleString('ja-JP')}・納期 ${label}）。Excel には次の取り込みで入ります`;
+          rememberEntry(no);
+          if (opt.onCreated) { opt.onCreated(no, text); return; }
           // 作った受注は候補の一番上に「今作成」の印で出し、そこまで動かして光らせる（カードは開かない）。
           // 作業リストから作ったときは品番で探すに切り替え、新しい受注と元の受注を並べる（ビューに出るかは条件次第のため）
           S.newIds.add(no.id);
@@ -2693,6 +2826,8 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
         });
       };
     };
+    open.onclick = showForm;
+    if (opt.expanded) showForm();
   }
 
   /* ---------- 状況: 進行社外「シート材料入荷済」「機械貼材料入荷済」「在庫シート利用」（2026-10-23 / 10-29） ---------- */
@@ -2941,8 +3076,9 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   const q = new URLSearchParams(location.search);
   // ?view=omamori のように作業リストを直接開ける（ホーム画面のショートカット用）
   if (q.get('view')) { store.set('process.view', q.get('view')); store.set('process.mode', 'list'); }
-  if (q.get('book') && q.get('wc')) { setBook(q.get('book')); $('wc').value = q.get('wc'); setMode('find'); search(); }
-  else setMode(store.get('process.mode') === 'find' ? 'find' : 'list');
+  if (q.get('mode') === 'new') setMode('new');
+  else if (q.get('book') && q.get('wc')) { setBook(q.get('book')); $('wc').value = q.get('wc'); setMode('find'); search(); }
+  else setMode(['find', 'new'].includes(store.get('process.mode')) ? store.get('process.mode') : 'list');
 })();
 </script>
 </body>
