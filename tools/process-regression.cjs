@@ -160,8 +160,9 @@ test('R4 失敗の案内でなければ、同じ内容の自動の読み直し�
 });
 
 // ---- R3 ----
-function apiEnv(fetchImpl) {
-  const env = { fetch: fetchImpl, DLAuth: { csrf: async () => 'MOCK', loginUrl: () => '/login' }, location: { replace() {} } };
+function apiEnv(fetchImpl, extra = {}) {
+  const env = { fetch: fetchImpl, DLAuth: { csrf: async () => 'MOCK', loginUrl: () => '/login' }, location: { replace() {} },
+    AbortController, setTimeout, clearTimeout, ...extra };
   vm.createContext(env);
   vm.runInContext(extract('api') + '\n' + line(/^  const outcomeUnknown = .*$/m) + '\nglobalThis.api = api; globalThis.outcomeUnknown = outcomeUnknown;', env);
   return env;
@@ -179,6 +180,32 @@ test('R3 送れなかった・本文が途中で切れた・壊れた JSON は�
     assert.equal(j.ok, false); assert.equal(j.unknown, true);
     assert.equal(env.outcomeUnknown(j, () => true), true);
   }
+});
+// 2026-11-11 納期の保存で画面が何分も固まった件。応答が来ないまま止まった通信を待ち続けない
+test('R3 応答が来ないまま止まった通信は30秒で打ち切り、「結果不明」として返す（送り直さない）', async () => {
+  const waits = [];
+  const soon = { setTimeout: (fn, ms) => { waits.push(ms); return setTimeout(fn, 5); } }; // 試験では30秒を5ミリ秒に縮める
+  // 送ったきり応答が来ない
+  let sends = 0, aborted = false;
+  const a = apiEnv((url, init) => { sends++; init.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(() => {}); }, soon);
+  const j = await a.api({ action: 'ndate' });
+  assert.deepEqual(waits, [30000]);
+  assert.equal(j.ok, false); assert.equal(j.unknown, true); assert.equal(j.timeout, true);
+  assert.equal(a.outcomeUnknown(j, () => true), true);
+  assert.equal(aborted, true, '止まった通信は中断する');
+  assert.equal(sends, 1);
+  // 応答の頭は来たが本文が来ない／送る前の CSRF の取得で止まった
+  const b = apiEnv(async () => ({ status: 200, text: () => new Promise(() => {}) }), soon);
+  assert.equal((await b.api({ action: 'ndate' })).unknown, true);
+  const c = apiEnv(async () => { throw new Error('送ってはいけない'); }, { ...soon, DLAuth: { csrf: () => new Promise(() => {}), loginUrl: () => '/login' } });
+  assert.equal((await c.api({ action: 'ndate' })).unknown, true);
+});
+test('R3 時間内に返った応答はそのまま使い、待ち時間のタイマーを残さない', async () => {
+  let cleared = 0;
+  const env = apiEnv(async () => res(200, JSON.stringify({ ok: true, ndate: '2026-11-13' })), { clearTimeout: (t) => { cleared++; clearTimeout(t); } });
+  const j = await env.api({ action: 'ndate' });
+  assert.equal(j.ok, true); assert.equal(j.ndate, '2026-11-13'); assert.equal(j.unknown, undefined);
+  assert.equal(cleared, 1);
 });
 test('R3 サーバーが JSON で返した拒否は「結果不明」にせず、理由をそのまま出す', async () => {
   const env = apiEnv(async () => res(400, JSON.stringify({ ok: false, error: '数量は整数で入れてください' })));
