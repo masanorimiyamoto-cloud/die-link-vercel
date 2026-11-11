@@ -831,21 +831,37 @@ async function kcEnv(opt = {}) {
     const parts = u.pathname.split('/'); const table = decodeURIComponent(parts[3] || ''); const rid = parts[4];
     const kind = table === 'TableKoteiCopyRequest' || table === 'TableSlipIssueRequest' ? 'kc' : table === 'TableJuchu' ? 'order' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
     calls.push(`${m} ${kind}${rid ? ' ' + rid : ''}`);
+    if (kind === 'order' && !rid && m === 'GET') {
+      if (opt.failList) return new Response('{}', { status: 500 });
+      const fm = u.searchParams.get('filterByFormula') || '';
+      const eq = (name) => new RegExp(`\\{${name}\\}\\)?='([^']*)'`).exec(fm)?.[1];
+      const not = /RECORD_ID\(\)!='([^']+)'/.exec(fm)?.[1];
+      const want = { Book: eq('Book'), Kname: eq('Kname'), DeliPlace: eq('DeliPlace'), Ndate: eq('Ndate') };
+      const list = [...orders.values()].filter(r => r.id !== not && !r.fields['アーカイブ済'] && Object.entries(want).every(([k, v]) => String(r.fields[k] ?? '').trim() === v));
+      return ok({ records: list.sort((a, b) => a.fields.WorkCord - b.fields.WorkCord) });
+    }
     if (kind === 'order') return orders.has(rid) ? ok(orders.get(rid)) : new Response('{}', { status: 404 });
     if (kind === 'worklog') return ok({ records: [] });
     if (kind === 'kc') {
       if (m === 'GET') {
         const fm = u.searchParams.get('filterByFormula') || '';
         const q = /\{依頼ID\}='([^']+)'/.exec(fm)?.[1];
-        const rec = /\{受注RecordID\}='([^']+)'/.exec(fm)?.[1];
+        const recs = [...fm.matchAll(/\{受注RecordID\}='([^']+)'/g)].map(x => x[1]);
+        const pre = /FIND\('([^']+)',\{依頼ID\}\)=1/.exec(fm)?.[1];
         const openOnly = fm.includes("{状態}='依頼済'");
         let list = [...reqs.values()];
         if (q) list = list.filter(r => r.fields['依頼ID'] === q);
-        if (rec) list = list.filter(r => r.fields['受注RecordID'] === rec);
+        if (pre) list = list.filter(r => r.fields['依頼ID'].startsWith(pre));
+        if (recs.length) list = list.filter(r => recs.includes(r.fields['受注RecordID']));
         if (openOnly) list = list.filter(r => ['依頼済', '印刷中', '発行中'].includes(r.fields['状態']));
         return ok({ records: list });
       }
-      if (m === 'POST') { const f = JSON.parse(init.body).records[0].fields; const r = { id: 'recKC' + String(++n).padStart(12, '0'), fields: f }; reqs.set(r.id, r); return ok({ records: [r] }); }
+      if (m === 'POST') {
+        const made = JSON.parse(init.body).records.map(x => ({ id: 'recKC' + String(++n).padStart(12, '0'), fields: x.fields }));
+        if (made.length > 10) return new Response('{}', { status: 422 }); // Airtable は1回10行まで
+        for (const r of made) reqs.set(r.id, r);
+        return ok({ records: made });
+      }
     }
     return new Response('{}', { status: 500 });
   };
@@ -931,6 +947,112 @@ test('SL1 受領伝票発行可能でない・伝票IDあり・アーカイブ�
     assert.equal((await e.run('slipIssue', { id: SREC, reqId: 'kc-11111111-2222' })).status, 400, '依頼IDの形が違えば断る');
     assert.equal((await e.run('slipIssue', { id: SREC, reqId: SREQ })).status, 404);
   } finally { e.restore(); }
+});
+// ---- SL2 同じ納期・納品先の受注をまとめて依頼する 2026-11-11 ----
+const SM = (n) => 'recSLIPMATE' + String(n).padStart(6, '0');
+const mate = (n, f = {}) => ({ id: SM(n), fields: { Book: 'Ta', WorkCord: 4000 + n, ItemName: `仲間${n} #o`, NAmount: n * 100, Ndate: '2026-11-10', Kname: '検証紙器', DeliPlace: '検証倉庫', 進行社外: '受領伝票発行可能', ...f } });
+const smain = () => sorder({ Kname: '検証紙器', DeliPlace: '検証倉庫' });
+const slipWorld = (list) => ({ orders: Object.fromEntries([smain(), ...list].map(r => [r.id, r])) });
+test('SL2 状況: 同じ Book・顧客・納品先・納期 の受注を、発行可能（一緒に入る）と まだ（入らない）に分けて返す', async () => {
+  const e = await kcEnv(slipWorld([mate(1), mate(2, { 進行社外: 'シート材料入荷済' }), mate(3, { 伝票ID: 'Ta_11_20261110_5001' }), mate(4, { 進行社外: '完納済' }),
+    mate(5, { Ndate: '2026-11-11' }), mate(6, { DeliPlace: '別の倉庫' }), mate(7, { Kname: '別の顧客' }), mate(8, { Book: 'Ko' }), mate(9, { アーカイブ済: true }), mate(10, { 進行社外: '一旦キャンセルです' })]));
+  try {
+    const st = await e.run('slipIssueStatus', { id: SREC });
+    assert.equal(st.j.ok, true);
+    assert.deepEqual(st.j.mates.ready.map(m => m.id), [SM(1)]);
+    assert.deepEqual(st.j.mates.wait.map(m => m.id), [SM(2)], '発行済み・完納・キャンセル・別の納期／納品先／顧客／Book・アーカイブ済は出さない');
+    assert.equal(st.j.mates.ready[0].amount, 100); assert.equal(st.j.mates.wait[0].progOut, 'シート材料入荷済');
+    assert.ok(!e.calls.some(c => /^(PATCH|POST|DELETE)/.test(c)), '状況を読むだけでは何も書かない');
+  } finally { e.restore(); }
+});
+test('SL2 状況: 納品先か納期が空の受注はまとめない。選んだ受注が発行可能でなければ探さない。読めなければ mates は null', async () => {
+  for (const f of [{ DeliPlace: '' }, { Ndate: '' }, { 進行社外: 'シート材料入荷済' }]) {
+    const e = await kcEnv({ orders: { [SREC]: sorder({ Kname: '検証紙器', DeliPlace: '検証倉庫', ...f }), [SM(1)]: mate(1, f.DeliPlace === '' ? { DeliPlace: '' } : f.Ndate === '' ? { Ndate: '' } : {}) } });
+    try {
+      const st = await e.run('slipIssueStatus', { id: SREC });
+      assert.deepEqual(st.j.mates, { ready: [], wait: [] }, JSON.stringify(f));
+      assert.ok(!e.calls.includes('GET order'), '受注の一覧は読まない');
+    } finally { e.restore(); }
+  }
+  const e = await kcEnv({ ...slipWorld([mate(1)]), failList: true });
+  try {
+    const st = await e.run('slipIssueStatus', { id: SREC });
+    assert.equal(st.j.ok, true); assert.equal(st.j.mates, null); assert.ok(Array.isArray(st.j.requests));
+  } finally { e.restore(); }
+});
+test('SL2 依頼: 確認した受注だけを、同じ依頼として1回で書く（依頼ID.2 .3）。見せていない受注は足さない', async () => {
+  const e = await kcEnv(slipWorld([mate(1), mate(2), mate(3)]));
+  process.env.SLIP_ISSUE_ENABLED = '1';
+  try {
+    const r = await e.run('slipIssue', { id: SREC, reqId: SREQ, with: [SM(1), SM(3)] });
+    assert.equal(r.j.ok, true, JSON.stringify(r.j));
+    assert.deepEqual(r.j.mates.map(m => m.id), [SM(1), SM(3)]); assert.deepEqual(r.j.dropped, []);
+    const rows = [...e.reqs.values()].map(x => x.fields);
+    assert.deepEqual(rows.map(f => [f['依頼ID'], f['受注RecordID'], f['状態']]), [[SREQ, SREC, '依頼済'], [SREQ + '.2', SM(1), '依頼済'], [SREQ + '.3', SM(3), '依頼済']]);
+    assert.equal(new Set(rows.map(f => f['依頼日時'])).size, 1, '同じ依頼日時');
+    assert.equal(rows[1]['WorkCord'], '4001'); assert.equal(rows[1]['依頼者'], 'テスト 太郎');
+    assert.equal(e.calls.filter(c => c === 'POST kc').length, 1, '1回の書き込み（途中まで書けた状態を作らない）');
+    assert.ok(!e.calls.some(c => /^(PATCH|POST|DELETE) order/.test(c)), '受注には書かない');
+    // 送り直し（同じ依頼ID）は書かずに、まとめた受注も返す
+    const again = await e.run('slipIssue', { id: SREC, reqId: SREQ, with: [SM(1), SM(3)] });
+    assert.equal(again.j.again, true); assert.deepEqual(again.j.mates.map(m => m.id).sort(), [SM(1), SM(3)]); assert.equal(e.reqs.size, 3);
+    // まとめられた受注のカードでも依頼中と分かる。もう一度頼んでも2行目を作らない
+    const st = await e.run('slipIssueStatus', { id: SM(1) });
+    assert.equal(st.j.requests[0].reqId, SREQ + '.2');
+    const dup = await e.run('slipIssue', { id: SM(1), reqId: 'sl-99999999-2222-3333-4444-555555555555' });
+    assert.equal(dup.j.dup, true); assert.equal(e.reqs.size, 3);
+    // 残った仲間2 から頼むと、依頼中の受注は一緒に入れない
+    const st2 = await e.run('slipIssueStatus', { id: SM(2) });
+    assert.deepEqual(st2.j.mates.ready.map(m => [m.id, !!m.pending]), [[SREC, true], [SM(1), true], [SM(3), true]]);
+    const r2 = await e.run('slipIssue', { id: SM(2), reqId: 'sl-88888888-2222-3333-4444-555555555555', with: [SREC, SM(1)] });
+    assert.equal(r2.j.ok, true); assert.deepEqual(r2.j.mates, []); assert.deepEqual(r2.j.dropped, [SREC, SM(1)]); assert.equal(e.reqs.size, 4);
+  } finally { e.restore(); }
+});
+test('SL2 依頼: 確認の後に状態が変わった受注・別の伝票になる受注は外して知らせる。with が無ければ今までどおり1行', async () => {
+  const e = await kcEnv(slipWorld([mate(1), mate(2, { 進行社外: 'シート材料入荷済' }), mate(3, { DeliPlace: '別の倉庫' }), mate(4, { 伝票ID: 'Ta_11_20261110_5001' })]));
+  process.env.SLIP_ISSUE_ENABLED = '1';
+  try {
+    assert.equal((await e.run('slipIssue', { id: SREC, reqId: SREQ, with: ['x'] })).status, 400);
+    const r = await e.run('slipIssue', { id: SREC, reqId: SREQ, with: [SM(1), SM(2), SM(3), SM(4), SREC] });
+    assert.deepEqual(r.j.mates.map(m => m.id), [SM(1)]); assert.deepEqual(r.j.dropped, [SM(2), SM(3), SM(4)]);
+    assert.equal(e.reqs.size, 2);
+  } finally { e.restore(); }
+  const one = await kcEnv(slipWorld([mate(1)]));
+  try {
+    const r = await one.run('slipIssue', { id: SREC, reqId: SREQ });
+    assert.equal(r.j.ok, true); assert.deepEqual(r.j.mates, []); assert.equal(one.reqs.size, 1);
+    assert.ok(!one.calls.includes('GET order'), 'with が無ければ受注の一覧は読まない');
+  } finally { one.restore(); }
+});
+test('SL2 依頼: 1回にまとめるのは選んだ受注＋9件まで。一緒に入る受注を確かめられなければ書かない', async () => {
+  const many = Array.from({ length: 12 }, (_, i) => mate(i + 1));
+  const e = await kcEnv(slipWorld(many));
+  process.env.SLIP_ISSUE_ENABLED = '1';
+  try {
+    const r = await e.run('slipIssue', { id: SREC, reqId: SREQ, with: many.map(m => m.id) });
+    assert.equal(r.j.ok, true, JSON.stringify(r.j)); assert.equal(r.j.mates.length, 9); assert.equal(r.j.dropped.length, 3); assert.equal(e.reqs.size, 10);
+  } finally { e.restore(); }
+  const bad = await kcEnv({ ...slipWorld([mate(1)]), failList: true });
+  try {
+    const r = await bad.run('slipIssue', { id: SREC, reqId: SREQ, with: [SM(1)] });
+    assert.equal(r.status, 502); assert.equal(bad.reqs.size, 0);
+  } finally { bad.restore(); }
+});
+test('SL2 画面: 一緒に入る受注をボタンの下と確認に出し、確認した ID だけを with で送る。送り直しは同じ内容', () => {
+  const ctx = { SL_MATE_MAX: 9 };
+  vm.runInNewContext(extract('slMates') + '; this.f = slMates;', ctx);
+  const ready = Array.from({ length: 12 }, (_, i) => ({ id: 'r' + i, pending: i === 0 }));
+  const m = ctx.f({ mates: { ready, wait: [{ id: 'w' }] } });
+  assert.equal(m.go.length, 9); assert.equal(m.over, 2); assert.equal(m.busy.length, 1); assert.equal(m.wait.length, 1);
+  assert.ok(!m.go.some(x => x.pending), '依頼中の受注は一緒に入れない');
+  assert.equal(JSON.stringify(ctx.f({})), JSON.stringify({ go: [], over: 0, busy: [], wait: [] }));
+  assert.equal(ctx.f({ mates: null }).go.length, 0, '読めなかったときはこの受注だけ');
+  const rq = extract('slRequest');
+  assert.ok(rq.indexOf('await slLoad(o.id)') < rq.indexOf('confirm('), '確認の前に読み直す');
+  assert.ok(rq.includes('一緒に同じ伝票に入れる受注') && rq.includes('まだ発行可能でないので入らない受注'));
+  assert.ok(rq.includes('withIds = mt.go.map(x => x.id)') && rq.includes('with: withIds') && rq.includes('st.retryWith = withIds'));
+  const rn = extract('renderSlipIssue');
+  assert.ok(rn.includes('一緒に同じ伝票に入れます') && rn.includes('この伝票に入りません') && rn.includes('件まとめて'));
 });
 test('SL1 画面: 受領伝票発行可能でなければ送らずに断る。発行済みはボタンを出さない', () => {
   const src = extract('slRequest');

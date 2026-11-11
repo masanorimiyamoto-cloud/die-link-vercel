@@ -1089,17 +1089,55 @@ function slipRefusal(f) {
   if (out !== SL_READY) return `進行社外が「${SL_READY}」ではないので発行できません（今: ${out || '空白'}）`;
   return '';
 }
+// ---- 同じ伝票に入る受注をまとめて依頼する（2026-11-11 ユーザー指定）----
+// 受領伝票は Book×顧客×納品先×納品日 で1枚にまとまる（事務所の receipt_slip_issue.py の group_key と同じ単位）。
+// 選んだ受注と Book・Kname・DeliPlace・Ndate が同じ受注を探し、
+//   ready: 受領伝票発行可能で伝票ID が空（一緒に依頼できる。依頼済・発行中の依頼があるものは pending: true）
+//   wait : まだ発行可能になっていない（今回の伝票には入らない。画面で知らせる）
+// に分ける。発行済み・完納・取消・キャンセルは出さない。納期か納品先が空の受注はまとめない（広く拾いすぎるため）。
+// 1回の依頼は選んだ受注＋ SL_MATE_MAX 件まで（Airtable の1回の書き込み＝10行に収め、途中まで書けた状態を作らない）
+const SL_MATE_MAX = 9;
+const mateOut = (rec) => { const o = describe(rec); return { id: o.id, book: o.book, wc: o.wc, item: o.item, amount: o.amount, ndate: o.ndate, progOut: o.progOut }; };
+async function slipMates(rec) {
+  const f = rec.fields || {};
+  const ndate = String(f[F.ndate] || ''), deli = String(f[F.deli] || '').trim();
+  if (!/^\d{4}-\d\d-\d\d$/.test(ndate) || !deli) return { ready: [], wait: [] };
+  const url = new URL(API);
+  url.searchParams.set('filterByFormula', `AND({${F.book}}='${esc(f[F.book] || '')}',{${F.kname}}='${esc(f[F.kname] || '')}',TRIM({${F.deli}})='${esc(deli)}',` +
+    `DATESTR({${F.ndate}})='${ndate}',NOT({${F.archived}}),RECORD_ID()!='${rec.id}')`);
+  url.searchParams.set('sort[0][field]', F.wc); url.searchParams.set('sort[0][direction]', 'asc');
+  url.searchParams.set('pageSize', '100');
+  const recs = (await airtable(url)).records || [];
+  const ready = [], wait = [];
+  for (const r of recs) {
+    const g = r.fields || {}; const out = String(g[F.progOut] || '');
+    if (!slipRefusal(g)) ready.push(mateOut(r));
+    else if (!g[F.slipId] && !SLIP_DONE_OUT.has(out) && !CLOSED_OUT.has(out)) wait.push(mateOut(r));
+  }
+  if (ready.length) {
+    const open = await slFind(`AND(OR(${ready.map(m => `{${KC.rec}}='${m.id}'`).join(',')}),OR({${KC.state}}='${SL_WAIT}',{${KC.state}}='${SL_BUSY}'))`, 100);
+    const busy = new Set(open.map(r => String(r.fields?.[KC.rec] || '')));
+    for (const m of ready) if (busy.has(m.id)) m.pending = true;
+  }
+  return { ready, wait };
+}
+// 依頼の行（まとめた分は 依頼ID が「元の依頼ID.2」「.3」…）から、画面に返す受注の一覧を作る
+const mateOfRow = (r) => ({ id: String(r.fields?.[KC.rec] || ''), book: String(r.fields?.[KC.book] || ''), wc: String(r.fields?.[KC.wc] || ''), item: String(r.fields?.[KC.item] || '') });
 async function slipIssue(body, user) {
   const id = String(body?.id || '');
   if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
   const reqId = String(body?.reqId || '');
   if (!/^sl-[A-Za-z0-9-]{8,64}$/.test(reqId)) return json({ ok: false, error: '画面が古いので、読み込み直してからもう一度押してください' }, 400);
-  let rec;
+  // with: 画面で「一緒に伝票に入れます」と見せて確認した受注の ID。ここに無い受注は、同じ納期・納品先でも勝手に足さない
+  const want = Array.isArray(body?.with) ? [...new Set(body.with.map(String))].filter(x => x !== id) : [];
+  if (want.length > 50 || want.some(x => !/^rec[A-Za-z0-9]{14}$/.test(x))) return json({ ok: false, error: '一緒に発行する受注の指定が正しくありません' }, 400);
+  let rec, mates = [], dropped = [];
   try {
     const same = (await slFind(`{${KC.req}}='${esc(reqId)}'`, 1))[0];
     if (same) {
       if (same.fields?.[KC.rec] !== id) return json({ ok: false, error: '依頼の指定が食い違っています。画面を読み込み直してください' }, 409);
-      return json({ ok: true, again: true, request: slOut(same) });
+      const rows = await slFind(`FIND('${esc(reqId)}.',{${KC.req}})=1`, 20);
+      return json({ ok: true, again: true, request: slOut(same), mates: rows.map(mateOfRow) });
     }
     rec = await fetchRecordStrict(id);
     if (!rec) return json({ ok: false, error: 'この受注はもうありません' }, 404);
@@ -1109,25 +1147,46 @@ async function slipIssue(body, user) {
     if (process.env.SLIP_ISSUE_ENABLED !== '1') return json({ ok: false, refused: true, error: '事務所PCの準備がまだなので、すぐ発行はまだ使えません（定時の自動発行で出ます）' }, 503);
     const open = (await slFind(`AND({${KC.rec}}='${id}',OR({${KC.state}}='${SL_WAIT}',{${KC.state}}='${SL_BUSY}'))`, 1))[0];
     if (open) return json({ ok: true, dup: true, request: slOut(open) });
+    // 一緒に入れる受注は、今も 同じ納期・納品先 で発行可能・依頼中でないものだけ（確認した後に変わった分は外して知らせる）
+    if (want.length) {
+      const ok = (await slipMates(rec)).ready.filter(m => !m.pending && want.includes(m.id));
+      mates = ok.slice(0, SL_MATE_MAX);
+      dropped = want.filter(x => !mates.some(m => m.id === x));
+    }
   } catch (e) {
     return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
   }
   const o = describe(rec);
-  const fields = { [KC.req]: reqId, [KC.rec]: id, [KC.state]: SL_WAIT, [KC.book]: String(o.book || ''), [KC.wc]: String(o.wc ?? ''),
-    [KC.item]: String(o.item || ''), [KC.by]: String(user?.name || ''), [KC.at]: new Date().toISOString() };
-  const no = Number(user?.no); if (Number.isFinite(no)) fields[KC.no] = no;
+  const at = new Date().toISOString(); const no = Number(user?.no);
+  const rowOf = (m, rid) => {
+    const fields = { [KC.req]: rid, [KC.rec]: m.id, [KC.state]: SL_WAIT, [KC.book]: String(m.book || ''), [KC.wc]: String(m.wc ?? ''),
+      [KC.item]: String(m.item || ''), [KC.by]: String(user?.name || ''), [KC.at]: at };
+    if (Number.isFinite(no)) fields[KC.no] = no;
+    return { fields };
+  };
+  // 選んだ受注が1行目（依頼ID そのまま）。まとめた受注は「依頼ID.2」「.3」…。事務所PCは「.」の前が同じ行を1つの依頼として一緒に発行する
+  const records = [rowOf(o, reqId), ...mates.map((m, i) => rowOf(m, `${reqId}.${i + 2}`))];
   let row;
-  try { row = (await airtable(SL_API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) })).records?.[0]; }
+  try { row = (await airtable(SL_API, { method: 'POST', body: JSON.stringify({ records }) })).records?.[0]; }
   catch (e) { return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502); }
   if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
-  await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: '受領伝票すぐ発行依頼', detail: `依頼ID ${reqId}` }).catch(() => {});
-  return json({ ok: true, request: slOut(row) });
+  await writeWorkLog(user, { recordIds: [id, ...mates.map(m => m.id)], book: o.book, wc: o.wc, action: '受領伝票すぐ発行依頼',
+    detail: `依頼ID ${reqId}` + (mates.length ? `（同じ納期・納品先の ${mates.length}件も一緒に: ${mates.map(m => `${m.book}/${m.wc}`).join('、')}）` : '') }).catch(() => {});
+  return json({ ok: true, request: slOut(row), mates: mates.map(m => ({ id: m.id, book: m.book, wc: String(m.wc ?? ''), item: m.item })), dropped });
 }
 async function slipIssueStatus(body) {
   const id = String(body?.id || '');
   if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
-  try { return json({ ok: true, requests: (await slFind(`{${KC.rec}}='${id}'`, 3)).map(slOut) }); }
+  let requests;
+  try { requests = (await slFind(`{${KC.rec}}='${id}'`, 3)).map(slOut); }
   catch (e) { return json({ ok: false, error: `伝票の発行の状況を読めませんでした（${String(e?.message || e).slice(0, 80)}）` }, 502); }
+  // 同じ伝票に入る受注（同じ納期・納品先）。選んだ受注が発行できるときだけ探す。読めなければ null（画面は「確かめられない」と出す）
+  let mates = { ready: [], wait: [] };
+  try {
+    const rec = await fetchRecordStrict(id);
+    if (rec && !slipRefusal(rec.fields || {})) mates = await slipMates(rec);
+  } catch { mates = null; }
+  return json({ ok: true, requests, mates });
 }
 async function koteiCopyStatus(body) {
   const id = String(body?.id || '');

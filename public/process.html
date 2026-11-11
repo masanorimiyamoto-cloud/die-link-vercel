@@ -122,6 +122,12 @@
   .amt .note{ font-size:12.5px; color:var(--mut) }
   .kcopy{ display:flex; flex-direction:column; gap:4px }
   .kcopy .kcst{ font-size:12.5px; color:var(--mut) }
+  /* 受領伝票に一緒に入る受注の一覧（2026-11-11） */
+  .slmates{ font-size:13.5px; line-height:1.5; padding:7px 10px; border-radius:8px; border:1px solid var(--line2); background:var(--surf2); color:var(--txt) }
+  .slmates b{ display:block; font-weight:700 }
+  .slmates ul{ margin:3px 0 0; padding-left:1.2em }
+  .slmates.go{ border-color:var(--ok) } .slmates.go b{ color:var(--ok) }
+  .slmates.wait{ border-color:var(--warn) } .slmates.wait b{ color:var(--warn) }
   .amtbtn.off{ opacity:.55 }
   .amtbtn{ padding:7px 12px; font-size:14px; font-weight:500; background:var(--surf2); color:var(--txt); border:1px solid var(--line2) }
   /* 数量は青、納期はオレンジで見分ける（やめる ボタンは灰色のまま） */
@@ -2370,25 +2376,59 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
       return;
     }
     const ready = !slipRefusal(o);
+    const mt = ready && !slPending(st.last) ? slMates(st) : { go: [], busy: [], wait: [], over: 0 };
     const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn' + (ready ? '' : ' off');
-    b.textContent = '🧾 受領伝票をすぐ発行';
+    b.textContent = '🧾 受領伝票をすぐ発行' + (mt.go.length ? `（${mt.go.length + 1}件まとめて）` : '');
     b.disabled = !!st.sending || slPending(st.last);
     const r = st.last;
     if (st.msg) { line.textContent = st.msg; line.className = 'msg ' + (st.cls || ''); }
     else if (r) line.textContent = `${slPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼 → ${SL_LABEL[r.state] || r.state}${r.doneAt && !slPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
-    else line.textContent = ready ? '定時の自動発行を待たずに、事務所のプリンタでこの受注の受領伝票を出します'
+    else line.textContent = ready ? `定時の自動発行を待たずに、事務所のプリンタで${mt.go.length ? `この受注と下の ${mt.go.length}件をまとめた` : 'この受注の'}受領伝票を出します`
       : `受領伝票発行可能になると発行できます（今の進行社外: ${o.progOut || '空白'}）`;
     box.append(b, line);
+    // 同じ伝票に入る受注（同じ納期・納品先）を、押す前から見えるように出す（2026-11-11）
+    if (ready && !slPending(st.last)) {
+      if (st.mates === null) box.append(slNote('同じ納期・納品先の受注を確かめられませんでした（押したときにもう一度確かめます）', 'warn'));
+      if (mt.go.length) box.append(slMateList(`同じ納期・納品先の ${mt.go.length}件も、一緒に同じ伝票に入れます`, mt.go, 'go'));
+      if (mt.over) box.append(slNote(`同じ納期・納品先の受注が多いので、残りの ${mt.over}件は入りません（発行の後にもう一度押してください）`, 'warn'));
+      if (mt.busy.length) box.append(slMateList(`すでに発行を依頼中の ${mt.busy.length}件（今回の依頼には入れません）`, mt.busy, ''));
+      if (mt.wait.length) box.append(slMateList(`まだ発行可能でない ${mt.wait.length}件は、この伝票に入りません`, mt.wait, 'wait'));
+    }
     b.onclick = () => slRequest(o);
     if (!st.at || Date.now() - st.at > 30000) slLoad(o.id);
   }
+  // 一緒に依頼する受注（go）・依頼中（busy）・まだ発行可能でない（wait）。1回の依頼は選んだ受注＋9件まで（サーバーの SL_MATE_MAX と同じ）
+  const SL_MATE_MAX = 9;
+  function slMates(st) {
+    const m = st.mates || { ready: [], wait: [] };
+    const free = (m.ready || []).filter(x => !x.pending);
+    return { go: free.slice(0, SL_MATE_MAX), over: Math.max(0, free.length - SL_MATE_MAX), busy: (m.ready || []).filter(x => x.pending), wait: m.wait || [] };
+  }
+  const slMateText = (x) => `${x.book} / ${x.wc}　${itemShort(x)}　数量 ${x.amount == null ? '?' : Number(x.amount).toLocaleString('ja-JP')}`;
+  function slNote(text, cls) { const n = document.createElement('div'); n.className = 'msg ' + cls; n.textContent = text; return n; }
+  function slMateList(title, list, cls) {
+    const w = document.createElement('div'); w.className = 'slmates ' + cls;
+    const h = document.createElement('b'); h.textContent = title; w.append(h);
+    const ul = document.createElement('ul');
+    for (const x of list) {
+      const li = document.createElement('li'); li.textContent = slMateText(x) + (cls === 'wait' ? `（今: ${x.progOut || '空白'}）` : '');
+      ul.append(li);
+    }
+    w.append(ul);
+    return w;
+  }
   async function slLoad(id) {
     const st = S.sl[id] || (S.sl[id] = {});
-    if (st.loading) return; st.loading = true;
+    if (st.loading) return st.loading; // 読み込み中なら同じ読み込みを待つ（押した直後の確認で、古い一覧のまま進まない）
+    return (st.loading = slLoadNow(id, st).finally(() => { st.loading = null; }));
+  }
+  async function slLoadNow(id, st) {
     const j = await api({ action: 'slipIssueStatus', id }).catch(() => ({ ok: false }));
-    st.loading = false; st.at = Date.now();
+    st.at = Date.now();
+    if (!j.ok) st.mates = null; // 読めなかった（一緒に入る受注が分からない）
     if (j.ok) {
       const was = st.last;
+      st.mates = j.mates === undefined ? { ready: [], wait: [] } : j.mates; // null は「読めなかった」
       st.last = j.requests?.[0] || null;
       if (slPending(st.last) && !st.pollFrom) st.pollFrom = Date.now();
       if (was && slPending(was) && st.last && !slPending(st.last) && st.last.reqId === was.reqId) {
@@ -2410,22 +2450,43 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     if (st.sending) return;
     const why = slipRefusal(o);
     if (why) { st.msg = why; st.cls = 'err'; renderSlipIssue(o); return; }
-    if (!st.retry && !confirm(`${itemShort(o)}
+    // 送り直し（結果不明の後）は、前に確認した内容のまま同じ依頼IDで送る。初めてのときは、同じ納期・納品先の受注を
+    // 読み直してから確認を出す（画面に出ている一覧が古いまま、見せていない受注を伝票に入れない）
+    let withIds = st.retryWith || [];
+    if (!st.retry) {
+      st.sending = true; st.msg = '同じ納期・納品先の受注を確かめています…'; st.cls = ''; renderSlipIssue(o);
+      st.at = 0; await slLoad(o.id);
+      st.sending = false; if (st.msg === '同じ納期・納品先の受注を確かめています…') st.msg = '';
+      if (current()?.id !== o.id || $('stepCard').hidden) return;
+      if (slPending(st.last)) { renderSlipIssue(o); return; } // 確かめている間に依頼中と分かった
+      const mt = slMates(st);
+      renderSlipIssue(o);
+      const more = st.mates === null ? '\n※ 同じ納期・納品先の受注を確かめられなかったので、この受注だけ発行します。\n'
+        : (mt.go.length ? `\n【一緒に同じ伝票に入れる受注 ${mt.go.length}件】\n${mt.go.map(x => '・' + slMateText(x)).join('\n')}\n` : '')
+        + (mt.over ? `\n※ ほかに ${mt.over}件ありますが、1回で入るのは ${SL_MATE_MAX + 1}件までです。\n` : '')
+        + (mt.wait.length ? `\n【まだ発行可能でないので入らない受注 ${mt.wait.length}件】\n${mt.wait.map(x => '・' + slMateText(x)).join('\n')}\n` : '');
+      if (!confirm(`${itemShort(o)}
 ${o.book} / ${o.wc}　数量 ${o.amount ?? '?'}・納期 ${o.ndate || '未定'}
-
-この受注の受領伝票を、事務所のプリンタですぐ発行します。
+${more}
+${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまとめて` : 'この受注の受領伝票を'}、事務所のプリンタですぐ発行します。
 数量・納期は伝票の後は変えられません。よろしいですか？`)) return;
+      withIds = mt.go.map(x => x.id);
+    }
     const reqId = st.retry || ('sl-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12)));
     st.sending = true; st.msg = '依頼しています…'; st.cls = ''; renderSlipIssue(o);
-    const j = await api({ action: 'slipIssue', id: o.id, reqId });
+    const j = await api({ action: 'slipIssue', id: o.id, reqId, with: withIds });
     st.sending = false;
-    if (j.unknown) { st.retry = reqId; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2枚にはなりません）'; st.cls = 'warn'; }
-    else if (!j.ok) { st.retry = ''; st.msg = j.error || '依頼できませんでした'; st.cls = 'err'; }
+    if (j.unknown) { st.retry = reqId; st.retryWith = withIds; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2枚にはなりません）'; st.cls = 'warn'; }
+    else if (!j.ok) { st.retry = ''; st.retryWith = null; st.msg = j.error || '依頼できませんでした'; st.cls = 'err'; }
     else {
-      st.retry = ''; st.last = j.request; st.at = Date.now(); st.pollFrom = Date.now();
+      st.retry = ''; st.retryWith = null; st.last = j.request; st.at = Date.now(); st.pollFrom = Date.now();
+      const n = (j.mates || []).length;
       st.msg = j.dup ? `すでに依頼中です（${hm(j.request.at)} ${j.request.by}）。事務所のPCが発行するまでお待ちください`
-        : '依頼しました。1〜2分で事務所のプリンタから出ます';
-      st.cls = 'ok'; navigator.vibrate?.(40);
+        : (n ? `${n + 1}件を1つの伝票にまとめて依頼しました（${j.mates.map(x => `${x.book}/${x.wc}`).join('、')} も一緒）。` : '依頼しました。') + '1〜2分で事務所のプリンタから出ます'
+          + ((j.dropped || []).length ? `。※ ${j.dropped.length}件は直前に状態が変わったため入れていません` : '');
+      st.cls = (j.dropped || []).length ? 'warn' : 'ok'; navigator.vibrate?.(40);
+      // 一緒に依頼した受注のカードを開いたときに、古い状況を出さない
+      for (const x of j.mates || []) if (S.sl[x.id]) S.sl[x.id].at = 0;
     }
     if (current()?.id === o.id) renderSlipIssue(current());
     if (j.ok) slPoll(o.id);

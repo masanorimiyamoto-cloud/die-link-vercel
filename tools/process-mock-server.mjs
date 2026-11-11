@@ -45,7 +45,11 @@ function fixtures() {
     order({ item: '検証箱C 済 #ki#nao', spec: { kname: 'テスト商事', material: 'C5×AF' }, kotei: '|機械貼|Nao|', progIn: '機械貼完了', done: { kikai: '鈴木 2026-11-03 11:00' },
       ndate: '2026-11-10', ndateFrom: '2026-11-08', ndateLog: '2026-11-08→2026-11-10 鈴木 2026-11-03 11:00', views: ['kikai', 'nao'] }),
     // 機械貼: 閉じた受注（伝票取消）
-    order({ item: '検証箱G 伝票待ち #ki', kotei: '|機械貼|', progIn: '仕上がりました', group: '最終', progOut: '受領伝票発行可能', done: { finish: '鈴木 2026-11-09 16:00' }, views: ['kikai'] }),
+    order({ item: '検証箱G 伝票待ち #ki', kotei: '|機械貼|', progIn: '仕上がりました', group: '最終', progOut: '受領伝票発行可能', done: { finish: '鈴木 2026-11-09 16:00' }, deli: '検証倉庫', spec: { kname: '検証紙器' }, views: ['kikai'] }),
+    // 受領伝票のすぐ発行をまとめる見本（2026-11-11）: 検証箱G と同じ納期・納品先。G2・G3 は発行可能、G4 はまだ工程の途中
+    order({ item: '検証箱G2 伝票待ち #ki', kotei: '|機械貼|', progIn: '仕上がりました', group: '最終', progOut: '受領伝票発行可能', done: { finish: '鈴木 2026-11-09 16:10' }, deli: '検証倉庫', spec: { kname: '検証紙器' }, amount: 2400, views: ['kikai'] }),
+    order({ item: '検証箱G3 伝票待ち #ki', kotei: '|機械貼|', progIn: '仕上がりました', group: '最終', progOut: '受領伝票発行可能', done: { finish: '鈴木 2026-11-09 16:20' }, deli: '検証倉庫', spec: { kname: '検証紙器' }, amount: 300, views: ['kikai'] }),
+    order({ item: '検証箱G4 まだ途中 #ki', kotei: '|機械貼|', progIn: 'オートン抜き完了', progOut: 'シート材料入荷済', deli: '検証倉庫', spec: { kname: '検証紙器' }, amount: 500, views: ['kikai'] }),
     order({ item: '検証箱D 取消 #ki', kotei: '|機械貼|', progOut: '伝票取消', closed: true, amountLocked: true, views: ['kikai'] }),
     // 機械貼: 記録なし・不正な日時・ログと今の値の不一致（強調しない）
     order({ item: '検証箱E 不正日時 #ki', kotei: '|機械貼|', amount: 500, amountLog: '400→450 田中 2026-11-03 09:00',
@@ -140,12 +144,31 @@ async function handle(body) {
   if (a === 'paper') { o.paper = body.paper; return { body: { ok: true, paper: o.paper } }; }
   if (a === 'room') { o.room = body.on ? [...new Set([...o.room, body.room])] : o.room.filter(r => r !== body.room); return { body: { ok: true, room: o.room } }; }
   // 受領伝票のすぐ発行（2026-11-10）: 受領伝票発行可能だけ受け、5秒後に発行済にする
-  if (a === 'slipIssueStatus') return { body: { ok: true, requests: (SLIPS.get(o.id) || []).map(r => ({ ...r, state: Date.now() - r.t > 5000 ? '発行済' : '依頼済', doneAt: new Date(r.t + 5000).toISOString(), slipId: 'Ko_MOCK_5001' })) } };
+  // 2026-11-11 同じ Book・顧客・納品先・納期 の受注を mates で返し、with で指定された分も一緒に依頼する
+  const slOpen = (x) => (SLIPS.get(x.id) || []).some(r => Date.now() - r.t <= 5000);
+  const slMates = () => {
+    const out = { ready: [], wait: [] };
+    if (!o.ndate || !o.deli) return out;
+    for (const x of DB) {
+      if (x === o || x.archived || x.book !== o.book || x.deli !== o.deli || x.ndate !== o.ndate || (x.spec?.kname || '') !== (o.spec?.kname || '')) continue;
+      const m = { id: x.id, book: x.book, wc: x.wc, item: x.item, amount: x.amount, ndate: x.ndate, progOut: x.progOut };
+      if (x.progOut === '受領伝票発行可能' && !x.slipId) out.ready.push(slOpen(x) ? { ...m, pending: true } : m);
+      else if (!x.slipId && !['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです'].includes(x.progOut)) out.wait.push(m);
+    }
+    return out;
+  };
+  if (a === 'slipIssueStatus') return { body: { ok: true, mates: o.progOut === '受領伝票発行可能' && !o.slipId ? slMates() : { ready: [], wait: [] },
+    requests: (SLIPS.get(o.id) || []).map(r => ({ ...r, state: Date.now() - r.t > 5000 ? '発行済' : '依頼済', doneAt: new Date(r.t + 5000).toISOString(), slipId: 'Ko_MOCK_5001' })) } };
   if (a === 'slipIssue') {
     if (o.progOut !== '受領伝票発行可能' || o.slipId) return { status: 409, body: { ok: false, refused: true, error: `進行社外が「受領伝票発行可能」ではないので発行できません（今: ${o.progOut || '空白'}）` } };
-    const r = { reqId: body.reqId, state: '依頼済', at: new Date().toISOString(), by: USER, memo: '', t: Date.now() };
+    const want = Array.isArray(body.with) ? body.with : [];
+    const mates = slMates().ready.filter(m => !m.pending && want.includes(m.id)).slice(0, 9);
+    const t = Date.now(); const at = new Date().toISOString();
+    const r = { reqId: body.reqId, state: '依頼済', at, by: USER, memo: '', t };
     SLIPS.set(o.id, [r, ...(SLIPS.get(o.id) || [])]);
-    return { body: { ok: true, request: r } };
+    mates.forEach((m, i) => SLIPS.set(m.id, [{ reqId: `${body.reqId}.${i + 2}`, state: '依頼済', at, by: USER, memo: '', t }, ...(SLIPS.get(m.id) || [])]));
+    ctl.log.push({ action: a, id: o.id, with: mates.map(m => m.id) });
+    return { body: { ok: true, request: r, mates: mates.map(m => ({ id: m.id, book: m.book, wc: String(m.wc), item: m.item })), dropped: want.filter(x => !mates.some(m => m.id === x)) } };
   }
   if (a === 'stock') { o.progOut = body.on ? body.out : 'シート手配済み'; return { body: { ok: true, progOut: o.progOut } }; }
   if (a === 'neworder') {
