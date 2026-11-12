@@ -1383,6 +1383,14 @@ test('ST1 サーバー: 止まっている のリストは仕上がり・伝票�
   for (const w of ['NOT({アーカイブ済})', "{進行社内グループ}!='最終'", "'受領伝票発行可能'", "'伝票出力済'", "'完納済'"]) assert.ok(f.includes(w), w);
 });
 
+test('SH1 作業リストに Grid シート材料入荷 を出す。ビューの並び（紙入荷日順）のまま', async () => {
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+  const v = mod.VIEWS.sheet;
+  assert.ok(v && v.label === 'シート材料入荷' && v.sources[0].id === 'viwqbcoqwCPvxtOOR');
+  const pub = mod.publicViews().find(x => x.key === 'sheet');
+  assert.ok(pub && pub.keepOrder && pub.mine.length === 0);
+});
+
 // ---- EST1 推定所要時間 2026-11-09（偽の Airtable。本物には繋がない） ----
 test('EST1 一覧の行に推定（TableWorkTimeEstimate）を Book|WorkCord で付ける。3回以上だけ・アーカイブ済には付けない・読めなくても一覧は返す', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';

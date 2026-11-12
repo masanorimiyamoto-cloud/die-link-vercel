@@ -119,6 +119,9 @@ export const VIEWS = {
   kikai:   { label: '機械貼',       mine: ['kikai'], readyOut: ['機械貼材料入荷済'], sources: [{ id: 'viwq39cjz5wcriCaO', steps: ['kikai'] }] },   // Grid 機械貼
   // たおしは品名タグ（#tk / #tm）で M判・K判 が分かるので指定しない
   taoshi:  { label: 'たおし抜き',   mine: ['tk', 'tm'], mineValues: ['抜き半製品あり'], readyOut: ['シート材料入荷済', '在庫シート利用'], sources: [{ id: 'viwdwd47psKdZPYAN', steps: [] }] },          // Grid たおし抜き(M判K判)
+  // シート材料の入荷（2026-11-12 ユーザー指定）。Airtable 側の絞り込みは 紙入荷日 が1週間前より後、並びは 紙入荷日 の早い順。
+  // 入荷の順に見たいので、画面で納品日順に並べ替えず keepOrder でビューの並びのまま出す。自分の工程は無い（mine なし）
+  sheet:   { label: 'シート材料入荷', keepOrder: true, sources: [{ id: 'viwqbcoqwCPvxtOOR', steps: [] }] },   // Grid シート材料入荷
   // 花はタグ（#h）があるが 神 にはタグが無い。花タグが無ければ 神 とみなす
   // 2026-10-05 ビューが作り直されてIDが変わった（旧 viw2w8DzG6PNmJ3Iy は VIEW_ID_NOT_FOUND）
   tebari:  { label: '手貼り',       mine: ['tebari'], mineValues: ['(神)貼り完了', '(花)貼り完了'], sources: [{ id: 'viwK1jk2LXPw45fU9', steps: ['tebari'] }] }, // Grid 手貼り（花 神)
