@@ -33,6 +33,7 @@ function listEnv(api) {
     document: { hidden: false, querySelector: () => null },
     FILTERS: [['all', 'すべて'], ['ready', '着手可'], ['wait', '待ち'], ['done', '自工程済']],
     imgById: new Map(), store: { set() {} }, shownSig: '', writing: 0,
+    seen: { update() {}, leave() {} }, // Recent 1day の変化の印（RC1 で別に確かめる）
     rowsSig: (rows) => JSON.stringify(rows),
     say: (el, text, cls = '') => { el.textContent = text || ''; el.className = 'msg ' + cls; },
     renderChips() {}, updateListHead() {}, loadImages() {}, showFresh() {},
@@ -770,7 +771,7 @@ test('CU1 全件以外で顧客別を押すと全件を読んでから顧客を�
 });
 test('CU1 一覧は顧客で絞ってから状態を数え、件数の案内に顧客名を出す。リストを切り替えたら解除', () => {
   const src = extract('renderList');
-  assert.ok(/const base = S\.cust == null \? S\.orders : S\.orders\.filter\(o => !o\.archived && custOf\(o\) === S\.cust\)/.test(src));
+  assert.ok(/let base = S\.cust == null \? S\.orders : S\.orders\.filter\(o => !o\.archived && custOf\(o\) === S\.cust\)/.test(src));
   assert.ok(src.includes('base.map(o => [o.id, rowState(o, v)])') && src.includes('renderFilter(counts, base.length)'));
   assert.ok(/S\.filter === 'all' \? base : base\.filter/.test(src));
   const e = listEnv(async () => ok('taoshi', [{ id: 'T' }], 1));
@@ -1468,6 +1469,44 @@ test('SH2 シート材料入荷のカードは入荷日を数量・納期の隣�
   a = env.arrivalFact({ paper: '2026-11-01', progOut: '在庫シート利用' }); assert.equal(text(a), '入荷日 11/1(日) 在庫シート');
   assert.ok(extract('facts').includes("if (view === 'sheet') f.append(arrivalFact(o));"));
   assert.ok(source.includes('info.append(it, facts(o, S.view), mt, progressStrip(o, S.view));'));
+});
+
+// ---- RC1 Recent 1day: 前回見たときからの変化（2026-11-12。スマホの中だけで比べる） ----
+test('RC1 Recent 1day は前回この端末で見た姿と比べて 新・変化（欄の名前）を付ける。基準なしは付けない。自分の記録は変化にしない。Recent にいる間は基準を変えない', () => {
+  const block = line(/^  const SEEN_KEY[^]*?^  };\n/m);
+  const mem = {};
+  const env = { store: { get: (k) => mem[k] ?? null, set: (k, v) => { mem[k] = v; } }, document: { createElement: () => ({}) }, JSON, Object, String, Date };
+  vm.createContext(env);
+  vm.runInContext(block + '\nObject.assign(globalThis, { seen });', env);
+  const { seen } = env;
+  const A = { id: 'recA', progIn: '抜き作業中', progOut: 'シート手配済み', done: {}, amount: 100, ndate: '2026-11-20', paper: '', memo: '', room: [], die: [] };
+  const B = { ...A, id: 'recB' };
+  // 初めて: 基準が無いので何も付けない。今の姿は保存する
+  seen.update([A, B]); assert.equal(seen.marks.size, 0); assert.ok(JSON.parse(mem['dl.seen.recent']).rows.recA);
+  // 他のリストへ移ってから戻ると、保存した姿と比べる
+  seen.leave();
+  const A2 = { ...A, progOut: 'シート材料入荷済', paper: '2026-11-12' }, C = { ...A, id: 'recC' };
+  seen.update([A2, B, C]);
+  assert.deepEqual([...seen.marks.keys()].sort(), ['recA', 'recC']);
+  assert.equal(JSON.stringify(seen.marks.get('recA')), JSON.stringify({ isNew: false, fields: ['進行社外', '紙入荷日'] }));
+  assert.equal(seen.marks.get('recC').isNew, true);
+  // Recent にいる間の読み直しでは基準を変えず、印は残る。このスマホで記録した受注（touched）は基準に入れて印を消す
+  const B2 = { ...B, done: { o: '佐藤 2026-11-12 10:00' } };
+  seen.touched.add('recB');
+  seen.update([A2, B2, C]);
+  assert.deepEqual([...seen.marks.keys()].sort(), ['recA', 'recC'], '自分の記録は変化にしない・前の印は残る');
+  const B3 = { ...B2, memo: '急ぎ' };
+  seen.update([A2, B3, C]);
+  assert.equal(seen.marks.get('recB').fields.join(), '連絡事項', '他の人の変化はその後も付く');
+  // 戻り直すと、最後に出した姿が基準になり印は消える
+  seen.leave(); seen.update([A2, B3, C]); assert.equal(seen.marks.size, 0);
+  // 保存が壊れていても止まらず、基準なしとして扱う
+  mem['dl.seen.recent'] = '{壊れた'; seen.leave(); seen.update([A2]); assert.equal(seen.marks.size, 0);
+  // 画面: Recent のときだけ読み直しで比べ、他のビュー・他のモードでは基準を捨てる。書き込みが通ったら touched に入れる
+  assert.ok(extract('loadView').includes("if (S.view === 'recent') seen.update(j.rows); else seen.leave();"));
+  assert.ok(extract('setMode').includes("if (m !== 'list') seen.leave();"));
+  assert.ok(extract('write').includes('if (body.id) seen.touched.add(body.id)'));
+  assert.ok(extract('renderList').includes("if (S.view === 'recent' && seen.chgOnly) base = base.filter(o => seen.marks.has(o.id));"));
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----

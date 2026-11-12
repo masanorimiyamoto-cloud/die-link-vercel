@@ -198,6 +198,9 @@
   .badges{ display:flex; flex-wrap:wrap; gap:6px; align-items:center }
   .minebadge{ display:inline-flex; align-items:center; gap:6px; font-size:15px; font-weight:700; border-radius:8px; padding:3px 10px; line-height:1.4 }
   .minebadge small{ font-size:12px; font-weight:500; opacity:.95 }
+  .seenmark{ align-self:flex-start; font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:rgba(56,189,248,.16); color:#7dd3fc; border:1px solid rgba(56,189,248,.45) }
+  .seenmark.new{ background:rgba(250,204,21,.18); color:#fde047; border-color:rgba(250,204,21,.5) }
+  :root .lrow .order.seenchg{ border-left:5px solid #38bdf8; padding-left:10px } /* 皮・テーマの .order より強く（Recent には着手可・待ちの枠は無い） */
   .selmark{ font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:var(--sel); color:var(--bg) }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
@@ -294,6 +297,10 @@
   :root[data-theme=light] .facts .late .when{ background:#fee2e2; color:#B91C1C }
   :root[data-theme=light] .facts .soon .when{ background:#ffedd5; color:#9a3412 }
   :root[data-theme=light] .facts .from{ color:#2563eb }
+  :root[data-theme=light] .facts .arrival.ok b{ color:#15803d } :root[data-theme=light] .facts .arrival.ok .when{ background:#dcfce7; color:#166534 }
+  :root[data-theme=light] .seenmark{ background:#e0f2fe; color:#075985; border-color:#7dd3fc }
+  :root[data-theme=light] .seenmark.new{ background:#fef9c3; color:#854d0e; border-color:#fde047 }
+  :root[data-theme=light] .lrow .order.seenchg{ border-left-color:#0284c7 }
   :root[data-theme=light] .pc{ background:#f1f2f4; color:var(--mut) }
   :root[data-theme=light] .pc.die.d-check{ background:#f3e8ff; color:#6b21a8 }
   :root[data-theme=light] .pc.die.d-stored{ background:#cffafe; color:#155e75 }
@@ -788,6 +795,7 @@
     try {
       const j = await api(body);
       if (j.ok && CREDIT_ACTIONS.has(body.action)) myStats.refresh(true);
+      if (j.ok) { if (body.id) seen.touched.add(body.id); if (j.order?.id) seen.touched.add(j.order.id); }
       return j;
     } finally { writing--; }
   }
@@ -1732,6 +1740,7 @@
   function setMode(m) {
     hideToast();
     S.mode = m; store.set('process.mode', m);
+    if (m !== 'list') seen.leave();
     // 読み込み途中の一覧の応答は、切り替えた後の画面には使わない
     listGen++; listBusy = 0;
     findGen++; entryGen++;
@@ -1771,6 +1780,53 @@
 
   /* ---------- 作業リスト ---------- */
   // 一覧の中身の比較用。画像の URL は取るたびに署名が変わるので、ファイル名だけで比べる
+  /* ---------- Recent 1day: 前回見たときからの変化（2026-11-12） ---------- */
+  // 前回 Recent 1day に出したカードの「指紋」（欄ごとの短いハッシュ）をこのスマホに覚えておき、次に開いたときに比べる。
+  // Airtable への読み書きは増やさない（比べるのはスマホの中だけ）。端末ごとの「前回」になる。
+  // 基準（base）は Recent 1day に入ったときに読み、Recent にいる間（自動の読み直し・手動の更新・記録の後の読み直し）は変えない。
+  // 印は画面にいる間残り、他のリスト・品番で探す・新規入力へ移ってから戻ると、そのとき出していた姿が新しい基準になる。
+  // このスマホで記録した受注は、記録の後の読み直しで基準に入れる（自分の操作に「変化」と出さない）。
+  // 初めて開いたとき・保存が消えたときは基準が無いので何も付けない。何が何に変わったかは出さず、変わった欄の名前だけ
+  const SEEN_KEY = 'dl.seen.recent';
+  const SEEN_FIELDS = [
+    ['進行社内', o => o.progIn], ['進行社外', o => o.progOut],
+    ['工程', o => Object.keys(o.done || {}).sort().map(k => k + '=' + o.done[k]).join('|')],
+    ['数量', o => o.amount], ['納期', o => o.ndate], ['紙入荷日', o => o.paper], ['連絡事項', o => o.memo],
+    ['Room', o => (o.room || []).join('|')], ['抜型', o => (o.die || []).join('|')], ['工程表', o => o.printedAt],
+  ];
+  const seen = {
+    base: null, marks: new Map(), touched: new Set(), chgOnly: false,
+    hash(v) { const t = String(v ?? ''); let h = 5381; for (let i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) >>> 0; return h.toString(36); },
+    fp(o) { return SEEN_FIELDS.map(([, f]) => seen.hash(f(o))).join('.'); },
+    read() { try { const j = JSON.parse(store.get(SEEN_KEY) || 'null'); return j && j.rows && typeof j.rows === 'object' ? j.rows : null; } catch { return null; } },
+    leave() { seen.base = null; seen.marks = new Map(); seen.chgOnly = false; },
+    // Recent 1day を読めたたびに呼ぶ。印を決め、今の姿を次の基準として保存する
+    update(rows) {
+      if (seen.base === null) seen.base = seen.read() || false; // false = 基準なし（初めて）
+      const now = {};
+      for (const o of rows) now[o.id] = seen.fp(o);
+      if (seen.base) for (const id of seen.touched) if (now[id]) seen.base[id] = now[id];
+      seen.touched.clear();
+      seen.marks = new Map();
+      if (seen.base) for (const o of rows) {
+        const was = seen.base[o.id];
+        if (!was) { seen.marks.set(o.id, { isNew: true, fields: [] }); continue; }
+        if (was === now[o.id]) continue;
+        const a = was.split('.'), b = now[o.id].split('.');
+        const fields = SEEN_FIELDS.filter((_, i) => a[i] !== b[i]).map(([n]) => n);
+        seen.marks.set(o.id, { isNew: false, fields: fields.length ? fields : ['内容'] });
+      }
+      if (!seen.marks.size) seen.chgOnly = false;
+      store.set(SEEN_KEY, JSON.stringify({ at: Date.now(), rows: now }));
+    },
+    badge(o) {
+      const m = seen.marks.get(o.id); if (!m) return null;
+      const b = document.createElement('span'); b.className = 'seenmark' + (m.isNew ? ' new' : '');
+      b.textContent = m.isNew ? '新' : '変化: ' + m.fields.join('・');
+      b.title = '前回この端末で Recent 1day を見たときから' + (m.isNew ? '新しく出たカード' : '変わった欄');
+      return b;
+    },
+  };
   const rowsSig = rows => JSON.stringify(rows.map(o => ({ ...o, images: (o.images || []).map(a => a.name) })));
   let shownSig = '';
   // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりしたら結果を捨てる。
@@ -1802,6 +1858,7 @@
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     S.orders = j.rows;
+    if (S.view === 'recent') seen.update(j.rows); else seen.leave();
     S.listAt = j.cachedAt || Date.now(); S.listFail = false; $('listRetry').hidden = true;
     // 前に取った画像があればすぐ付ける（自動の読み直しで画像が消えないように）
     for (const o of S.orders) o.images = imgById.get(o.id) || [];
@@ -2011,6 +2068,18 @@
   function renderFilter(counts, total) {
     const box = $('filtChips'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
+    // Recent 1day は「変化あり」の絞り込みだけ出す（前回見たときから新しく出た・変わったカードがあるとき）
+    if (S.view === 'recent' && seen.marks.size) {
+      box.textContent = ''; box.hidden = false;
+      const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '前回から:'; box.append(l);
+      for (const [on, label] of [[false, `すべて ${S.orders.length}`], [true, `変化あり ${seen.marks.size}`]]) {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+        b.setAttribute('aria-pressed', String(seen.chgOnly === on));
+        b.onclick = () => { seen.chgOnly = on; renderList(); };
+        box.append(b);
+      }
+      return;
+    }
     // 自分の工程の決まりが無いリスト（全件・Recent・Fax）では出さず、絞り込みも残さない
     if (!hasMine(v) || !S.orders.length) { box.hidden = true; if (!hasMine(v)) S.filter = 'all'; return; }
     total = total ?? S.orders.length;
@@ -2104,7 +2173,8 @@
     const v = S.views.find(x => x.key === S.view);
     // 顧客で絞ってから状態を数える（状態の件数は選んだ顧客の中の数）
     renderCust();
-    const base = S.cust == null ? S.orders : S.orders.filter(o => !o.archived && custOf(o) === S.cust);
+    let base = S.cust == null ? S.orders : S.orders.filter(o => !o.archived && custOf(o) === S.cust);
+    if (S.view === 'recent' && seen.chgOnly) base = base.filter(o => seen.marks.has(o.id));
     const states = new Map(base.map(o => [o.id, rowState(o, v)]));
     const counts = {};
     for (const st of states.values()) counts[st.kind] = (counts[st.kind] || 0) + 1;
@@ -2136,6 +2206,7 @@
       const info = document.createElement('div'); info.className = 'info';
       const bd = document.createElement('div'); bd.className = 'badges';
       const sb = stateBadge(st, v); if (sb) bd.append(sb);
+      const sm = S.view === 'recent' ? seen.badge(o) : null; if (sm) { bd.append(sm); el.classList.add('seenchg'); }
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; bd.append(s); }
       if (o.archived) { const s = document.createElement('span'); s.className = 'archmark'; s.textContent = 'アーカイブ済'; bd.append(s); }
       if (bd.childNodes.length) info.append(bd);
