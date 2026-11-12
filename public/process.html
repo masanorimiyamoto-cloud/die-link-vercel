@@ -215,6 +215,8 @@
   .facts .when{ font-size:12px; font-weight:600; margin-left:6px; padding:1px 8px; border-radius:999px; letter-spacing:0; vertical-align:3px }
   .facts .late .when{ background:rgba(248,113,113,.16); color:#fca5a5 }
   .facts .soon .when{ background:rgba(251,191,36,.16); color:#fde68a }
+  .facts .arrival.none b{ color:var(--dim); font-size:18px }
+  .facts .arrival.ok b{ color:#4ade80 } .facts .arrival.ok .when{ background:rgba(74,222,128,.16); color:#86efac }
   /* 路線便の集荷日（納期＝着日の前日）。数量・納期の後ろに1行で出す */
   .facts .rosen{ flex-basis:100%; padding:2px 8px; border:1px dashed currentColor; border-radius:8px; color:var(--txt) }
   .facts .rosen b{ font-size:19px }
@@ -1016,7 +1018,7 @@
     return Math.round((Date.UTC(y, m - 1, dd) - Date.UTC(ty, tm - 1, td)) / 86400000);
   }
   // 数量と納期の大きな表示。納期は曜日つき、過ぎていれば赤、今日・明日は黄色
-  function facts(o) {
+  function facts(o, view = '') {
     const f = document.createElement('div'); f.className = 'facts';
     const q = document.createElement('span'); const qb = document.createElement('b');
     qb.textContent = o.amount == null ? '-' : Number(o.amount).toLocaleString('ja-JP');
@@ -1046,9 +1048,28 @@
     }
     if (lc && lc.keys.has('ndate')) n.append(chgMark(lc, 'chg'));
     f.append(q, n);
+    // シート材料入荷の作業リストでは、入荷日を数量・納期の隣（どのカードも同じ場所）に必ず出す。空なら「未入力」（2026-11-12 ユーザー指定）
+    // 以前は進行社外の札に添えるだけで、空・在庫シート利用・伝票以降のカードには出なかった
+    if (view === 'sheet') f.append(arrivalFact(o));
     const rs = rosenLine(o); if (rs) f.append(rs);
     const es = estLine(o); if (es) f.append(es);
     return f;
+  }
+
+  // 入荷日（紙入荷日）。先の日は黄、今日・過ぎて入荷済でないものは赤みで「要確認」。入荷済なら緑
+  function arrivalFact(o) {
+    const a = document.createElement('span'); a.className = 'arrival'; const ab = document.createElement('b');
+    a.append('入荷日', ab);
+    const pn = paperNote(o);
+    if (!pn) { ab.textContent = '未入力'; a.classList.add('none'); return a; }
+    ab.textContent = pn.day;
+    const w = document.createElement('span'); w.className = 'when';
+    if (OUT_ARRIVED.includes(o.progOut)) { a.classList.add('ok'); w.textContent = '入荷済'; }
+    else if (o.progOut === '在庫シート利用') { a.classList.add('ok'); w.textContent = '在庫シート'; }
+    else if (pn.diff > 0) { a.classList.add('soon'); w.textContent = '予定'; }
+    else { a.classList.add('late'); w.textContent = pn.diff === 0 ? '本日・確認待ち' : '要確認'; }
+    a.append(w);
+    return a;
   }
 
   /* ---------- 推定所要時間（2026-11-09） ---------- */
@@ -2118,7 +2139,7 @@
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; bd.append(s); }
       if (o.archived) { const s = document.createElement('span'); s.className = 'archmark'; s.textContent = 'アーカイブ済'; bd.append(s); }
       if (bd.childNodes.length) info.append(bd);
-      info.append(it, facts(o), mt, progressStrip(o, S.view));
+      info.append(it, facts(o, S.view), mt, progressStrip(o, S.view));
       const mm = memoLine(o); if (mm) info.append(mm);
       const wrap = document.createElement('div'); wrap.className = 'orow'; wrap.append(info);
       const th = thumbOf(o); if (th) wrap.append(th);

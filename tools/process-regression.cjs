@@ -1451,6 +1451,25 @@ test('EST1 画面: 数量×1個あたり分で延べ時間と幅・回数を出�
   assert.ok(extract('facts').includes('const es = estLine(o); if (es) f.append(es);'));
 });
 
+// ---- SH2 シート材料入荷の作業リストは入荷日をどのカードも同じ場所（数量・納期の隣）に出す（2026-11-12） ----
+test('SH2 シート材料入荷のカードは入荷日を数量・納期の隣に必ず出す。空は未入力、入荷済・在庫シートも日付を出す', () => {
+  const mk = (tag) => ({ tag, className: '', textContent: '', kids: [], classList: { list: [], add(c) { this.list.push(c); } }, append(...xs) { this.kids.push(...xs); } });
+  const env = { document: { createElement: mk }, WD: ['日', '月', '火', '水', '木', '金', '土'], OUT_ARRIVED: ['シート材料入荷済', '機械貼材料入荷済'],
+    daysFromToday: (d) => ({ '2026-11-20': 8, '2026-11-12': 0, '2026-11-01': -11 })[d] };
+  vm.createContext(env);
+  vm.runInContext([extract('paperNote'), extract('arrivalFact'), 'Object.assign(globalThis, { arrivalFact });'].join('\n'), env);
+  const text = (el) => el.kids.map(k => typeof k === 'string' ? k : k.textContent).join(' ');
+  const cls = (el) => el.classList.list.join(' ');
+  let a = env.arrivalFact({ paper: '' }); assert.equal(text(a), '入荷日 未入力'); assert.equal(cls(a), 'none');
+  a = env.arrivalFact({ paper: '2026-11-20', progOut: 'シート手配済み' }); assert.equal(text(a), '入荷日 11/20(金) 予定'); assert.equal(cls(a), 'soon');
+  a = env.arrivalFact({ paper: '2026-11-12', progOut: '' }); assert.equal(text(a), '入荷日 11/12(木) 本日・確認待ち'); assert.equal(cls(a), 'late');
+  a = env.arrivalFact({ paper: '2026-11-01', progOut: 'シート手配済み' }); assert.equal(text(a), '入荷日 11/1(日) 要確認');
+  a = env.arrivalFact({ paper: '2026-11-01', progOut: 'シート材料入荷済' }); assert.equal(text(a), '入荷日 11/1(日) 入荷済'); assert.equal(cls(a), 'ok');
+  a = env.arrivalFact({ paper: '2026-11-01', progOut: '在庫シート利用' }); assert.equal(text(a), '入荷日 11/1(日) 在庫シート');
+  assert.ok(extract('facts').includes("if (view === 'sheet') f.append(arrivalFact(o));"));
+  assert.ok(source.includes('info.append(it, facts(o, S.view), mt, progressStrip(o, S.view));'));
+});
+
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
 test('AU1 未ログインは 401（needLogin）。社員表を読めないときは 503 で未ログインと取り違えない。伝票照合は照合した人を作業ログに残す', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
