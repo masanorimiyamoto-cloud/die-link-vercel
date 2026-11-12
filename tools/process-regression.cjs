@@ -1509,6 +1509,49 @@ test('RC1 Recent 1day は前回この端末で見た姿と比べて 新・変化
   assert.ok(extract('renderList').includes("if (S.view === 'recent' && seen.chgOnly) base = base.filter(o => seen.marks.has(o.id));"));
 });
 
+// ---- UD1 工程の取り消しを分かりやすく（2026-11-13。権限は今のまま本人と管理者だけ） ----
+test('UD1 取り消せる記録だけボタンを出し、他の人の記録は頼む先を書く。カード上に最後の記録と取り消し。記録直後の案内から取り消せる', async () => {
+  const mk = (tag) => ({ tag, className: '', textContent: '', type: '', dataset: {}, kids: [], attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...xs) { this.kids.push(...xs); } });
+  const calls = [];
+  const env = { document: { createElement: mk }, me: { name: '佐藤 太郎', role: 'スタッフ' }, $: (id) => ({ id }),
+    S: { steps: [{ key: 'o', label: 'オートン抜き完了', variants: [{ value: 'オートン抜き完了' }] }, { key: 'finish', label: '仕上がりました', variants: [{ value: '仕上がりました' }] }] },
+    current: () => null, cancelStep: (...a) => calls.push(a),
+    fullStamp: (t) => t, latestKey: (o) => o.k };
+  vm.createContext(env);
+  vm.runInContext([line(/^  const stampWho = .*$/m), extract('canUndo'), extract('undoControl'), extract('lastRecordRow'),
+    'Object.assign(globalThis, { canUndo, undoControl, lastRecordRow, stampWho });'].join('\n'), env);
+  assert.equal(env.canUndo('佐藤 太郎 2026-11-13 10:00').ok, true, '自分の記録');
+  assert.equal(env.canUndo('').ok, true, '記録者なし');
+  assert.equal(env.canUndo('Airtable 2026-11-13 10:00').ok, true, 'オートメーション');
+  const other = env.canUndo('田中 花子 2026-11-13 10:00');
+  assert.equal(other.ok, false); assert.equal(other.who, '田中 花子', '空白のある名前も日時より前を全部');
+  assert.equal(env.canUndo('佐藤 2026-11-13 10:00').ok, false, '名前の頭が同じだけの別人は本人とみなさない');
+  env.me.role = '管理者'; assert.equal(env.canUndo('田中 花子 2026-11-13 10:00').ok, true, '管理者は誰の記録も'); env.me.role = 'スタッフ';
+  const s = env.S.steps[0];
+  const no = env.undoControl(s, '田中 花子 2026-11-13 10:00', '記録を取り消す', null);
+  assert.equal(no.className, 'undo-no'); assert.match(no.textContent, /田中 花子 さんの記録です。取り消しは本人か管理者/);
+  const yes = env.undoControl(s, '佐藤 太郎 2026-11-13 10:00', '記録を取り消す', { id: 'box' });
+  assert.equal(yes.tag, 'button'); assert.equal(yes.dataset.w, '1', '書き込み中はまとめて止める');
+  yes.onclick(); assert.equal(calls.length, 1); assert.equal(calls[0][4].id, 'box', '案内は押したボタンの箱に出す');
+  // 最後の記録: 今の進行社内の工程か一番新しい記録。記録者なしでも進行社内がその工程なら出す。何も無ければ出さない
+  const r = env.lastRecordRow({ k: 'o', progIn: 'オートン抜き完了', done: { o: '佐藤 太郎 2026-11-13 10:00' } });
+  assert.equal(r.className, 'lastrec'); assert.equal(r.kids[1].textContent, '✓ オートン抜き完了'); assert.equal(r.kids[3].textContent, 'この記録を取り消す');
+  assert.equal(env.lastRecordRow({ k: 'finish', progIn: '仕上がりました', done: {} }).kids[2].textContent, '記録者なし');
+  assert.equal(env.lastRecordRow({ k: '', done: {} }), null);
+  assert.equal(env.lastRecordRow({ k: 'o', progIn: '', done: {} }), null);
+  // 画面: カードの主操作の上に最後の記録。記録直後の案内に取り消し。案内からはカードを開かずに取り消す
+  assert.ok(extract('renderPrimary').includes('const lr = lastRecordRow(o); if (lr) box.append(lr);'));
+  assert.ok(extract('doneCell').includes("undoControl(s, done, '記録を取り消す'"));
+  assert.ok(extract('afterComplete').includes('undo: s ? { o, s, stamp:'));
+  assert.ok(source.includes("$('toastUndo').hidden = !t.undo;"));
+  assert.ok(source.includes('cancelStep(u.s, u.stamp, u.o, true)'));
+  assert.ok(extract('cancelStep').includes('if (fromToast) S.sel = o.id;'));
+  // サーバー: 権限は変えない（本人か管理者。記録者なしは誰でも）。断るときの名前は日時より前を全部
+  const srv = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
+  assert.ok(srv.includes("if (!unowned && user.role !== ROLE_ADMIN && !String(cur).startsWith(`${user.name} `))"));
+  assert.ok(srv.includes("${String(cur).replace(/\\s+\\d{4}-\\d\\d-\\d\\d.*$/, '').trim()} さんの記録なので取り消せません"));
+});
+
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
 test('AU1 未ログインは 401（needLogin）。社員表を読めないときは 503 で未ログインと取り違えない。伝票照合は照合した人を作業ログに残す', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';

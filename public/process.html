@@ -251,6 +251,13 @@
   .stepcell{ display:flex; flex-direction:column; gap:4px; min-width:0 }
   .stepcell .step{ flex:1; border-radius:var(--r); text-align:center }
   .undo{ padding:6px 8px; font-size:13px; font-weight:500; background:transparent; color:var(--mut); border:1px solid var(--line2) }
+  /* 他の人の記録は取り消しボタンを出さず、頼む先を書く（2026-11-13） */
+  .undo-no{ font-size:12px; line-height:1.4; color:var(--mut); padding:2px 2px 0 }
+  /* カード上の「最後の記録」（2026-11-13）。押し間違いにすぐ気づいて取り消せるよう、補助の開閉の中に隠さない */
+  .lastrec{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:8px 10px; border:1px dashed var(--line2); border-radius:var(--r); font-size:14px }
+  .lastrec .lbl{ font-size:12px; color:var(--mut) }
+  .lastrec b{ font-weight:600 }
+  .lastrec .undo{ margin-left:auto; padding:8px 12px; font-size:14px }
   /* 結果を確かめられなかった書き込みの案内（要確認＝赤の系統） */
   .unsure{ display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r);
     border:2px solid var(--st-late); background:var(--st-late-bg); color:var(--st-late-txt); font-size:14px; line-height:1.5 }
@@ -688,6 +695,7 @@
 <div class="toast" id="toast" role="status" hidden>
   <div class="tx" id="toastText"></div>
   <button type="button" class="btn ghost" id="toastRetry" hidden>一覧だけ読み直す</button>
+  <button type="button" class="btn ghost" id="toastUndo" hidden>記録を取り消す</button>
   <button type="button" class="btn ghost" id="toastClose">閉じる</button>
 </div>
 
@@ -2423,6 +2431,7 @@
     const st = v ? rowState(o, v) : { kind: '' };
     const sb = stateBadge(st, v);
     if (sb) { const bd = document.createElement('div'); bd.className = 'badges'; bd.append(sb); box.append(bd); }
+    const lr = lastRecordRow(o); if (lr) box.append(lr);
     // 済とみなした根拠（記録者・日時は実際の記録があるときだけ。抜き半製品あり・仕上がり済 はそのまま）
     if (plan.md) add('why', `済とみなした根拠: ${plan.md.label}${plan.md.who ? `（${plan.md.who}）` : ''}。別の工程の記録が要るときは下から選べます`);
     if (plan.closed) add('why', `この受注は閉じています（進行社外: ${o.progOut || '空白'}）。工程の記録は下の一覧から選べます`);
@@ -2470,6 +2479,40 @@
     if (g.next) { const b = document.createElement('div'); b.textContent = g.next + '（着手できる・知らせ済みという意味ではありません）'; el.append(b); }
     el.hidden = false;
   }
+  // この記録を自分が取り消せるか（サーバーの cancel と同じ決まり。2026-11-13）。
+  // 記録者なし（Airtable で直接入れた・オートメーションの「Airtable 日時」）は誰でも、他の人の記録は本人か管理者だけ（ユーザー指定で権限は変えない）。
+  // 押してから断られると分かりにくいので、取り消せないものはボタンを出さずに頼む先を書く
+  const stampWho = (t) => String(t || '').replace(/\s+\d{4}-\d\d-\d\d.*$/, '').trim();
+  function canUndo(done) {
+    if (!done || String(done).startsWith('Airtable ') || me.role === '管理者' || String(done).startsWith(me.name + ' ')) return { ok: true };
+    return { ok: false, who: stampWho(done) };
+  }
+  // near: 取り消しの途中・結果の案内を出す場所（ボタンのある箱）
+  function undoControl(s, done, label, near) {
+    const c = canUndo(done);
+    if (!c.ok) {
+      const n = document.createElement('div'); n.className = 'undo-no';
+      n.textContent = `${c.who} さんの記録です。取り消しは本人か管理者に頼んでください`;
+      return n;
+    }
+    const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = label; un.dataset.w = '1';
+    un.setAttribute('aria-label', `「${s.label}」の記録を取り消す`);
+    un.onclick = () => cancelStep(s, done, current(), false, near);
+    return un;
+  }
+  // カードの上に出す「最後の記録」。今の進行社内の工程（無ければ一番新しい完了記録）と、その取り消し
+  function lastRecordRow(o) {
+    const key = latestKey(o); if (!key) return null;
+    const s = S.steps.find(x => x.key === key); if (!s) return null;
+    const done = o.done[key];
+    if (!done && !s.variants.some(v => v.value === o.progIn)) return null;
+    const row = document.createElement('div'); row.className = 'lastrec';
+    const l = document.createElement('span'); l.className = 'lbl'; l.textContent = '最後の記録';
+    const b = document.createElement('b'); b.textContent = '✓ ' + s.label;
+    const w = document.createElement('span'); w.textContent = done ? fullStamp(done) : '記録者なし';
+    row.append(l, b, w, undoControl(s, done, 'この記録を取り消す', $('primary')));
+    return row;
+  }
   // 済の工程（押せない表示＋記録者・日時＋取り消し）
   function doneCell(o, s, done, lastKey) {
     // 2026-10-23 済の工程は押せない表示（工程名・済・記録者・日時）にし、取り消しは「記録を取り消す」に分ける。
@@ -2481,10 +2524,7 @@
     const sm = document.createElement('small');
     sm.textContent = done ? '済 ' + fullStamp(done) : '済（記録者なし）';
     st.append(sm);
-    const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '記録を取り消す'; un.dataset.w = '1';
-    un.setAttribute('aria-label', `「${s.label}」の記録を取り消す`);
-    un.onclick = () => cancelStep(s, done);
-    cell.append(st, un);
+    cell.append(st, undoControl(s, done, '記録を取り消す', (s.group === 'status' ? $('stepsStatus') : $('stepsDone')).parentNode));
     return cell;
   }
   // 補助の工程一覧。まだの工程は「その他の工程を記録」（上部に出した工程は除く）、状況（材料・在庫）は「材料・在庫の状況」、
@@ -3239,7 +3279,9 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   // 完了を保存できた後の案内（2026-11-03）。一覧を取り直せたか・その受注がまだ一覧にあるかで言い方を分け、一覧の画面の下に残す。
   // listed: true＝読み直せた / false＝読み直しに失敗 / null＝品番・品名で探す（読み直さない）
   function afterComplete(o, value, v, listed) {
-    const t = { head: `${o.book} / ${o.wc}　${itemShort(o)}`, lines: [], retry: false };
+    // 押し間違いにすぐ気づけるよう、案内から取り消せるようにする（2026-11-13）。自分の記録なので本人の決まりは通る
+    const s = S.steps.find(x => x.variants.some(y => y.value === value));
+    const t = { head: `${o.book} / ${o.wc}　${itemShort(o)}`, lines: [], retry: false, undo: s ? { o, s, stamp: o.done?.[s.key] || "" } : null };
     if (listed === false) {
       t.lines = [`「${value}」の完了記録は保存済みです`, '一覧の更新に失敗しました（完了は送り直しません）。「一覧だけ読み直す」で一覧を更新してください',
         '残りの工程は、一覧を読み直してから確かめてください'];
@@ -3260,6 +3302,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     const h = document.createElement('b'); h.textContent = t.head; tx.append(h);
     for (const line of t.lines) { const d = document.createElement('span'); d.textContent = line; tx.append(d); }
     $('toastRetry').hidden = !t.retry;
+    $('toastUndo').hidden = !t.undo;
     box.hidden = false; document.body.classList.add('has-toast');
     S.toast = t;
     fitToast();
@@ -3272,6 +3315,8 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   }
   if (window.ResizeObserver) new ResizeObserver(fitToast).observe($('toast'));
   $('toastClose').onclick = hideToast;
+  // 記録した直後の案内から取り消す（工程カードは開き直さない）
+  $('toastUndo').onclick = () => { const u = S.toast?.undo; if (u && !busyNow()) cancelStep(u.s, u.stamp, u.o, true); };
   // 一覧だけを読み直す（完了は送り直さない）
   $('toastRetry').onclick = async () => {
     if (busyNow()) return;
@@ -3287,17 +3332,26 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     say($('listMsg'), '一覧を更新しました', 'ok');
   };
 
-  async function cancelStep(s, done) {
-    const o = current(); if (!o) return;
+  // fromToast: 記録した直後の案内（画面の下）から。工程カードは閉じているので、途中・失敗の案内も画面の下に出す。
+  // near: 工程カードの中で押したボタンの箱（そこにも案内を出す）
+  async function cancelStep(s, done, o = current(), fromToast = false, near = null) {
+    if (!o) return;
     if (!confirm(`「${s.label}」${done ? `の記録（${done}）` : ''}を取り消しますか？\n進行社内は、この工程を記録する前の状態に戻します。`)) return;
+    if (fromToast) S.sel = o.id; // runOp は開いている受注にだけ書く。案内の受注を対象にする
+    const head = `${o.book} / ${o.wc}　${itemShort(o)}`;
+    const tell = (text, cls) => fromToast ? showToast({ head, lines: [text], retry: false }, cls === 'err' ? 'warn' : cls || 'ok') : sayAt(current() ? near : null, text, cls);
     await runOp(o, async () => {
-      const near = (s.group === 'status' ? $('stepsStatus') : $('stepsDone')).parentNode;
-      sayAt(near, '取り消しています…');
+      tell('取り消しています…');
       const j = await write({ action: 'cancel', id: o.id, step: s.key });
-      if (outcomeUnknown(j, x => typeof x.progIn === 'string')) return markUnsure(o, `「${s.label}」の取り消し`);
+      if (outcomeUnknown(j, x => typeof x.progIn === 'string')) {
+        markUnsure(o, `「${s.label}」の取り消し`);
+        // 案内から押したときは工程カードが閉じているので、確かめ方を画面の下に出す
+        if (fromToast) tell('取り消せたか確かめられませんでした（電波など）。受注を開いて「記録の状態を確認」を押してください', 'err');
+        return;
+      }
       if (!j.ok) {
-        if (j.stale) await refreshCurrent();
-        sayAt(current() ? near : null, j.error || '取り消せませんでした', 'err');
+        if (j.stale && !fromToast) await refreshCurrent();
+        tell(j.error || '取り消せませんでした', 'err');
         return;
       }
       patch(o, x => { delete x.done[s.key]; x.progIn = j.progIn; if (x.group === '最終' && x.progIn !== '仕上がりました') x.group = ''; });

@@ -632,7 +632,8 @@ async function cancel(body, user) {
   // またはオートメーションが「Airtable 日時」と書いたもの）は誰でも可
   const unowned = !cur || String(cur).startsWith('Airtable ');
   if (!unowned && user.role !== ROLE_ADMIN && !String(cur).startsWith(`${user.name} `)) {
-    return json({ ok: false, error: `${cur.split(' ')[0]} さんの記録なので取り消せません。本人か管理者に頼んでください` }, 403);
+    // 名前に空白がある（「佐藤 太郎」）ので、日時より前を名前とする（2026-11-13。以前は最初の空白までで「佐藤」だけになっていた）
+    return json({ ok: false, error: `${String(cur).replace(/\s+\d{4}-\d\d-\d\d.*$/, '').trim()} さんの記録なので取り消せません。本人か管理者に頼んでください` }, 403);
   }
   const fields = { [r.step.field]: null };
   let restored = null;
