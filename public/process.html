@@ -139,6 +139,8 @@
   .lpform .row input.num{ flex:0 0 6em; text-align:right }
   .lpform .row select{ font-size:17px }
   .lpform .hint{ font-size:12.5px; color:var(--mut) }
+  /* ラベルの入力中だけ、入力欄を見出しの下まで持ち上げられるようカードの下に余白を足す（キーボードに隠れないように）2026-11-12 */
+  #stepCard.lpediting{ padding-bottom:70vh }
   /* 受領伝票に一緒に入る受注の一覧（2026-11-11） */
   .slmates{ font-size:13.5px; line-height:1.5; padding:7px 10px; border-radius:8px; border:1px solid var(--line2); background:var(--surf2); color:var(--txt) }
   .slmates b{ display:block; font-weight:700 }
@@ -2522,6 +2524,7 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     else line.textContent = '事務所の LBP442（手差しのラベル紙）に、24面のラベルを刷ります';
     box.append(b);
     if (st.open && !kcPending(st.last)) box.append(lpForm(o, st));
+    else $('stepCard').classList.remove('lpediting');
     box.append(line);
     if (!st.at || Date.now() - st.at > 30000) lpLoad(o.id);
   }
@@ -2565,6 +2568,19 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     send.onclick = () => lpRequest(o);
     cancel.onclick = () => { st.open = false; st.f = null; st.retry = ''; renderLabelPrint(o); };
     go.append(send, cancel); form.append(go);
+    // スマホで品名などを直すとき、入力欄がキーボードの後ろに隠れて直しにくかった（2026-11-12 ユーザー指摘）。
+    // 入力欄を押したら、ラベルの入力欄ぜんぶを見出しのすぐ下まで持ち上げる。キーボードが出て画面が縮んだ後にもう一度合わせる。
+    // 下に余白が無いと上まで動かせないので、入力中だけカードの下に余白（.lpediting）を足し、入力欄から離れたら外す
+    const card = $('stepCard');
+    form.addEventListener('focusin', (e) => {
+      if (!e.target.matches('input, select')) return;
+      card.classList.add('lpediting');
+      setTimeout(() => scrollToCard(form), 80);
+      setTimeout(() => scrollToCard(form), 450);
+    });
+    form.addEventListener('focusout', () => setTimeout(() => {
+      if (!form.contains(document.activeElement)) card.classList.remove('lpediting');
+    }, 300));
     return form;
   }
   async function lpLoad(id) {

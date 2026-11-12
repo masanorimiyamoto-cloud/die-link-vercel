@@ -971,6 +971,12 @@ test('LB1 画面: 品名は # より前を最初の / で2行に分ける。目�
   assert.ok(src.includes('if (j.unknown) { st.retry = reqId;'));
   assert.ok(extract('renderLabelPrint').includes('b.disabled = !!st.sending || kcPending(st.last);'));
   assert.ok(extract('renderSteps').includes('renderLabelPrint(o);'));
+  // 入力欄を押したら入力欄ぜんぶを見出しの下へ持ち上げる（キーボードに隠れない）。入力中だけ下に余白、閉じたら外す
+  const form = extract('lpForm');
+  assert.ok(form.includes("form.addEventListener('focusin'") && form.includes('scrollToCard(form)'));
+  assert.ok(form.includes("card.classList.add('lpediting')") && form.includes("card.classList.remove('lpediting')"));
+  assert.ok(extract('renderLabelPrint').includes("else $('stepCard').classList.remove('lpediting');"));
+  assert.ok(source.includes('#stepCard.lpediting{ padding-bottom:70vh }'));
 });
 // ---- SL1 受領伝票のすぐ発行 2026-11-10（偽の Airtable。本物には繋がない） ----
 const SREC = 'recSLIPISSUE00001', SREQ = 'sl-11111111-2222-3333-4444-555555555555';
