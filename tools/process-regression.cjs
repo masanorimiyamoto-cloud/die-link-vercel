@@ -977,6 +977,11 @@ test('LB1 画面: 品名は # より前を最初の / で2行に分ける。目�
   assert.ok(form.includes("card.classList.add('lpediting')") && form.includes("card.classList.remove('lpediting')"));
   assert.ok(extract('renderLabelPrint').includes("else $('stepCard').classList.remove('lpediting');"));
   assert.ok(source.includes('#stepCard.lpediting{ padding-bottom:70vh }'));
+  // 型を探す・生地を照合・ラベルを印刷 を同じ大きさで3つ並べ、ラベルの入力欄はそのすぐ下（工程表コピーより上）に開く
+  assert.ok(extract('goBar').includes('g.append(findLink(o), fabricLink(o), labelLink(o));'));
+  assert.ok(source.includes('.gobar{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px }'));
+  assert.ok(source.indexOf('id="goBar"') < source.indexOf('id="labelPrint"') && source.indexOf('id="labelPrint"') < source.indexOf('id="koteiCopy"'));
+  assert.ok(extract('labelLink').includes("st.open = !st.open; st.msg = ''; renderLabelPrint(o);"));
 });
 // ---- SL1 受領伝票のすぐ発行 2026-11-10（偽の Airtable。本物には繋がない） ----
 const SREC = 'recSLIPISSUE00001', SREQ = 'sl-11111111-2222-3333-4444-555555555555';

@@ -159,8 +159,13 @@
   .findbtn small{ font-size:12.5px; font-weight:500; opacity:.85 }
   /* 「生地を照合」は トップの知るボタンと同じ青。探すと横に並べる */
   .findbtn.fabric{ background:#2563eb }
-  .gobar{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
-  .gobar .findbtn{ flex-direction:column; gap:1px; padding:10px 6px; text-align:center }
+  /* 型を探す・生地を照合・ラベルを印刷 を同じ大きさで3つ並べる（スマホに慣れていない人も押しやすいように）2026-11-12 */
+  .gobar{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px }
+  .gobar .findbtn{ flex-direction:column; gap:2px; padding:12px 4px; min-height:68px; text-align:center;
+    font-size:16px; line-height:1.25; letter-spacing:0; word-break:keep-all; overflow-wrap:anywhere }
+  .gobar button.findbtn{ border:0; font-family:inherit; width:100%; cursor:pointer }
+  .gobar button.findbtn:disabled{ opacity:.5 }
+  .findbtn.label{ background:#b45309 }
   /* 画像: 行の右に小さく、選んだ受注では大きく、押すと全画面 */
   .orow{ display:flex; gap:12px; align-items:flex-start; width:100% }
   .orow .info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px }
@@ -639,11 +644,12 @@
     <div class="variants" id="variants" hidden></div>
     <div class="msg" id="stepMsg" role="status"></div>
     <div class="nextinfo" id="nextInfo" hidden></div>
+    <!-- 型を探す・生地を照合・ラベルを印刷 の3つのボタン（同じ大きさ）。ラベルの入力欄と状況はそのすぐ下に開く 2026-11-12 -->
     <div id="goBar"></div>
-    <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
-    <div class="kcopy" id="koteiCopy"></div>
     <!-- 箱に貼るラベルの印刷（事務所の LBP442 手差し＝ラベル紙。Label_Print.xls の Stecker24B 24面）2026-11-12 -->
     <div class="kcopy" id="labelPrint"></div>
+    <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
+    <div class="kcopy" id="koteiCopy"></div>
     <!-- 受領伝票のすぐ発行（事務所のプリンタ。受領伝票発行可能の受注だけ）2026-11-10 -->
     <div class="kcopy" id="slipIssue"></div>
     <!-- 同じ品番（Book / WorkCord）の受注を、アーカイブ済も含めて品番で探すに出す 2026-11-06 -->
@@ -1347,7 +1353,7 @@
   function findLink(o) {
     const a = document.createElement('a'); a.className = 'findbtn';
     a.href = '/scan-lookup.html?' + new URLSearchParams({ book: o.book, wc: String(o.wc) }).toString();
-    a.append('この型を探す');
+    a.append('型を探す');
     const sm = document.createElement('small'); sm.textContent = `${o.book} / ${o.wc}`; a.append(sm);
     return a;
   }
@@ -1357,13 +1363,24 @@
   function fabricLink(o) {
     const a = document.createElement('a'); a.className = 'findbtn fabric';
     a.href = '/scan-spec-google.html?' + new URLSearchParams({ book: o.book, wc: String(o.wc), target: 'fabric' }).toString();
-    a.append('生地を照合する');
+    a.append('生地を照合');
     const sm = document.createElement('small'); sm.textContent = `${o.book} / ${o.wc}`; a.append(sm);
     return a;
   }
+  // 箱ラベル（2026-11-12）。押すとすぐ下（#labelPrint）に入力欄が開く。依頼中は押せない（renderLabelPrint が合わせる）
+  function labelLink(o) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'findbtn label'; b.id = 'lpGo';
+    b.append('ラベルを印刷');
+    const sm = document.createElement('small'); sm.textContent = '24面・手差し'; b.append(sm);
+    b.onclick = () => {
+      const st = S.lp[o.id] || (S.lp[o.id] = {});
+      st.open = !st.open; st.msg = ''; renderLabelPrint(o);
+    };
+    return b;
+  }
   function goBar(o) {
     const g = document.createElement('div'); g.className = 'gobar';
-    g.append(findLink(o), fabricLink(o));
+    g.append(findLink(o), fabricLink(o), labelLink(o));
     return g;
   }
 
@@ -2514,18 +2531,19 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
   function renderLabelPrint(o) {
     const box = $('labelPrint'); box.textContent = '';
     const st = S.lp[o.id] || (S.lp[o.id] = {});
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn'; b.textContent = '🏷 箱ラベルを印刷';
-    b.disabled = !!st.sending || kcPending(st.last);
-    b.onclick = () => { st.open = !st.open; st.msg = ''; renderLabelPrint(o); };
+    // ボタンは「型を探す・生地を照合」と並ぶ大きいボタン（labelLink、#lpGo）。ここでは押せる／押せないだけ合わせる
+    const b = $('lpGo');
+    if (b) b.disabled = !!st.sending || kcPending(st.last);
     const line = document.createElement('div'); line.className = 'kcst';
     const r = st.last;
     if (st.msg) { line.textContent = st.msg; line.className = 'msg ' + (st.cls || ''); }
     else if (r) line.textContent = `${kcPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼（${r.line1}${r.sheets ? '・' + r.sheets + '枚' : ''}） → ${KC_LABEL[r.state] || r.state}${r.doneAt && !kcPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
+    else if (!st.open) line.textContent = '';
     else line.textContent = '事務所の LBP442（手差しのラベル紙）に、24面のラベルを刷ります';
-    box.append(b);
     if (st.open && !kcPending(st.last)) box.append(lpForm(o, st));
     else $('stepCard').classList.remove('lpediting');
-    box.append(line);
+    if (line.textContent) box.append(line);
+    box.hidden = !box.childNodes.length;
     if (!st.at || Date.now() - st.at > 30000) lpLoad(o.id);
   }
   function lpForm(o, st) {
