@@ -132,6 +132,13 @@
   .amt .note{ font-size:12.5px; color:var(--mut) }
   .kcopy{ display:flex; flex-direction:column; gap:4px }
   .kcopy .kcst{ font-size:12.5px; color:var(--mut) }
+  .lpform{ display:flex; flex-direction:column; gap:6px; padding:8px 0 4px }
+  .lpform .row{ display:flex; gap:6px; align-items:center; flex-wrap:wrap }
+  .lpform .row > span{ flex:0 0 4.5em; font-size:13px; color:var(--mut) }
+  .lpform .row input{ flex:1 1 160px; min-width:0; font-size:17px }
+  .lpform .row input.num{ flex:0 0 6em; text-align:right }
+  .lpform .row select{ font-size:17px }
+  .lpform .hint{ font-size:12.5px; color:var(--mut) }
   /* 受領伝票に一緒に入る受注の一覧（2026-11-11） */
   .slmates{ font-size:13.5px; line-height:1.5; padding:7px 10px; border-radius:8px; border:1px solid var(--line2); background:var(--surf2); color:var(--txt) }
   .slmates b{ display:block; font-weight:700 }
@@ -633,6 +640,8 @@
     <div id="goBar"></div>
     <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
     <div class="kcopy" id="koteiCopy"></div>
+    <!-- 箱に貼るラベルの印刷（事務所の LBP442 手差し＝ラベル紙。Label_Print.xls の Stecker24B 24面）2026-11-12 -->
+    <div class="kcopy" id="labelPrint"></div>
     <!-- 受領伝票のすぐ発行（事務所のプリンタ。受領伝票発行可能の受注だけ）2026-11-10 -->
     <div class="kcopy" id="slipIssue"></div>
     <!-- 同じ品番（Book / WorkCord）の受注を、アーカイブ済も含めて品番で探すに出す 2026-11-06 -->
@@ -2481,6 +2490,135 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
     if (j.ok) kcPoll(o.id);
   }
 
+  /* ---------- 箱に貼るラベルの印刷（2026-11-12） ---------- */
+  // 押すと入力欄が開き、送るとサーバーが依頼の表（TableLabelPrintRequest）に1行書く。事務所の新PC（label_print_request.py）が
+  // 拾って Label_Print.xls の Stecker24B（24面）に VBA と同じ形で書き、LBP442 の手差し（普段からラベル紙）へ刷る。
+  // 品名は受注の品名の # より前を、最初の / で2行に分けて入れる（VBA の UserFormST と同じ）。直してよい。
+  // 梱包数・枚数は空なら事務所PCが決める（品名コード表 M列・納品数÷梱包数÷24 の切り捨て＋1）。
+  // 依頼ID・送り直し・状況の読み直しは工程表のコピー印刷と同じ
+  const LP_MAX_SHEETS = 10;
+  S.lp = {}; // 受注ID → { last, at, retry, msg, cls, open, f: 入力中の値 }
+  function lpSplit(item) {
+    let s = String(item || ''); const k = s.indexOf('#'); if (k >= 0) s = s.slice(0, k);
+    s = s.trim(); const j = s.indexOf('/');
+    return j >= 0 ? [s.slice(0, j).trim(), s.slice(j + 1).trim()] : [s, ''];
+  }
+  // 枚数の目安（入数＝Airtable の PackUnit から。事務所PCは品名コード表の梱包数で決めるので、目安と違うことがある）
+  function lpEstimate(o, packText) {
+    const amount = Number(o.amount), pack = Number(String(packText || o.spec?.packUnit || '').replace(/[,，\s]/g, ''));
+    if (!(amount > 0) || !(pack > 0)) return 0;
+    return Math.floor(amount / pack / 24) + 1;
+  }
+  function renderLabelPrint(o) {
+    const box = $('labelPrint'); box.textContent = '';
+    const st = S.lp[o.id] || (S.lp[o.id] = {});
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn'; b.textContent = '🏷 箱ラベルを印刷';
+    b.disabled = !!st.sending || kcPending(st.last);
+    b.onclick = () => { st.open = !st.open; st.msg = ''; renderLabelPrint(o); };
+    const line = document.createElement('div'); line.className = 'kcst';
+    const r = st.last;
+    if (st.msg) { line.textContent = st.msg; line.className = 'msg ' + (st.cls || ''); }
+    else if (r) line.textContent = `${kcPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼（${r.line1}${r.sheets ? '・' + r.sheets + '枚' : ''}） → ${KC_LABEL[r.state] || r.state}${r.doneAt && !kcPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
+    else line.textContent = '事務所の LBP442（手差しのラベル紙）に、24面のラベルを刷ります';
+    box.append(b);
+    if (st.open && !kcPending(st.last)) box.append(lpForm(o, st));
+    box.append(line);
+    if (!st.at || Date.now() - st.at > 30000) lpLoad(o.id);
+  }
+  function lpForm(o, st) {
+    if (!st.f) { const [l1, l2] = lpSplit(o.item); st.f = { line1: l1, line2: l2, pack: '', sheets: '' }; }
+    const f = st.f;
+    const form = document.createElement('div'); form.className = 'lpform';
+    const row = (label, el) => { const d = document.createElement('div'); d.className = 'row'; const s = document.createElement('span'); s.textContent = label; d.append(s, el); form.append(d); return d; };
+    const text = (key, label) => {
+      const inp = document.createElement('input'); inp.value = f[key]; inp.maxLength = 60; inp.autocomplete = 'off'; inp.setAttribute('aria-label', label);
+      inp.oninput = () => { f[key] = inp.value; }; row(label, inp); return inp;
+    };
+    text('line1', '品名1'); text('line2', '品名2');
+    const pack = document.createElement('input'); pack.className = 'num'; pack.inputMode = 'numeric'; pack.pattern = '\\d*'; pack.value = f.pack; pack.autocomplete = 'off';
+    pack.placeholder = '空＝表どおり'; pack.setAttribute('aria-label', '梱包数');
+    const packRow = row('梱包数', pack);
+    const packNote = document.createElement('small'); packNote.className = 'hint';
+    packNote.textContent = o.spec?.packUnit ? `入数 ${o.spec.packUnit}` : '';
+    packRow.append(packNote);
+    const sheets = document.createElement('select'); sheets.setAttribute('aria-label', '枚数');
+    const est = document.createElement('small'); est.className = 'hint';
+    const fillSheets = () => {
+      const e = lpEstimate(o, f.pack);
+      sheets.textContent = '';
+      const auto = document.createElement('option'); auto.value = ''; auto.textContent = e ? `自動（目安 ${e}枚）` : '自動'; sheets.append(auto);
+      for (let n = 1; n <= LP_MAX_SHEETS; n++) { const op = document.createElement('option'); op.value = String(n); op.textContent = `${n}枚`; sheets.append(op); }
+      sheets.value = f.sheets;
+      est.textContent = e > LP_MAX_SHEETS && !f.sheets ? `目安が${LP_MAX_SHEETS}枚を超えるので、枚数を選んでください` : '';
+    };
+    pack.oninput = () => { f.pack = pack.value; fillSheets(); };
+    sheets.onchange = () => { f.sheets = sheets.value; fillSheets(); };
+    fillSheets();
+    row('枚数', sheets).append(est);
+    const hint = document.createElement('div'); hint.className = 'hint';
+    hint.textContent = `1枚＝24面（3列×8段）。数量 ${o.amount ?? '?'}。手差しトレイのラベル紙に刷ります（Excel・受注の記録は変えません）`;
+    form.append(hint);
+    const go = document.createElement('div'); go.className = 'row';
+    const send = document.createElement('button'); send.type = 'button'; send.className = 'btn'; send.textContent = 'この内容で印刷';
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'amtbtn'; cancel.textContent = 'やめる';
+    send.disabled = !!st.sending;
+    send.onclick = () => lpRequest(o);
+    cancel.onclick = () => { st.open = false; st.f = null; st.retry = ''; renderLabelPrint(o); };
+    go.append(send, cancel); form.append(go);
+    return form;
+  }
+  async function lpLoad(id) {
+    const st = S.lp[id] || (S.lp[id] = {});
+    if (st.loading) return; st.loading = true;
+    const j = await api({ action: 'labelPrintStatus', id }).catch(() => ({ ok: false }));
+    st.loading = false; st.at = Date.now();
+    if (j.ok) {
+      const was = st.last;
+      st.last = j.requests?.[0] || null;
+      if (kcPending(st.last) && !st.pollFrom) st.pollFrom = Date.now();
+      if (was && kcPending(was) && st.last && !kcPending(st.last) && st.last.reqId === was.reqId) {
+        st.msg = st.last.state === '印刷済' ? `ラベルを印刷しました（${hm(st.last.doneAt)}）` : `印刷できませんでした${st.last.memo ? '：' + st.last.memo : ''}`;
+        st.cls = st.last.state === '印刷済' ? 'ok' : 'err';
+      }
+    }
+    if (current()?.id === id) renderLabelPrint(current());
+    lpPoll(id);
+  }
+  function lpPoll(id) {
+    const st = S.lp[id];
+    clearTimeout(st.timer);
+    if (!kcPending(st.last) || Date.now() - (st.pollFrom || 0) > 600000) return;
+    st.timer = setTimeout(() => { if (current()?.id === id && !$('stepCard').hidden) { st.at = 0; lpLoad(id); } }, 15000);
+  }
+  async function lpRequest(o) {
+    const st = S.lp[o.id] || (S.lp[o.id] = {});
+    if (st.sending) return;
+    const f = st.f || {};
+    const line1 = String(f.line1 || '').trim(), line2 = String(f.line2 || '').trim();
+    const pack = String(f.pack || '').trim().replace(/[,，\s]/g, '');
+    if (!line1) { st.msg = '品名（1行目）を入れてください'; st.cls = 'err'; return renderLabelPrint(o); }
+    if (pack && (!/^\d+$/.test(pack) || Number(pack) <= 0)) { st.msg = '梱包数は1以上の整数で入れてください（空なら品名コード表どおり）'; st.cls = 'err'; return renderLabelPrint(o); }
+    if (!f.sheets && lpEstimate(o, pack) > LP_MAX_SHEETS) { st.msg = `目安が${LP_MAX_SHEETS}枚を超えます。枚数を選んでください`; st.cls = 'err'; return renderLabelPrint(o); }
+    if (!st.retry && !confirm(`${line1}${line2 ? '\n' + line2 : ''}
+数量 ${pack || '（品名コード表どおり）'}・${f.sheets ? f.sheets + '枚' : '枚数は自動'}
+
+この内容の箱ラベル（24面）を、事務所の LBP442（手差しのラベル紙）で印刷します。`)) return;
+    const reqId = st.retry || ('lp-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12)));
+    st.sending = true; st.msg = '依頼しています…'; st.cls = ''; renderLabelPrint(o);
+    const j = await api({ action: 'labelPrint', id: o.id, reqId, line1, line2, pack, sheets: f.sheets || '' });
+    st.sending = false;
+    if (j.unknown) { st.retry = reqId; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2回は刷りません）'; st.cls = 'warn'; }
+    else if (!j.ok) { st.retry = ''; st.msg = j.error || '依頼できませんでした'; st.cls = 'err'; }
+    else {
+      st.retry = ''; st.last = j.request; st.at = Date.now(); st.pollFrom = Date.now(); st.open = false; st.f = null;
+      st.msg = j.dup ? `すでに依頼中です（${hm(j.request.at)} ${j.request.by}）。事務所のPCが刷るまでお待ちください`
+        : '依頼しました。1〜2分で事務所のプリンタから出ます';
+      st.cls = 'ok'; navigator.vibrate?.(40);
+    }
+    if (current()?.id === o.id) renderLabelPrint(current());
+    if (j.ok) lpPoll(o.id);
+  }
+
   /* ---------- 受領伝票のすぐ発行（2026-11-10） ---------- */
   // 定時の自動発行を待たずに、事務所のプリンタでこの受注の受領伝票を出す。押すとサーバーが依頼の表に1行書き、
   // 事務所PC（receipt_slip_issue.py の依頼モード）が拾って発行する。進行社外が 受領伝票発行可能 でなければ断る
@@ -2640,6 +2778,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     renderNext(o, v);
     $('goBar').replaceChildren(goBar(o));
     renderKoteiCopy(o);
+    renderLabelPrint(o);
     renderSlipIssue(o);
     renderSameWc(o);
     $('editors').replaceChildren(amountEditor(o), ndateEditor(o), paperEditor(o));

@@ -100,7 +100,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'orderTemplates', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'orderTemplates', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus', 'labelPrint', 'labelPrintStatus']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -288,6 +288,8 @@ export async function handleProcess(action, body, who) {
   if (action === 'koteiCopyStatus') return koteiCopyStatus(body);
   if (action === 'slipIssue') return slipIssue(body, who.user);
   if (action === 'slipIssueStatus') return slipIssueStatus(body);
+  if (action === 'labelPrint') return labelPrint(body, who.user);
+  if (action === 'labelPrintStatus') return labelPrintStatus(body);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -1128,6 +1130,80 @@ async function koteiCopy(body, user) {
   if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
   await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: '工程表コピー依頼', detail: `依頼ID ${reqId}` }).catch(() => {});
   return json({ ok: true, request: kcOut(row) });
+}
+// ---- 箱に貼るラベルの印刷（2026-11-12）----
+// 依頼の表（TableLabelPrintRequest）に1行書くだけ。事務所の新PC（label_print_request.py、1分ごと）が拾い、
+// Label_Print.xls の Stecker24B（24面）へ VBA と同じ形で 数量・品名1・品名2 を書いて Canon442Hand（手差し＝ラベル紙）へ刷る。
+// 梱包数・枚数は空でよい（空なら事務所PCが 品名ｺｰﾄﾞ M列と VBA の式で決める）。Excel・受注の記録は変えない。
+// 事務所PCの準備ができるまでは受けない（Vercel に LABEL_PRINT_ENABLED=1）。依頼ID・二度押しの扱いは工程表のコピー印刷と同じ
+const LP_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(process.env.LABEL_PRINT_TABLE || 'TableLabelPrintRequest')}`;
+const LP = { line1: '品名1', line2: '品名2', pack: '梱包数', sheets: '枚数' };
+export const LP_MAX_SHEETS = 10, LP_MAX_TEXT = 60;
+const lpOut = (r) => {
+  const f = r.fields || {};
+  return { ...kcOut(r), line1: String(f[LP.line1] || ''), line2: String(f[LP.line2] || ''),
+    pack: typeof f[LP.pack] === 'number' ? f[LP.pack] : null, sheets: typeof f[LP.sheets] === 'number' ? f[LP.sheets] : null };
+};
+async function lpFind(formula, max = 3) {
+  const url = new URL(LP_API);
+  url.searchParams.set('filterByFormula', formula);
+  url.searchParams.set('sort[0][field]', KC.at); url.searchParams.set('sort[0][direction]', 'desc');
+  url.searchParams.set('maxRecords', String(max));
+  return (await airtable(url)).records || [];
+}
+// 空なら null（＝事務所PCが決める）。整数でなければ undefined（＝断る）
+const lpInt = (v, lo, hi) => {
+  const s = String(v ?? '').trim().replace(/[,，\s]/g, '');
+  if (!s) return null;
+  if (!/^\d+$/.test(s)) return undefined;
+  const n = Number(s);
+  return n >= lo && n <= hi ? n : undefined;
+};
+async function labelPrint(body, user) {
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  const reqId = String(body?.reqId || '');
+  if (!/^lp-[A-Za-z0-9-]{8,64}$/.test(reqId)) return json({ ok: false, error: '画面が古いので、読み込み直してからもう一度押してください' }, 400);
+  const line1 = String(body?.line1 ?? '').trim(), line2 = String(body?.line2 ?? '').trim();
+  if (!line1) return json({ ok: false, error: '品名（1行目）を入れてください' }, 400);
+  if (line1.length > LP_MAX_TEXT || line2.length > LP_MAX_TEXT) return json({ ok: false, error: `品名は1行${LP_MAX_TEXT}文字までにしてください` }, 400);
+  const pack = lpInt(body?.pack, 1, 1000000), sheets = lpInt(body?.sheets, 1, LP_MAX_SHEETS);
+  if (pack === undefined) return json({ ok: false, error: '梱包数は1以上の整数で入れてください（空なら品名コード表どおり）' }, 400);
+  if (sheets === undefined) return json({ ok: false, error: `枚数は1〜${LP_MAX_SHEETS}枚で選んでください` }, 400);
+  let rec;
+  try {
+    const same = (await lpFind(`{${KC.req}}='${esc(reqId)}'`, 1))[0];
+    if (same) {
+      if (same.fields?.[KC.rec] !== id) return json({ ok: false, error: '依頼の指定が食い違っています。画面を読み込み直してください' }, 409);
+      return json({ ok: true, again: true, request: lpOut(same) });
+    }
+    if (process.env.LABEL_PRINT_ENABLED !== '1') return json({ ok: false, refused: true, error: '事務所PCの準備がまだなので、ラベルの印刷はまだ使えません' }, 503);
+    const open = (await lpFind(`AND({${KC.rec}}='${id}',OR({${KC.state}}='${KC_WAIT}',{${KC.state}}='${KC_BUSY}'))`, 1))[0];
+    if (open) return json({ ok: true, dup: true, request: lpOut(open) });
+    rec = await fetchRecordStrict(id);
+  } catch (e) {
+    return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502);
+  }
+  if (!rec) return json({ ok: false, error: 'この受注はもうありません' }, 404);
+  const o = describe(rec);
+  const fields = { [KC.req]: reqId, [KC.rec]: id, [KC.state]: KC_WAIT, [KC.book]: String(o.book || ''), [KC.wc]: String(o.wc ?? ''),
+    [KC.item]: String(o.item || ''), [LP.line1]: line1, [LP.line2]: line2, [KC.by]: String(user?.name || ''), [KC.at]: new Date().toISOString() };
+  if (pack !== null) fields[LP.pack] = pack;
+  if (sheets !== null) fields[LP.sheets] = sheets;
+  const no = Number(user?.no); if (Number.isFinite(no)) fields[KC.no] = no;
+  let row;
+  try { row = (await airtable(LP_API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) })).records?.[0]; }
+  catch (e) { return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502); }
+  if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
+  await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: 'ラベル印刷依頼',
+    detail: `依頼ID ${reqId} / ${line1}${line2 ? ' / ' + line2 : ''} / 梱包数 ${pack ?? '品名コード表'} / 枚数 ${sheets ?? '自動'}` }).catch(() => {});
+  return json({ ok: true, request: lpOut(row) });
+}
+async function labelPrintStatus(body) {
+  const id = String(body?.id || '');
+  if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return json({ ok: false, error: '受注の指定が正しくありません' }, 400);
+  try { return json({ ok: true, requests: (await lpFind(`{${KC.rec}}='${id}'`, 3)).map(lpOut) }); }
+  catch (e) { return json({ ok: false, error: `ラベル印刷の状況を読めませんでした（${String(e?.message || e).slice(0, 80)}）` }, 502); }
 }
 // ---- 受領伝票のすぐ発行（2026-11-10）----
 // 受領伝票発行可能 になった受注の伝票を、定時の自動発行を待たずに事務所のプリンタで出す。ここでは依頼の表

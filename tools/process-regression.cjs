@@ -829,7 +829,7 @@ async function kcEnv(opt = {}) {
   global.fetch = async (url, init = {}) => {
     const u = new URL(String(url)); const m = init.method || 'GET';
     const parts = u.pathname.split('/'); const table = decodeURIComponent(parts[3] || ''); const rid = parts[4];
-    const kind = table === 'TableKoteiCopyRequest' || table === 'TableSlipIssueRequest' ? 'kc' : table === 'TableJuchu' ? 'order' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
+    const kind = table === 'TableKoteiCopyRequest' || table === 'TableSlipIssueRequest' || table === 'TableLabelPrintRequest' ? 'kc' : table === 'TableJuchu' ? 'order' : table === 'tblQFZ7QEuRaBW4oj' ? 'worklog' : 'other:' + table;
     calls.push(`${m} ${kind}${rid ? ' ' + rid : ''}`);
     if (kind === 'order' && !rid && m === 'GET') {
       if (opt.failList) return new Response('{}', { status: 500 });
@@ -908,6 +908,69 @@ test('KC1 依頼IDなし・受注が無い・Ta/Ko/Yo 以外は依頼しない�
     const st = await e.run('koteiCopyStatus', { id: KREC });
     assert.equal(st.j.ok, true); assert.equal(st.j.requests[0].reqId, KREQ); assert.equal(st.j.requests[0].state, '依頼済');
   } finally { e.restore(); }
+});
+// ---- LB1 箱ラベルの印刷依頼 2026-11-12（偽の Airtable。本物には繋がない） ----
+const LREQ = 'lp-11111111-2222-3333-4444-555555555555';
+test('LB1 依頼は依頼の表に依頼済で1行書くだけ。品名2行・梱包数・枚数を入れ、空なら書かない。受注には書かない', async () => {
+  const e = await kcEnv({ orders: { [KREC]: korder } });
+  process.env.LABEL_PRINT_ENABLED = '0';
+  try {
+    const off = await e.run('labelPrint', { id: KREC, reqId: LREQ, line1: 'HB3247-W6(仕切2)', line2: '', pack: '', sheets: '' });
+    assert.equal(off.status, 503); assert.equal(e.reqs.size, 0, '事務所PCの準備前は書かない');
+    process.env.LABEL_PRINT_ENABLED = '1';
+    const r = await e.run('labelPrint', { id: KREC, reqId: LREQ, line1: ' HB3247-W6(仕切2) ', line2: '赤', pack: '25', sheets: '3' });
+    assert.equal(r.j.ok, true, JSON.stringify(r.j)); assert.equal(r.j.request.state, '依頼済');
+    const f = [...e.reqs.values()][0].fields;
+    assert.equal(f['依頼ID'], LREQ); assert.equal(f['受注RecordID'], KREC); assert.equal(f['状態'], '依頼済');
+    assert.equal(f['品名1'], 'HB3247-W6(仕切2)'); assert.equal(f['品名2'], '赤'); assert.equal(f['梱包数'], 25); assert.equal(f['枚数'], 3);
+    assert.equal(f['Book'], 'Ta'); assert.equal(f['WorkCord'], '3666'); assert.equal(f['依頼者'], 'テスト 太郎'); assert.equal(f['社員番号'], 9001);
+    assert.ok(!e.calls.some(c => /^(PATCH|POST|DELETE) order/.test(c)), e.calls.join(','));
+    [...e.reqs.values()][0].fields['状態'] = '印刷済';
+    const auto = await e.run('labelPrint', { id: KREC, reqId: 'lp-99999999-2222-3333-4444-555555555555', line1: '箱', pack: '', sheets: '' });
+    assert.equal(auto.j.ok, true);
+    const g = [...e.reqs.values()][1].fields;
+    assert.ok(!('梱包数' in g) && !('枚数' in g), '空は事務所PCが決める（書かない）');
+  } finally { e.restore(); delete process.env.LABEL_PRINT_ENABLED; }
+});
+test('LB1 品名1が空・梱包数や枚数が整数でない・枚数が10を超える・依頼IDが違う形式は断る。二度押しは2行目を作らない', async () => {
+  const e = await kcEnv({ orders: { [KREC]: korder } });
+  process.env.LABEL_PRINT_ENABLED = '1';
+  try {
+    const base = { id: KREC, reqId: LREQ, line1: '箱', line2: '', pack: '', sheets: '' };
+    assert.equal((await e.run('labelPrint', { ...base, line1: '  ' })).status, 400);
+    assert.equal((await e.run('labelPrint', { ...base, pack: '2.5' })).status, 400);
+    assert.equal((await e.run('labelPrint', { ...base, pack: '0' })).status, 400);
+    assert.equal((await e.run('labelPrint', { ...base, sheets: '11' })).status, 400);
+    assert.equal((await e.run('labelPrint', { ...base, reqId: 'kc-11111111-2222-3333-4444-555555555555' })).status, 400);
+    assert.equal((await e.run('labelPrint', { ...base, line1: 'x'.repeat(61) })).status, 400);
+    assert.equal((await e.run('labelPrint', { ...base, id: 'recKOTEICOPY00009' })).status, 404);
+    assert.equal(e.reqs.size, 0);
+    await e.run('labelPrint', base);
+    const again = await e.run('labelPrint', base);
+    assert.equal(again.j.again, true);
+    const other = await e.run('labelPrint', { ...base, reqId: 'lp-99999999-2222-3333-4444-555555555555' });
+    assert.equal(other.j.dup, true);
+    assert.equal(e.reqs.size, 1);
+    const st = await e.run('labelPrintStatus', { id: KREC });
+    assert.equal(st.j.ok, true); assert.equal(st.j.requests[0].reqId, LREQ); assert.equal(st.j.requests[0].line1, '箱');
+  } finally { e.restore(); delete process.env.LABEL_PRINT_ENABLED; }
+});
+test('LB1 画面: 品名は # より前を最初の / で2行に分ける。目安の枚数は 数量÷入数÷24 の切り捨て＋1。送り方は工程表コピーと同じ', () => {
+  const ctx = {}; vm.runInNewContext(extract('lpSplit') + extract('lpEstimate') + '; this.lpSplit = lpSplit; this.lpEstimate = lpEstimate;', ctx);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.lpSplit('HB3247-W6(仕切2)#o#ko'))), ['HB3247-W6(仕切2)', '']);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.lpSplit('お守 角大/赤箔 #h'))), ['お守 角大', '赤箔']);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.lpSplit(''))), ['', '']);
+  assert.equal(ctx.lpEstimate({ amount: 384, spec: { packUnit: '25' } }, ''), 1);
+  assert.equal(ctx.lpEstimate({ amount: 5000, spec: { packUnit: '20' } }, ''), 11);
+  assert.equal(ctx.lpEstimate({ amount: 5000, spec: { packUnit: '20' } }, '500'), 1, '梱包数を入れたらそちらで数える');
+  assert.equal(ctx.lpEstimate({ amount: 100, spec: {} }, ''), 0, '入数が分からなければ目安なし');
+  const src = extract('lpRequest');
+  assert.ok(src.includes('if (!st.retry && !confirm('));
+  assert.ok(src.includes("const reqId = st.retry || ('lp-'"));
+  assert.ok(src.includes("api({ action: 'labelPrint', id: o.id, reqId, line1, line2, pack, sheets: f.sheets || '' })"));
+  assert.ok(src.includes('if (j.unknown) { st.retry = reqId;'));
+  assert.ok(extract('renderLabelPrint').includes('b.disabled = !!st.sending || kcPending(st.last);'));
+  assert.ok(extract('renderSteps').includes('renderLabelPrint(o);'));
 });
 // ---- SL1 受領伝票のすぐ発行 2026-11-10（偽の Airtable。本物には繋がない） ----
 const SREC = 'recSLIPISSUE00001', SREQ = 'sl-11111111-2222-3333-4444-555555555555';
