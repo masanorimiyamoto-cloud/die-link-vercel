@@ -201,6 +201,12 @@
   .minebadge small{ font-size:12px; font-weight:500; opacity:.95 }
   .seenmark{ align-self:flex-start; font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:rgba(56,189,248,.16); color:#7dd3fc; border:1px solid rgba(56,189,248,.45) }
   .seenmark.new{ background:rgba(250,204,21,.18); color:#fde047; border-color:rgba(250,204,21,.5) }
+  /* Recent 1day: Airtable の最終更新からの時間（2026-11-13）。30分以内は橙の太枠、2時間以内は細枠。左の青帯（変化）とは別に重ねられるよう outline で描く */
+  .upd{ align-self:flex-start; font-size:12.5px; font-weight:700; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--mut); font-variant-numeric:tabular-nums }
+  .upd.hot{ background:#f97316; border-color:#f97316; color:#1a0d00 }
+  .upd.warm{ background:rgba(251,146,60,.16); border-color:rgba(251,146,60,.6); color:#fdba74 }
+  :root .lrow .order.upd-hot{ outline:3px solid #f97316; outline-offset:-3px }
+  :root .lrow .order.upd-warm{ outline:2px solid rgba(251,146,60,.55); outline-offset:-2px }
   :root .lrow .order.seenchg{ border-left:5px solid #38bdf8; padding-left:10px } /* 皮・テーマの .order より強く（Recent には着手可・待ちの枠は無い） */
   .selmark{ font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:var(--sel); color:var(--bg) }
   .order.closed{ opacity:.5 }
@@ -309,6 +315,10 @@
   :root[data-theme=light] .seenmark{ background:#e0f2fe; color:#075985; border-color:#7dd3fc }
   :root[data-theme=light] .seenmark.new{ background:#fef9c3; color:#854d0e; border-color:#fde047 }
   :root[data-theme=light] .lrow .order.seenchg{ border-left-color:#0284c7 }
+  :root[data-theme=light] .upd.hot{ background:#ea580c; border-color:#ea580c; color:#fff }
+  :root[data-theme=light] .upd.warm{ background:#ffedd5; border-color:#fdba74; color:#9a3412 }
+  :root[data-theme=light] .lrow .order.upd-hot{ outline-color:#ea580c }
+  :root[data-theme=light] .lrow .order.upd-warm{ outline-color:#fdba74 }
   :root[data-theme=light] .pc{ background:#f1f2f4; color:var(--mut) }
   :root[data-theme=light] .pc.die.d-check{ background:#f3e8ff; color:#6b21a8 }
   :root[data-theme=light] .pc.die.d-stored{ background:#cffafe; color:#155e75 }
@@ -1836,6 +1846,48 @@
       return b;
     },
   };
+  // Recent 1day の「いつ変わったか」（2026-11-13 ユーザー指定）。Airtable の最終更新（updatedAt）から、
+  // 30分以内＝hot（橙の太枠）・2時間以内＝warm（細枠）・それより前＝印だけ。前回見た姿との比較（seen）と違い、初めて開いても出る。
+  // 何が変わったかは、取れる記録（工程・数量・納期・工程表）の一番新しいものが最終更新と2分以内に重なるときだけ添える
+  // （進行社外・連絡事項・Room などは日時が無いので名前を出せない）
+  const UPD_HOT_MIN = 30, UPD_WARM_MIN = 120;
+  function updInfo(o, now = Date.now()) {
+    const t = Date.parse(o.updatedAt || '');
+    if (!Number.isFinite(t)) return null;
+    const min = Math.max(0, (now - t) / 60000);
+    const level = min <= UPD_HOT_MIN ? 'hot' : min <= UPD_WARM_MIN ? 'warm' : '';
+    const ago = min < 1 ? 'たった今' : min < 60 ? `${Math.floor(min)}分前`
+      : min < 1440 ? `${Math.floor(min / 60)}時間${Math.floor(min % 60) ? Math.floor(min % 60) + '分' : ''}前` : `${Math.floor(min / 1440)}日前`;
+    const lc = latestChanges(o);
+    let what = '';
+    if (lc && Math.abs(lc.t - t) <= 2 * 60000) {
+      what = [...lc.keys].map(k => k === 'amount' ? '数量' : k === 'ndate' ? '納期' : k === 'printed' ? '工程表'
+        : (S.steps.find(s => 'step:' + s.key === k)?.label || '')).filter(Boolean).join('・');
+    }
+    return { t, min, level, ago, what };
+  }
+  function updBadge(o, now) {
+    const u = updInfo(o, now); if (!u) return null;
+    const b = document.createElement('span'); b.className = 'upd' + (u.level ? ' ' + u.level : '');
+    // 1日以内は時刻だけ、それより前は日付も
+    b.textContent = `更新 ${u.ago}（${u.min < 1440 ? fmtChange(u.t).replace(/^\d+\/\d+ /, '') : fmtChange(u.t)}）${u.what ? ' ' + u.what : ''}`;
+    b.title = 'Airtable でこの受注が最後に変わった時刻（人の記録・オートメーション・Excel からの反映を含む）';
+    return { el: b, level: u.level };
+  }
+  // 一覧の中身が変わらず描き直さないときも「○分前」と枠を今の時刻に合わせる（自動の読み直し・1分ごと）
+  function refreshUpd() {
+    if (S.mode !== 'list' || S.view !== 'recent') return;
+    const now = Date.now();
+    document.querySelectorAll('.lrow .order[data-id]').forEach(el => {
+      const o = S.orders.find(x => x.id === el.dataset.id); if (!o) return;
+      const old = el.querySelector('.upd'), ub = updBadge(o, now);
+      el.classList.remove('upd-hot', 'upd-warm');
+      if (!ub) { if (old) old.remove(); return; }
+      if (ub.level) el.classList.add('upd-' + ub.level);
+      if (old) old.replaceWith(ub.el);
+    });
+  }
+  setInterval(refreshUpd, 60 * 1000);
   const rowsSig = rows => JSON.stringify(rows.map(o => ({ ...o, images: (o.images || []).map(a => a.name) })));
   let shownSig = '';
   // quiet: 自動の読み直し。「読み込み中…」を出さず、待っている間に受注を開いたりしたら結果を捨てる。
@@ -1875,7 +1927,7 @@
     // 自動の読み直しで中身が変わっていなければ、行も画像も作り直さない（スマホで画像を全部取り直して重くなるため。2026-10-20）
     const sig = rowsSig(j.rows);
     // ただし前の読み込みの失敗の案内が本文に残っていれば、件数の案内に戻す（見出しと本文を食い違わせない）
-    if (quiet && sig === shownSig) { showFresh(); if (S.listMsgErr) showListMsg(); loadImages(S.view, true); return true; }
+    if (quiet && sig === shownSig) { refreshUpd(); showFresh(); if (S.listMsgErr) showListMsg(); loadImages(S.view, true); return true; }
     shownSig = sig;
     renderList();
     updateListHead();
@@ -2215,6 +2267,7 @@
       const info = document.createElement('div'); info.className = 'info';
       const bd = document.createElement('div'); bd.className = 'badges';
       const sb = stateBadge(st, v); if (sb) bd.append(sb);
+      const ub = S.view === 'recent' ? updBadge(o) : null; if (ub) { bd.append(ub.el); if (ub.level) el.classList.add('upd-' + ub.level); }
       const sm = S.view === 'recent' ? seen.badge(o) : null; if (sm) { bd.append(sm); el.classList.add('seenchg'); }
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; bd.append(s); }
       if (o.archived) { const s = document.createElement('span'); s.className = 'archmark'; s.textContent = 'アーカイブ済'; bd.append(s); }

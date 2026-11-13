@@ -35,7 +35,7 @@ const F = {
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
   ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable', approved: '承認済', deli: 'DeliPlace',
-  material: 'Material', paperSize: 'Paper_Size', cutSize: 'Cut_Size', packUnit: 'PackUnit', kname: 'Kname', preNdate: 'PreNdate', wscd: 'info_wscd', finalProcess: 'FinalProcess',
+  material: 'Material', paperSize: 'Paper_Size', cutSize: 'Cut_Size', packUnit: 'PackUnit', kname: 'Kname', preNdate: 'PreNdate', wscd: 'info_wscd', finalProcess: 'FinalProcess', updated: '更新時間',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -211,6 +211,9 @@ function describe(rec) {
     // 後工程（抜き完了／シール貼完了／仕上完了早期引取）。画面がどの工程で受領伝票発行可能になるか（Automation 5）を見て、
     // その工程の完了を押したときに仕上がり数量を確かめる（2026-11-13）
     finalProcess: String(f[F.finalProcess] || '').trim(),
+    // Airtable の最終更新（lastModifiedTime。ISO 文字列）。Recent 1day でいつ変わったかの印と枠に使う（2026-11-13）。
+    // 人の記録だけでなくオートメーション・Excel からの反映でも進む
+    updatedAt: String(f[F.updated] || ''),
     done,
   };
 }
@@ -310,7 +313,7 @@ function imagesOf(f) {
 
 // 詳細画面の「仕様」に出す欄（2026-11-05）。画面の SPEC_LABEL と同じ並び
 const SPEC_KEYS = ['kname', 'material', 'paperSize', 'cutSize', 'packUnit', 'preNdate', 'wscd'];
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, F.updated, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 // 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）

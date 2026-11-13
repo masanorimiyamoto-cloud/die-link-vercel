@@ -36,7 +36,7 @@ function listEnv(api) {
     seen: { update() {}, leave() {} }, // Recent 1day の変化の印（RC1 で別に確かめる）
     rowsSig: (rows) => JSON.stringify(rows),
     say: (el, text, cls = '') => { el.textContent = text || ''; el.className = 'msg ' + cls; },
-    renderChips() {}, updateListHead() {}, loadImages() {}, showFresh() {},
+    renderChips() {}, updateListHead() {}, loadImages() {}, showFresh() {}, refreshUpd() {},
   };
   env.renderList = function () { env.renders++; env.S.shown = env.S.orders.length; env.showListMsg(); };
   vm.createContext(env);
@@ -1616,6 +1616,38 @@ test('AC1 最終になる工程（進行社内グループの数式・FinalProce
   const srv = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
   assert.ok(srv.includes("finalProcess: String(f[F.finalProcess] || '').trim(),"));
   assert.ok(/const LIST_FIELDS = \[[^\]]*F\.finalProcess/.test(srv));
+});
+
+// ---- RC2 Recent 1day: Airtable の最終更新から「○分前」の印と枠（2026-11-13） ----
+test('RC2 30分以内は hot・2時間以内は warm・それより前は印だけ。記録の時刻が最終更新と重なれば何が変わったかを添える。初めて開いても出る', () => {
+  const env = { S: { steps: [{ key: 'finish', label: '仕上がりました' }, { key: 'o', label: 'オートン抜き完了' }] }, document: { createElement: () => ({ className: '', textContent: '', title: '' }) } };
+  vm.createContext(env);
+  vm.runInContext([line(/^  const UPD_HOT_MIN = .*$/m), extract('recTime'), extract('logTime'), line(/^  const AMT_LOG = .*$/m), line(/^  const NDATE_LOG = .*$/m),
+    extract('latestChanges'), extract('fmtChange'), extract('updInfo'), extract('updBadge'),
+    'Object.assign(globalThis, { updInfo, updBadge });'].join('\n'), env);
+  const now = Date.parse('2026-11-13T06:00:00Z'); // 15:00 JST
+  const at = (minAgo) => new Date(now - minAgo * 60000).toISOString();
+  assert.equal(env.updInfo({ updatedAt: at(5), done: {} }, now).level, 'hot');
+  assert.equal(env.updInfo({ updatedAt: at(30), done: {} }, now).level, 'hot');
+  assert.equal(env.updInfo({ updatedAt: at(31), done: {} }, now).level, 'warm');
+  assert.equal(env.updInfo({ updatedAt: at(121), done: {} }, now).level, '');
+  assert.equal(env.updInfo({ updatedAt: '', done: {} }, now), null, '更新時間が無ければ出さない');
+  assert.equal(env.updInfo({ updatedAt: at(0.2), done: {} }, now).ago, 'たった今');
+  assert.equal(env.updInfo({ updatedAt: at(75), done: {} }, now).ago, '1時間15分前');
+  // 仕上がりました の記録が 14:50 JST、最終更新 14:51 → 添える。最終更新が 30分後なら別の変更なので添えない
+  const o = { updatedAt: '2026-11-13T05:51:00.000Z', done: { finish: '佐藤 2026-11-13 14:50' } };
+  const b = env.updBadge(o, now);
+  assert.equal(b.level, 'hot'); assert.equal(b.el.className, 'upd hot');
+  assert.equal(b.el.textContent, '更新 9分前（14:51） 仕上がりました');
+  assert.equal(env.updInfo({ ...o, updatedAt: '2026-11-13T05:20:00.000Z' }, now).what, '');
+  // 画面: Recent のカードだけに付け、枠のクラスを足す。変化の印（seen）とは別。描き直さない自動の読み直しでも時刻を合わせる
+  const lr = extract('renderList');
+  assert.ok(lr.includes("const ub = S.view === 'recent' ? updBadge(o) : null; if (ub) { bd.append(ub.el); if (ub.level) el.classList.add('upd-' + ub.level); }"));
+  assert.ok(extract('loadView').includes('if (quiet && sig === shownSig) { refreshUpd();'));
+  assert.ok(source.includes('setInterval(refreshUpd, 60 * 1000);'));
+  const srv = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
+  assert.ok(srv.includes("updatedAt: String(f[F.updated] || ''),"));
+  assert.ok(/const LIST_FIELDS = \[[^\]]*F\.updated/.test(srv));
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
