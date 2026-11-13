@@ -1650,6 +1650,42 @@ test('RC2 30分以内は hot・2時間以内は warm・それより前は印だ�
   assert.ok(/const LIST_FIELDS = \[[^\]]*F\.updated/.test(srv));
 });
 
+// ---- UD2 社内の工程の枠を押して取り消す（2026-11-13。記録した本人と管理者だけ） ----
+test('UD2 自分の済の工程の枠だけ ↺ 取消 を付け、押すとカードの下に取り消しの帯。他人・記録者なしの枠は今までどおりカードを開く', () => {
+  const env = { me: { name: '佐藤 太郎', role: 'スタッフ' } };
+  vm.createContext(env);
+  vm.runInContext(line(/^  const ownRecord = .*$/m) + '\nglobalThis.ownRecord = ownRecord;', env);
+  assert.equal(env.ownRecord('佐藤 太郎 2026-11-13 10:00'), true);
+  assert.equal(env.ownRecord('田中 花子 2026-11-13 10:00'), false, '他の人の記録');
+  assert.equal(env.ownRecord('佐藤 2026-11-13 10:00'), false, '名前の頭が同じだけの別人');
+  assert.equal(env.ownRecord(''), false, '記録者なしは枠からは出さない');
+  assert.equal(env.ownRecord('Airtable 2026-11-13 10:00'), false);
+  env.me.role = '管理者'; assert.equal(env.ownRecord('田中 花子 2026-11-13 10:00'), true, '管理者は可'); env.me.role = 'スタッフ';
+  // 枠: progressStrip が自分の記録の工程に undo を付け、flowRow が data-undo と ↺ 取消 を出す
+  assert.ok(extract('progressStrip').includes("if (k && ownRecord(o.done?.[k])) it.undo = k;"));
+  assert.ok(extract('flowRow').includes("b.dataset.undo = it.undo"));
+  // 一覧・品番で探す のカード: 枠を押したら帯、それ以外はカードを開く
+  const tapCalls = [];
+  const env2 = { busyNow: () => false, toggleUndoBar: (...a) => tapCalls.push(a) };
+  vm.createContext(env2);
+  vm.runInContext(extract('undoTap') + '\nglobalThis.undoTap = undoTap;', env2);
+  const ev = (hit) => ({ prevented: 0, target: { closest: (sel) => sel === '[data-undo]' && hit ? { dataset: { undo: hit } } : null }, preventDefault() { this.prevented++; }, stopPropagation() {} });
+  assert.equal(env2.undoTap(ev(null), { id: 'recA' }, 'el'), false, '枠の外はカードを開く');
+  const e1 = ev('kikai');
+  assert.equal(env2.undoTap(e1, { id: 'recA' }, 'el'), true); assert.equal(e1.prevented, 1);
+  assert.equal(tapCalls.length, 1); assert.equal(tapCalls[0][1], 'kikai'); assert.equal(tapCalls[0][3], true, '一覧からは案内を画面の下に出す道');
+  assert.equal((source.match(/el\.onclick = \(e\) => \{ if \(undoTap\(e, o, el\)\) return; if \(!busyNow\(\)\) selectOrder\(o\.id\); \};/g) || []).length, 2, '作業リストと品番で探すの両方');
+  // 帯: 本人の記録でなければ出さない。帯はカード（ボタン）の外に置き、同じ枠をもう一度押すと閉じる
+  const tb = extract('toggleUndoBar');
+  assert.ok(tb.includes('if (!s || !ownRecord(done)) return;'));
+  assert.ok(tb.includes("(after.closest?.('.lrow') || after).after(bar);"), '帯は横並びの箱の外');
+  assert.ok(tb.includes('if (same) return;'));
+  assert.ok(tb.includes("fromList ? cancelStep(s, done, o, true) : cancelStep(s, done, current(), false, $('target'))"));
+  // 工程カードの中の流れも同じ（材料の記録の後に描き直しても押せる）
+  assert.ok(extract('renderSteps').includes('t.append(detailStrip(o));'));
+  assert.ok(source.includes("if (strip) strip.replaceWith(detailStrip(cur));"));
+});
+
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
 test('AU1 未ログインは 401（needLogin）。社員表を読めないときは 503 で未ログインと取り違えない。伝票照合は照合した人を作業ログに残す', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';

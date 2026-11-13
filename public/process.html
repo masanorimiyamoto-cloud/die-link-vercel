@@ -116,6 +116,13 @@
     border-radius:6px; border:1px solid var(--line2); color:var(--mut) }
   .fs small{ font-size:10.5px; font-weight:500; opacity:.8; font-variant-numeric:tabular-nums }
   .farr, .fnone{ color:var(--dim); font-size:12px }
+  /* 自分が記録した済の工程の枠（2026-11-13）。押すとその場に取り消しの帯を出す。↺ の印で押せると分かるように */
+  .fs.undoable{ cursor:pointer; border-style:solid; border-color:var(--chg, #60a5fa); min-height:32px; justify-content:center }
+  .fs.undoable .ur{ font-size:11px; font-weight:600; color:var(--chg, #60a5fa); margin-left:3px }
+  .undobar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:6px 0 2px; padding:10px 12px; border-radius:var(--r);
+    border:2px solid var(--warn, #f59e0b); background:var(--surf); font-size:14px; line-height:1.5 }
+  .undobar .ut{ flex:1 1 14em }
+  .undobar .btn{ padding:8px 14px }
   /* この先の工程は点線の枠と控えめな色で。半透明にすると小さい文字が読みにくくなるので透明度は下げない（2026-10-23） */
   .fs.todo{ border-style:dashed; color:var(--dim) }
   .farr.todo{ opacity:.6 }
@@ -1343,6 +1350,10 @@
       b.append((it.arrived ? '✓ ' : '') + it.label);
       if (it.sub) { const s = document.createElement('small'); s.textContent = it.sub; b.append(s); }
       if (it.chg) { b.classList.add('chg-on'); b.append(chgMark(it.chg, 'chgt')); }
+      if (it.undo) {
+        b.classList.add('undoable'); b.dataset.undo = it.undo; b.title = '押すと、この記録を取り消せます（記録した本人だけ）';
+        const ur = document.createElement('span'); ur.className = 'ur'; ur.textContent = '↺ 取消'; b.append(ur);
+      }
       row.append(b);
     });
     // まだの工程は点線の枠で暗く出す。タグの並びが実際の作業順なので → でつなぐ（→ Nao → 機械貼）
@@ -1380,6 +1391,8 @@
     // 最新の記録の工程札に「更新」の印を付ける（工程の並び・今の位置は変えない）
     const lc = latestChanges(o);
     if (lc) ins.items.forEach(it => { if (it.key && lc.keys.has(it.key)) it.chg = lc; });
+    // 自分が記録した済の工程は、枠を押すと取り消しの帯を出す（2026-11-13）
+    ins.items.forEach(it => { const k = it.key?.startsWith('step:') ? it.key.slice(5) : ''; if (k && ownRecord(o.done?.[k])) it.undo = k; });
     box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
     // 抜型状況。仕舞い完了があるのに「型まだ仕舞済でない」が残っていたら、古い方は出さない
@@ -1656,7 +1669,7 @@
       const th = thumbOf(o); if (th) wrap.append(th);
       el.append(wrap);
       el.dataset.id = o.id;
-      el.onclick = () => { if (!busyNow()) selectOrder(o.id); };
+      el.onclick = (e) => { if (undoTap(e, o, el)) return; if (!busyNow()) selectOrder(o.id); };
       box.append(el);
     }
   }
@@ -2280,7 +2293,7 @@
       const go = document.createElement('span'); go.className = 'open'; go.textContent = '詳細・工程を記録 →';
       el.append(wrap, go);
       el.dataset.id = o.id;
-      el.onclick = () => { if (!busyNow()) selectOrder(o.id); };
+      el.onclick = (e) => { if (undoTap(e, o, el)) return; if (!busyNow()) selectOrder(o.id); };
       row.append(el);
       box.append(row);
     }
@@ -2540,6 +2553,46 @@
   function canUndo(done) {
     if (!done || String(done).startsWith('Airtable ') || me.role === '管理者' || String(done).startsWith(me.name + ' ')) return { ok: true };
     return { ok: false, who: stampWho(done) };
+  }
+  // 一覧・カードの「社内」の工程の枠から取り消せるのは、記録した本人と管理者だけ（2026-11-13 ユーザー指定）。
+  // 記録者なし（Airtable で直接入れたもの）はここからは出さない（カードの「進行と完了記録」からは今までどおり）
+  const ownRecord = (done) => !!done && !String(done).startsWith('Airtable ') && (me.role === '管理者' || String(done).startsWith(me.name + ' '));
+  // 工程の枠を押したら、カードのすぐ下（after の後ろ）に取り消しの帯を出す。同じ枠をもう一度押すと閉じる。
+  // 一覧のカードはボタンなので、帯はボタンの外に置く（ボタンの中にボタンは入れない）。
+  // fromList: 一覧から（工程カードは閉じたまま。途中・結果の案内は画面の下）
+  function toggleUndoBar(o, key, after, fromList) {
+    const prev = document.querySelector('.undobar');
+    const same = prev && prev.dataset.id === o.id && prev.dataset.key === key;
+    if (prev) prev.remove();
+    if (same) return;
+    const s = S.steps.find(x => x.key === key); const done = o.done?.[key];
+    if (!s || !ownRecord(done)) return;
+    const bar = document.createElement('div'); bar.className = 'undobar'; bar.dataset.id = o.id; bar.dataset.key = key;
+    bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', `「${s.label}」の記録の取り消し`);
+    const t = document.createElement('span'); t.className = 'ut'; t.textContent = `「${s.label}」の記録（${fullStamp(done)}）`;
+    const un = document.createElement('button'); un.type = 'button'; un.className = 'btn'; un.textContent = 'この記録を取り消す'; un.dataset.w = '1';
+    un.onclick = () => { if (busyNow()) return; bar.remove(); fromList ? cancelStep(s, done, o, true) : cancelStep(s, done, current(), false, $('target')); };
+    const cl = document.createElement('button'); cl.type = 'button'; cl.className = 'btn ghost'; cl.textContent = '閉じる';
+    cl.onclick = () => bar.remove();
+    bar.append(t, un, cl);
+    // 作業リストのカードは横並びの箱（.lrow）の中にあるので、帯はその箱の後ろに置く（中に入れるとカードが細く潰れる）
+    (after.closest?.('.lrow') || after).after(bar);
+    un.focus({ preventScroll: true });
+    bar.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  // 工程カードの中の流れ。自分の済の工程の枠を押せば取り消しの帯（カードは開いたまま）
+  function detailStrip(o) {
+    const strip = progressStrip(o, S.mode === 'list' ? S.view : '');
+    strip.onclick = (e) => { const u = e.target?.closest?.('[data-undo]'); if (u && !busyNow()) toggleUndoBar(o, u.dataset.undo, strip, false); };
+    return strip;
+  }
+  // カード（一覧・品番で探す）の押し場所が自分の済の工程の枠なら取り消しの帯、それ以外は今までどおり工程カードを開く
+  function undoTap(e, o, after) {
+    const u = e.target?.closest?.('[data-undo]');
+    if (!u) return false;
+    e.preventDefault(); e.stopPropagation();
+    if (!busyNow()) toggleUndoBar(o, u.dataset.undo, after, true);
+    return true;
   }
   // near: 取り消しの途中・結果の案内を出す場所（ボタンのある箱）
   function undoControl(s, done, label, near) {
@@ -2993,7 +3046,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     t.append(it, mt, facts(o));
     const mm = memoLine(o); if (mm) t.append(mm);
     const sp = specBlock(o); if (sp) t.append(sp);
-    t.append(progressStrip(o, S.mode === 'list' ? S.view : ''));
+    t.append(detailStrip(o));
     renderPrimary(o, v, plan);
     renderNext(o, v);
     $('goBar').replaceChildren(goBar(o));
@@ -3281,7 +3334,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
       const cur = current() || o;
       renderRooms(cur); renderOrders();
       // 一覧と同じ工程列（応援先の札）も合わせる
-      const strip = $('target').querySelector('.prog'); if (strip) strip.replaceWith(progressStrip(cur, S.mode === 'list' ? S.view : ''));
+      const strip = $('target').querySelector('.prog'); if (strip) strip.replaceWith(detailStrip(cur));
     });
   }
 
