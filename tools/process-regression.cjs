@@ -228,7 +228,7 @@ test('R3 書き込みは1回だけ送る（結果不明でも送り直さない�
   assert.equal(sends, 1);
 });
 test('R3 完了・取消・数量・納期・紙入荷日・Room・在庫シート利用 の書き込みは、どれも結果不明の扱い（markUnsure）を通る', async () => {
-  for (const [fn, key] of [['doComplete', 'complete'], ['cancelStep', 'cancel'], ['amountEditor', 'amount'], ['ndateEditor', 'ndate'], ['paperEditor', 'paper'], ['toggleRoom', 'room'], ['setStockOut', 'stock']]) {
+  for (const [fn, key] of [['saveComplete', 'complete'], ['cancelStep', 'cancel'], ['amountEditor', 'amount'], ['ndateEditor', 'ndate'], ['paperEditor', 'paper'], ['toggleRoom', 'room'], ['setStockOut', 'stock']]) {
     const body = extract(fn);
     assert.match(body, new RegExp(`write\\(\\{ action: '${key}'`), `${fn} は write() で送る`);
     assert.match(body, /outcomeUnknown\(j, /, `${fn} は結果不明を見分ける`);
@@ -421,8 +421,10 @@ test('N5 保存後: 一覧の読み直しに失敗しても complete は送り�
   assert.match(env.back.t.lines.join('\n'), /保存した内容から見た候補/);
   env.S.orders = [o]; env.afterComplete(o, '機械貼完了', view('kikai'), true);
   assert.doesNotMatch(env.back.t.lines.join('\n'), /保存した内容から見た候補/);
-  // 完了の送信は doComplete の write 1回だけ（afterComplete・一覧の読み直しからは送らない）
-  assert.equal((extract('doComplete').match(/write\(/g) || []).length, 1);
+  // 完了の送信は saveComplete の write 1回だけ（doComplete・数量確認・afterComplete・一覧の読み直しからは送らない）
+  assert.equal((extract('saveComplete').match(/write\(/g) || []).length, 1);
+  assert.equal((extract('doComplete').match(/write\(/g) || []).length, 0);
+  assert.equal((extract('showAmountCheck').match(/action: 'complete'/g) || []).length, 0);
   assert.doesNotMatch(extract('afterComplete'), /write\(|api\(/);
 });
 
@@ -475,7 +477,7 @@ test('V1 書き込みの中で始めた一覧の読み直し（完了後の再�
   assert.equal(got, true); assert.equal(e.current().amount, 120);
 });
 test('V1 数量・納期・紙入荷日・Room・材料・完了・取消 は保存の結果を patch で入れる', () => {
-  for (const fn of ['amountEditor', 'ndateEditor', 'paperEditor', 'toggleRoom', 'setStockOut', 'doComplete', 'cancelStep']) {
+  for (const fn of ['amountEditor', 'ndateEditor', 'paperEditor', 'toggleRoom', 'setStockOut', 'saveComplete', 'showAmountCheck', 'cancelStep']) {
     assert.match(extract(fn), /patch\(o, x => /, fn);
   }
   for (const fn of ['search', 'itemSearch', 'reloadFind']) assert.match(extract(fn), /gen !== findGen/, `${fn} は古い応答を捨てる`);
@@ -523,7 +525,7 @@ test('V3 selectOrder・setMode・検索・ビューの切り替え・書き込�
 test('V2 補助の工程・種類から記録したときは、押した領域の近くにも結果・失敗の理由を出す', () => {
   assert.match(extract('renderStepLists'), /chooseStep\(s, \(s\.group === 'status' \? status : other\)\.parentNode\)/);
   assert.match(extract('chooseStep'), /doComplete\(s, v, false, near\)/);
-  const dc = extract('doComplete');
+  const dc = extract('saveComplete');
   assert.match(dc, /sayAt\(near, '記録しています…'\)/);
   assert.match(dc, /return sayAt\(near, j\.error/);
   assert.match(dc, /\$\('stepMsg'\)\.scrollIntoView/, '先に記録されていたときは案内の位置まで動かす');
@@ -1550,6 +1552,70 @@ test('UD1 取り消せる記録だけボタンを出し、他の人の記録は�
   const srv = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
   assert.ok(srv.includes("if (!unowned && user.role !== ROLE_ADMIN && !String(cur).startsWith(`${user.name} `))"));
   assert.ok(srv.includes("${String(cur).replace(/\\s+\\d{4}-\\d\\d-\\d\\d.*$/, '').trim()} さんの記録なので取り消せません"));
+});
+
+// ---- AC1 受領伝票発行可能になる工程は、完了の前に仕上がり数量を確かめる（2026-11-13） ----
+test('AC1 最終になる工程（進行社内グループの数式・FinalProcess）だけ数量を確かめる。数量を直したら先に保存し、失敗なら完了を送らない', async () => {
+  const env = {};
+  vm.createContext(env);
+  vm.runInContext([line(/^  const FINAL_VALUES = .*$/m), line(/^  const PROC_GROUP = .*$/m), extract('reachesSlip'), extract('needsAmountCheck'),
+    'Object.assign(globalThis, { reachesSlip, needsAmountCheck });'].join('\n'), env);
+  const o = (x = {}) => ({ item: '箱 #o', finalProcess: '', amountLocked: false, ...x });
+  for (const v of ['仕上がりました', '製品在庫から', '機械貼完了', '手貼り完了']) assert.equal(env.needsAmountCheck(o(), v), true, v);
+  assert.equal(env.needsAmountCheck(o(), 'オートン抜き完了'), false, '抜きは FinalProcess が無ければ途中の工程');
+  assert.equal(env.needsAmountCheck(o(), '生地カット終了'), false);
+  assert.equal(env.needsAmountCheck(o({ finalProcess: '抜き完了' }), 'オートン抜き完了'), true, 'FinalProcess＝抜き完了なら抜きが最後');
+  assert.equal(env.needsAmountCheck(o({ finalProcess: '抜き完了' }), 'CADカット完了'), true);
+  assert.equal(env.needsAmountCheck(o(), 'シール貼完了'), true, '#ki が無ければシール貼は最終');
+  assert.equal(env.needsAmountCheck(o({ item: '箱 #ki' }), 'シール貼完了'), false, '#ki のシール貼は FinalProcess しだい');
+  assert.equal(env.needsAmountCheck(o({ item: '箱 #ki', finalProcess: 'シール貼完了' }), 'シール貼完了'), true);
+  assert.equal(env.needsAmountCheck(o({ amountLocked: true }), '仕上がりました'), false, '伝票発行後は数量を変えられないので聞かない');
+  assert.equal(env.needsAmountCheck(o({ finalProcess: '仕上完了早期引取' }), 'オートン抜き完了'), false);
+
+  // 画面の流れ: 確かめの欄から「この数量で完了」
+  const mk = (tag) => ({ tag, className: '', textContent: '', value: '', type: '', dataset: {}, kids: [], hidden: true, attrs: {},
+    setAttribute(k, v) { this.attrs[k] = v; }, append(...xs) { this.kids.push(...xs); }, after() {}, focus() {}, select() {} });
+  async function run(amountIn, amountReply, cur = 1000) {
+    const sent = [], said = [];
+    const box = mk('div');
+    const e = { document: { createElement: mk }, confirm: () => true, sent, said,
+      $: (id) => (id === 'variants' ? box : mk('div')),
+      applyLocks() {}, sayAt: (el, t, c) => said.push([t, c || '']),
+      runOp: async (x, fn) => fn(),
+      write: async (b) => { sent.push(b); return b.action === 'amount' ? amountReply : { ok: true }; },
+      outcomeUnknown: (j, need) => !!j.unknown || (j.ok && !need(j)),
+      markUnsure: (x, what) => said.push(['unsure ' + what, '']),
+      patch: (x, fn) => fn(x),
+      saveComplete: async (x, s, v) => { sent.push({ action: 'complete', amountAtSave: x.amount, value: v.value }); },
+    };
+    vm.createContext(e);
+    vm.runInContext(extract('showAmountCheck') + '\nglobalThis.showAmountCheck = showAmountCheck;', e);
+    const ord = { id: 'recA', amount: cur };
+    e.showAmountCheck(ord, { key: 'finish' }, { value: '仕上がりました' }, false, null);
+    assert.equal(box.hidden, false); assert.match(box.kids[0].textContent, /受領伝票を発行できるようになります/);
+    const [, inp, go, stop] = box.kids;
+    assert.equal(inp.value, cur, '今の数量を入れておく'); assert.equal(go.dataset.w, '1', '書き込み中は押せない');
+    inp.value = amountIn;
+    await go.onclick();
+    return { sent, said, ord, box, stop };
+  }
+  let r = await run('1000');
+  assert.deepEqual(r.sent.map(x => x.action), ['complete'], 'そのままなら数量は送らない');
+  r = await run('1,020', { ok: true, amount: 1020, line: '1000→1020 佐藤' });
+  assert.deepEqual(r.sent.map(x => x.action), ['amount', 'complete'], '数量を先に保存してから完了');
+  assert.equal(r.sent[1].amountAtSave, 1020);
+  r = await run('1020', { ok: false, error: '桁が違います' });
+  assert.deepEqual(r.sent.map(x => x.action), ['amount'], '数量を保存できなければ完了を送らない');
+  assert.match(r.said.at(-1)[0], /完了はまだ記録していません/);
+  r = await run('1020', { unknown: true });
+  assert.deepEqual(r.sent.map(x => x.action), ['amount'], '数量が結果不明なら完了を送らない');
+  r = await run('abc');
+  assert.deepEqual(r.sent, [], '整数でなければ何も送らない');
+  // 押した流れ: doComplete は最終になる工程だけ確かめの欄へ回す。サーバーは FinalProcess を一覧に返す
+  assert.ok(extract('doComplete').includes('if (needsAmountCheck(o, v.value)) return showAmountCheck(o, s, v, force, near);'));
+  const srv = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
+  assert.ok(srv.includes("finalProcess: String(f[F.finalProcess] || '').trim(),"));
+  assert.ok(/const LIST_FIELDS = \[[^\]]*F\.finalProcess/.test(srv));
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----

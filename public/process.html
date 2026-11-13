@@ -130,6 +130,7 @@
   .amt input{ width:7.5em; font-size:22px; font-weight:600; text-align:right; font-variant-numeric:tabular-nums }
   .amt input[type=date]{ width:auto; font-size:19px; text-align:left; color-scheme:dark }
   .amt .note{ font-size:12.5px; color:var(--mut) }
+  .amtcheck p{ flex-basis:100%; margin:0; font-weight:600 }
   .kcopy{ display:flex; flex-direction:column; gap:4px }
   .kcopy .kcst{ font-size:12.5px; color:var(--mut) }
   .lpform{ display:flex; flex-direction:column; gap:6px; padding:8px 0 4px }
@@ -3239,7 +3240,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     if (s.variants.length === 1) return doComplete(s, s.variants[0], false, near);
     // 抜き・手貼りは種類を選ぶ。工程(自動)から分かるものを目立たせる。種類のボタンは押した領域に出す
     S.pendingStep = s;
-    const box = $('variants'); box.textContent = ''; box.hidden = false;
+    const box = $('variants'); box.textContent = ''; box.hidden = false; box.className = 'variants';
     if (near) near.append(box); else $('primary').after(box);
     for (const v of s.variants) {
       const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label; b.dataset.w = '1';
@@ -3255,26 +3256,80 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     const o = current(); if (!o) return;
     if (!force && o.group === '最終' && s.key !== 'finish' &&
         !confirm(`この受注はもう「${o.progIn}」です。\n${v.value} にしてよいですか？`)) return;
-    await runOp(o, async () => {
-      sayAt(near, '記録しています…');
-      const j = await write({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
-      if (j.conflict) {
-        // 他の人が先に記録していた。上書きはせず、最新の状態を見せる（カードを作り直すので、案内の位置まで動かす）
-        await refreshCurrent();
-        say($('stepMsg'), `${j.error}。取り消すときは「進行と完了記録」の「記録を取り消す」を押してください`, 'warn');
-        if (!$('stepCard').hidden) $('stepMsg').scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-      // 応答が無い・読めない・必要な値が欠けている: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
-      if (outcomeUnknown(j, x => !!x.stamp && !!x.value)) return markUnsure(o, `「${v.value}」の記録`);
-      if (!j.ok) return sayAt(near, j.error || '記録できませんでした', 'err');
-      patch(o, x => { x.done[s.key] = j.stamp; x.progIn = j.value; if (s.key === 'finish') x.group = '最終'; });
-      navigator.vibrate?.([40, 40, 40]);
-      const from = detailView(); // 開いていた作業リスト（読み直しの前に控える）
-      // ビューの条件で行が消えることがあるので、作業リストは取り直してから戻る。読み直せなくても完了は送り直さない
-      const listed = S.mode === 'list' ? await loadView(S.view, true) : null;
-      afterComplete(o, j.value, from, listed);
-    });
+    // 受領伝票発行可能になる工程は、記録する前に仕上がり数量を確かめる（2026-11-13 ユーザー指定）
+    if (needsAmountCheck(o, v.value)) return showAmountCheck(o, s, v, force, near);
+    await runOp(o, () => saveComplete(o, s, v, force, near));
+  }
+  // 完了の記録を送って画面へ反映する（runOp の中で呼ぶ）
+  async function saveComplete(o, s, v, force, near) {
+    sayAt(near, '記録しています…');
+    const j = await write({ action: 'complete', id: o.id, step: s.key, variant: v.key, force: !!force });
+    if (j.conflict) {
+      // 他の人が先に記録していた。上書きはせず、最新の状態を見せる（カードを作り直すので、案内の位置まで動かす）
+      await refreshCurrent();
+      say($('stepMsg'), `${j.error}。取り消すときは「進行と完了記録」の「記録を取り消す」を押してください`, 'warn');
+      if (!$('stepCard').hidden) $('stepMsg').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    // 応答が無い・読めない・必要な値が欠けている: 記録できたかどうか分からない。完了扱いにせず、送り直しもしない
+    if (outcomeUnknown(j, x => !!x.stamp && !!x.value)) return markUnsure(o, `「${v.value}」の記録`);
+    if (!j.ok) return sayAt(near, j.error || '記録できませんでした', 'err');
+    patch(o, x => { x.done[s.key] = j.stamp; x.progIn = j.value; if (s.key === 'finish') x.group = '最終'; });
+    navigator.vibrate?.([40, 40, 40]);
+    const from = detailView(); // 開いていた作業リスト（読み直しの前に控える）
+    // ビューの条件で行が消えることがあるので、作業リストは取り直してから戻る。読み直せなくても完了は送り直さない
+    const listed = S.mode === 'list' ? await loadView(S.view, true) : null;
+    afterComplete(o, j.value, from, listed);
+  }
+
+  /* ---------- 最終になる工程の完了前の数量確認（2026-11-13）---------- */
+  // Airtable の 進行社内グループ（数式）と Automation 5 の写し。この工程を記録すると 進行社外＝受領伝票発行可能 になり、
+  // 定時の自動発行・すぐ発行で伝票が出る。伝票を出した後は画面で数量を変えられないので、その前に確かめる。
+  // 数式や Automation 5 を変えたらここも揃える
+  const FINAL_VALUES = new Set(['仕上がりました', '製品在庫から', '機械貼完了', '手貼り完了', '(神)貼り完了', '(花)貼り完了']);
+  const PROC_GROUP = { 'オートン抜き完了': '抜き完了', '(K判)たおし抜き完了': '抜き完了', '(M判)たおし抜き完了': '抜き完了', 'CADカット完了': '抜き完了', 'シール貼完了': 'シール貼完了' };
+  function reachesSlip(o, value) {
+    if (FINAL_VALUES.has(value)) return true;
+    if (value === 'シール貼完了' && !String(o.item || '').includes('#ki')) return true;
+    return !!o.finalProcess && PROC_GROUP[value] === o.finalProcess;
+  }
+  function needsAmountCheck(o, value) {
+    return !o.amountLocked && reachesSlip(o, value);
+  }
+  function showAmountCheck(o, s, v, force, near) {
+    const box = $('variants'); box.textContent = ''; box.hidden = false; box.className = 'variants amt amtcheck';
+    if (near) near.append(box); else $('primary').after(box);
+    const head = document.createElement('p');
+    head.textContent = `「${v.value}」を記録すると受領伝票を発行できるようになります。仕上がり数量を確かめてください`;
+    const inp = document.createElement('input'); inp.inputMode = 'numeric'; inp.pattern = '\\d*'; inp.value = o.amount ?? '';
+    inp.setAttribute('aria-label', '仕上がり数量');
+    const go = document.createElement('button'); go.type = 'button'; go.className = 'btn'; go.textContent = 'この数量で完了'; go.dataset.w = '1';
+    const stop = document.createElement('button'); stop.type = 'button'; stop.className = 'amtbtn'; stop.textContent = 'やめる';
+    box.append(head, inp, go, stop);
+    applyLocks();
+    inp.focus(); inp.select?.();
+    stop.onclick = () => { box.hidden = true; box.className = 'variants'; sayAt(near, '記録しませんでした'); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
+    go.onclick = async () => {
+      const raw = inp.value.trim().replace(/[,，\s]/g, '');
+      if (!/^\d+$/.test(raw) || Number(raw) <= 0) return sayAt(box, '数量は1以上の整数で入れてください', 'err');
+      const cur = Number(o.amount), next = Number(raw);
+      const change = cur !== next;
+      if (change && cur > 0 && (next > cur * 1.5 || next < cur / 1.5) &&
+          !confirm(`数量を ${cur.toLocaleString('ja-JP')} → ${next.toLocaleString('ja-JP')} に変えて「${v.value}」を記録します。よろしいですか？`)) return;
+      await runOp(o, async () => {
+        if (change) {
+          // 数量を先に保存する。保存できなければ完了は記録しない（数量が違うまま伝票が出ないように）
+          sayAt(box, '数量を保存しています…');
+          const j = await write({ action: 'amount', id: o.id, amount: next });
+          if (outcomeUnknown(j, x => Number.isFinite(x.amount))) return markUnsure(o, '数量の変更');
+          if (!j.ok) return sayAt(box, `${j.error || '数量を変えられませんでした'}（完了はまだ記録していません）`, 'err');
+          patch(o, x => { if (!x.amountFrom) x.amountFrom = String(cur); x.amount = j.amount; x.amountLog = j.line || x.amountLog; });
+        }
+        box.hidden = true; box.className = 'variants';
+        await saveComplete(o, s, v, force, near);
+      });
+    };
   }
   // 完了を保存できた後の案内（2026-11-03）。一覧を取り直せたか・その受注がまだ一覧にあるかで言い方を分け、一覧の画面の下に残す。
   // listed: true＝読み直せた / false＝読み直しに失敗 / null＝品番・品名で探す（読み直さない）
