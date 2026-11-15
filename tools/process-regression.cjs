@@ -1790,12 +1790,22 @@ test('FL3 サーバー: 在庫シートはチェック「在庫シート」に�
     assert.equal(JSON.stringify(patches[0]), JSON.stringify({ '在庫シート': true }), '伝票の段階でも入れられる・進行社外は触らない');
     j = await (await mod.handleProcess('stock', { id: 'recSTOCKTEST00001', on: false, out: '在庫シート利用' }, user)).json();
     assert.equal(j.stock, false); assert.equal(JSON.stringify(patches[1]), JSON.stringify({ '在庫シート': false }));
-    // 古い行（進行社外＝在庫シート利用）の取り消しは、進行社外を入れる前の値へ戻す
+    // 古い行（進行社外＝在庫シート利用）の取り消しは、進行社外も外す。前の値（シート手配済み）は選択肢を削除したので戻さず空白（2026-11-15 手順4）
     fields = { ...fields, '在庫シート': false, '進行社外': '在庫シート利用' }; patches.length = 0;
     j = await (await mod.handleProcess('stock', { id: 'recSTOCKTEST00001', on: false, out: '在庫シート利用' }, user)).json();
-    assert.equal(j.progOut, 'シート手配済み'); assert.equal(JSON.stringify(patches[0]), JSON.stringify({ '在庫シート': false, '進行社外': 'シート手配済み' }));
+    assert.equal(j.progOut, ''); assert.equal(JSON.stringify(patches[0]), JSON.stringify({ '在庫シート': false, '進行社外': null }));
   } finally { global.fetch = prevFetch; }
   assert.ok(fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8').includes("(Array.isArray(f[F.caution]) && f[F.caution].includes('一旦キャンセル'))"));
+});
+
+// ---- FL4 流れの整理 手順4（2026-11-15）: 旧選択肢を書かない ----
+test('FL4 生地照合は進行社内に 生地照合済 を書かずチェックだけ。取り消しで削除した選択肢（シート手配待ち・済み）へ戻さない', () => {
+  const up = fs.readFileSync(path.join(__dirname, '..', 'api', 'airtable-update-progress.js'), 'utf8');
+  assert.match(up, /fabric: '',\n\};/, 'fabric の更新先フィールドは無し');
+  assert.ok(up.includes("} else if (!progressField) {"));
+  const pr = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
+  assert.ok(pr.includes('const RESTORE_OUT = new Set();'));
+  assert.ok(pr.includes("return m && RESTORE_OUT.has(m[1]) ? m[1] : '';"));
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----

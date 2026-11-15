@@ -11,7 +11,7 @@
 //             ＋ 進行社内 → 抜き作業中（照合した＝これから抜く、の合図）
 //    stored = 抜型状況(複数選択) に 抜型を棚に仕舞い完了 を追加（「型まだ仕舞済でない」は除去）
 //             ＋ 抜型仕舞済(checkbox) → ON
-//    fabric = 進行社内 → 生地照合済　＋ 生地照合(checkbox) → ON
+//    fabric = 生地照合(checkbox) → ON（2026-11-15 から 進行社内 には書かない。以前は 生地照合済 を入れていた）
 //             ＋ 進行社外が空白か材料待ち（シート手配待ち／シート手配済み）のときだけ → シート材料入荷済
 //               （受領伝票発行可能・伝票出力済・完納済・納期変更 などが入っていれば触らない）
 //             同一 Book/WorkCord の受注が複数あっても1行だけ更新する（pickOne）。
@@ -74,11 +74,13 @@ const STATUS_LABELS = {
   stored: process.env.PROGRESS_LABEL_STORED || '抜型を棚に仕舞い完了',
   fabric: process.env.PROGRESS_LABEL_FABRIC || '生地照合済',
 };
-// action ごとの更新先フィールド（found/stored は抜型状況、fabric は進行社内）
+// action ごとの更新先フィールド（found/stored は抜型状況）。
+// fabric は 2026-11-15（流れの整理 手順4）から 進行社内 に「生地照合済」を書かない。事実は 生地照合 のチェックだけに残す
+// （進行社内に書くと抜きなどの記録を上書きしていた。選択肢 生地照合済 は Airtable から削除）。STATUS_LABELS.fabric は作業ログ・応答の名前にだけ使う
 const ACTION_FIELDS = {
   found:  FIELD_DIE_STATUS,
   stored: FIELD_DIE_STATUS,
-  fabric: FIELD_PROGRESS_IN,
+  fabric: '',
 };
 // 複数選択フィールドへ書く action。既存の選択を消さないよう「追加」で更新する。
 const MULTI_ACTIONS = new Set(['found', 'stored']);
@@ -384,6 +386,10 @@ export default async function handler(req) {
           if (has && checked && !it.loc && !hasConflict && progInOk && !fillOut) continue;
           const merged = has ? kept : [...kept, status];
           updates.push({ id: rec.id, fields: { ...common, ...extra, [progressField]: merged } });
+        } else if (!progressField) {
+          // 進行の欄に書かない action（fabric）。チェック・棚・進行社外だけ
+          if (checked && !it.loc && progInOk && !fillOut) continue;
+          updates.push({ id: rec.id, fields: { ...common, ...extra } });
         } else {
           const cur = String(raw || '').trim();
           if (cur === status && checked && !it.loc && progInOk && !fillOut) continue;

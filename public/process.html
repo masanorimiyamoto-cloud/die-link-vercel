@@ -3389,7 +3389,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     return btn;
   }
   async function setStockOut(o, on, out) {
-    if (!on && !confirm(out === STOCK_OUT ? '在庫シートを取り消しますか？\n材料は紙入荷日から決まるようになります。' : `進行社外の「${out}」を取り消しますか？\n入れる前の値（シート手配済み など）に戻します。`)) return;
+    if (!on && !confirm(out === STOCK_OUT ? '在庫シートを取り消しますか？\n材料は紙入荷日から決まるようになります。' : `進行社外の「${out}」を取り消しますか？\n進行社外は空白に戻します（材料は紙入荷日から決まります）。`)) return;
     await runOp(o, async () => {
       sayAt($('stepsStatus').parentNode, on ? '進行社外に記録しています…' : '取り消しています…');
       const j = await write({ action: 'stock', id: o.id, on, out });

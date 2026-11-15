@@ -769,6 +769,9 @@ const ARRIVED_OUTS = new Set(['シート材料入荷済', '機械貼材料入荷
 const OUT_BUTTONS = new Set([STOCK_OUT, ...ARRIVED_OUTS]);
 // 2026-10-29 Airtable の選択肢 シート手配必要 が シート手配待ち に変わったので合わせる
 const STOCK_REPLACEABLE = new Set(['', 'シート手配待ち', 'シート手配済み']);
+// 取り消しで戻してよい前の値。2026-11-15（流れの整理 手順4）に シート手配待ち・シート手配済み の選択肢を削除したので、
+// どれも戻さず空白にする（無い選択肢を書くと Airtable が断る）。材料は数式「材料」が紙入荷日から出す
+const RESTORE_OUT = new Set();
 async function findPrevOut(rec, out) {
   const f = rec.fields || {};
   const target = `OR({受注ID}='${esc(rec.id)}',AND({受注ID}='',{Book}='${esc(f[F.book] || '')}',{WorkCord}='${esc(f[F.wc] ?? '')}'))`;
@@ -780,8 +783,8 @@ async function findPrevOut(rec, out) {
   try {
     const j = await airtable(url);
     const m = /前の進行社外: (.+?)）/.exec(j.records?.[0]?.fields?.['内容'] || '');
-    // 戻すのは材料待ちの値だけ（ログが読めない・想定外の値なら空白に戻す）
-    return m && STOCK_REPLACEABLE.has(m[1]) ? m[1] : '';
+    // 戻すのは RESTORE_OUT の値だけ（ログが読めない・想定外の値なら空白に戻す）
+    return m && RESTORE_OUT.has(m[1]) ? m[1] : '';
   } catch { return ''; }
 }
 async function setStock(body, user) {
