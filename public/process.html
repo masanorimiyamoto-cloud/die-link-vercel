@@ -1103,8 +1103,9 @@
     if (!pn) { ab.textContent = '未入力'; a.classList.add('none'); return a; }
     ab.textContent = pn.day;
     const w = document.createElement('span'); w.className = 'when';
-    if (OUT_ARRIVED.includes(o.progOut)) { a.classList.add('ok'); w.textContent = '入荷済'; }
-    else if (o.stock || o.progOut === '在庫シート利用') { a.classList.add('ok'); w.textContent = '在庫シート'; }
+    // 2026-11-15 レビュー: 社外の流れと同じく数式「材料」でも入荷済を見る（紙入荷日を迎えた・作業が始まった）。mat の無い古い形の行は進行社外だけ
+    if (o.stock || o.progOut === '在庫シート利用') { a.classList.add('ok'); w.textContent = '在庫シート'; }
+    else if (OUT_ARRIVED.includes(o.progOut) || o.mat === '入荷済') { a.classList.add('ok'); w.textContent = '入荷済'; }
     else if (pn.diff > 0) { a.classList.add('soon'); w.textContent = '予定'; }
     else { a.classList.add('late'); w.textContent = pn.diff === 0 ? '本日・確認待ち' : '要確認'; }
     a.append(w);
@@ -1369,8 +1370,11 @@
   function doneCandidates(o, tag) {
     const vs = S.views.filter(x => viewTags(x).includes(tag));
     const keys = vs.length ? [...new Set(vs.flatMap(x => x.mine || []))] : S.steps.filter(s => s.variants.some(v => v.tag === tag)).map(s => s.key);
+    // 部屋のタグが付いた工程は、その枠のタグのものだけ（たおしK判の枠に (M判)たおし抜き完了 を出さない。2026-11-15 レビュー）。
+    // タグの無い工程（シール貼完了・仕上がりました）はどの部屋でも出す
     return keys.map(k => S.steps.find(s => s.key === k))
-      .filter(s => s && s.group !== 'status' && !o.done?.[s.key] && !s.variants.some(v => v.value === o.progIn));
+      .filter(s => s && s.group !== 'status' && !o.done?.[s.key] && !s.variants.some(v => v.value === o.progIn)
+        && (!s.variants.some(v => v.tag) || s.variants.some(v => v.tag === tag)));
   }
   // 社内の流れの「この先の工程」。完了を記録できる部屋は can（枠を押すと完了の帯）
   function todoFlow(o) {
@@ -2414,7 +2418,10 @@
     const list = doneSteps(o).filter(x => x.s.group !== 'status');
     // 2026-11-15 から シートの入荷・在庫シート は数式「材料」と在庫シートのチェックでも見る（紙入荷日を迎えたら入荷済）
     const sheetReady = (v.readyOut || []).includes('シート材料入荷済') && SHEET_TAGS.some(t => hasTag(o, t)) && (o.stock || o.mat === '入荷済');
-    const mat = (v.readyOut || []).includes(o.progOut) ? o.progOut : sheetReady ? (o.stock ? '在庫シート' : 'シート入荷済') : '';
+    // 機械貼だけの受注（シートの要る抜きが無い）は、数式「材料」の入荷済＝機械貼材料の入荷済（2026-11-15 レビュー）
+    const kikaiReady = (v.readyOut || []).includes('機械貼材料入荷済') && !SHEET_TAGS.some(t => hasTag(o, t)) && o.mat === '入荷済';
+    const mat = (v.readyOut || []).includes(o.progOut) ? o.progOut : sheetReady ? (o.stock ? '在庫シート' : 'シート入荷済')
+      : kikaiReady ? '機械貼材料 入荷済' : '';
     if (!list.length && !mat) return null;
     const tags = itemTags(o), mine = viewTags(v);
     const at = tags.findIndex(t => mine.includes(t));
@@ -2675,18 +2682,23 @@
     if (fromList) S.sel = o.id; // runOp は開いている受注にだけ書く。帯の受注を対象にする（取り消しの帯と同じ）
     else o = current() || o;
     const lock = (on) => btns.forEach(b => { b.disabled = on; });
+    // 送信の後: 記録できたか分からないとき（電波など。数量の保存でも完了の記録でも）は、確かめ方の出る工程カードを開く
+    // （一覧のままだと案内が見えない）。それ以外で帯が残っていれば（失敗など）もう一度選べるようにする
+    const settle = () => {
+      if (fromList && S.unsure?.id === o.id && $('stepCard').hidden) { bar.remove(); selectOrder(o.id); return; }
+      if (bar.isConnected) lock(false);
+    };
     if (needsAmountCheck(o, v.value)) {
       lock(true);
       const box = document.createElement('div');
-      showAmountCheck(o, s, v, false, bar, box);
-      // やめた・保存できなかったときはもう一度選べるように
+      showAmountCheck(o, s, v, false, bar, box, settle);
+      // やめたときはもう一度選べるように
       box.querySelector('.amtbtn')?.addEventListener('click', () => lock(false));
       return;
     }
     lock(true);
-    try { await runOp(o, () => saveComplete(o, s, v, false, bar)); } finally { if (bar.isConnected) lock(false); }
-    // 記録できたか分からないとき（電波など）は、確かめ方の出る工程カードを開く（一覧のままだと案内が見えない）
-    if (fromList && S.unsure?.id === o.id && $('stepCard').hidden) { bar.remove(); selectOrder(o.id); }
+    await runOp(o, () => saveComplete(o, s, v, false, bar));
+    settle();
   }
   // 工程カードの中の流れ。自分の済の工程の枠を押せば取り消しの帯、まだの工程の枠なら完了の帯（カードは開いたまま）
   function detailStrip(o) {
@@ -3510,7 +3522,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   // Airtable の 進行社内グループ（数式）と Automation 5 の写し。この工程を記録すると 進行社外＝受領伝票発行可能 になり、
   // 定時の自動発行・すぐ発行で伝票が出る。伝票を出した後は画面で数量を変えられないので、その前に確かめる。
   // 数式や Automation 5 を変えたらここも揃える
-  const FINAL_VALUES = new Set(['仕上がりました', '製品在庫から', '機械貼完了', '手貼り完了', '(神)貼り完了', '(花)貼り完了']);
+  const FINAL_VALUES = new Set(['仕上がりました', '製品在庫から', '機械貼完了', '手貼り完了']); // (神)/(花)貼り完了 は 2026-11-15 に選択肢ごと削除
   const PROC_GROUP = { 'オートン抜き完了': '抜き完了', '(K判)たおし抜き完了': '抜き完了', '(M判)たおし抜き完了': '抜き完了', 'CADカット完了': '抜き完了', 'シール貼完了': 'シール貼完了' };
   function reachesSlip(o, value) {
     if (FINAL_VALUES.has(value)) return true;
@@ -3521,7 +3533,8 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     return !o.amountLocked && reachesSlip(o, value);
   }
   // box: 数量の欄を置く箱。工程の枠からの完了の帯は、その帯の中に新しい箱を渡す（2026-11-15）
-  function showAmountCheck(o, s, v, force, near, box = $('variants')) {
+  // after: 「この数量で完了」の送信（数量の保存・完了の記録）が終わった後に呼ぶ。帯から開いたときに、結果不明なら工程カードを開くため
+  function showAmountCheck(o, s, v, force, near, box = $('variants'), after = null) {
     box.textContent = ''; box.hidden = false; box.className = 'variants amt amtcheck';
     if (near) near.append(box); else $('primary').after(box);
     const head = document.createElement('p');
@@ -3554,6 +3567,7 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
         box.hidden = true; box.className = 'variants';
         await saveComplete(o, s, v, force, near);
       });
+      after?.();
     };
   }
   // 完了を保存できた後の案内（2026-11-03）。一覧を取り直せたか・その受注がまだ一覧にあるかで言い方を分け、一覧の画面の下に残す。

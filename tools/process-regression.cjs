@@ -1724,8 +1724,8 @@ test('DN1 まだの工程の枠に ✓ 完了。部屋ごとの完了の工程�
   const cb = extract('completeFromBar');
   assert.ok(cb.includes('if (fromList) S.sel = o.id;'));
   assert.ok(cb.includes('if (needsAmountCheck(o, v.value))'));
-  assert.ok(cb.includes('showAmountCheck(o, s, v, false, bar, box)'));
-  assert.ok(cb.includes('runOp(o, () => saveComplete(o, s, v, false, bar))'));
+  assert.ok(cb.includes('showAmountCheck(o, s, v, false, bar, box, settle)'));
+  assert.ok(cb.includes('await runOp(o, () => saveComplete(o, s, v, false, bar));'));
 });
 
 // ---- FL3 流れの整理 手順3（2026-11-15）: 社外の流れは数式「材料」と書類（進行社外）と注意。在庫シートはチェックに書く ----
@@ -1806,6 +1806,79 @@ test('FL4 生地照合は進行社内に 生地照合済 を書かずチェッ�
   const pr = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
   assert.ok(pr.includes('const RESTORE_OUT = new Set();'));
   assert.ok(pr.includes("return m && RESTORE_OUT.has(m[1]) ? m[1] : '';"));
+});
+
+// ---- RV1 2026-11-15 レビュー（docs/review-2026-11-15.md）の4件を実際に動かして確かめる ----
+test('RV1-1 たおしの枠は品名のタグの工程だけ（K判の枠に M判を出さない）。両方あれば枠ごとに分ける', () => {
+  const e = planEnv();
+  vm.runInContext(extract('doneCandidates') + '\nglobalThis.doneCandidates = doneCandidates;', e);
+  const c = (o, t) => e.doneCandidates(ord(o), t).map(s => s.key).join(',');
+  assert.equal(c({ item: 'X #tk', kotei: '|たおしK判|' }, 'たおしK判'), 'tk');
+  assert.equal(c({ item: 'X #tm', kotei: '|たおしM判|' }, 'たおしM判'), 'tm');
+  assert.equal(c({ item: 'X #tk#tm', kotei: '|たおしK判|たおしM判|' }, 'たおしK判'), 'tk');
+  assert.equal(c({ item: 'X #tk#tm', kotei: '|たおしK判|たおしM判|' }, 'たおしM判'), 'tm');
+  assert.equal(c({ kotei: '|Nao|' }, 'Nao'), 'finish,seal', 'タグの無い工程は今までどおり');
+});
+test('RV1-2 帯から記録して結果不明になったら工程カードを開く（数量の確認を通る場合・通らない場合とも）', async () => {
+  const mk = (amount) => {
+    const calls = { select: [] };
+    const bar = { isConnected: true, removed: 0, remove() { this.removed++; this.isConnected = false; } };
+    const btns = [{ disabled: false }];
+    const env = {
+      S: { sel: null, unsure: null }, calls, bar, btns,
+      $: (id) => ({ hidden: true }), current: () => null,
+      needsAmountCheck: () => amount,
+      selectOrder: (id) => calls.select.push(id),
+      saveComplete: async () => {},
+      // 記録の送信で応答が無かった（markUnsure と同じく S.unsure を立てる）
+      runOp: async (o, fn) => { await fn(); env.S.unsure = { id: o.id, what: 'x' }; },
+      showAmountCheck: (o, s, v, f, near, box, after) => { env.after = after; },
+      document: { createElement: () => ({ querySelector: () => null }) },
+    };
+    vm.createContext(env);
+    vm.runInContext(extract('completeFromBar') + '\nglobalThis.completeFromBar = completeFromBar;', env);
+    return env;
+  };
+  const s = { variants: [{ value: '仕上がりました' }] };
+  let env = mk(false);
+  await env.completeFromBar({ id: 'recA' }, s, env.bar, true, env.btns);
+  assert.deepEqual([...env.calls.select], ['recA'], '数量の確認なし: 結果不明ならカードを開く'); assert.equal(env.bar.removed, 1);
+  env = mk(true);
+  await env.completeFromBar({ id: 'recA' }, s, env.bar, true, env.btns);
+  assert.equal(env.calls.select.length, 0, 'まだ送っていない');
+  env.S.unsure = { id: 'recA', what: '数量の変更' }; env.after(); // 「この数量で完了」の送信が結果不明で終わった
+  assert.deepEqual([...env.calls.select], ['recA'], '数量の確認あり: 結果不明ならカードを開く');
+  env = mk(true);
+  await env.completeFromBar({ id: 'recA' }, s, env.bar, true, env.btns);
+  env.after(); // 失敗（結果は分かった）: 帯は残し、もう一度選べる
+  assert.equal(env.calls.select.length, 0); assert.equal(env.btns[0].disabled, false);
+});
+test('RV1-3 入荷日の札も 材料=入荷済 なら入荷済（社外の流れと食い違わない）', () => {
+  const el = () => { const n = { cls: [], kids: [], textContent: '', classList: { add: (c) => n.cls.push(c) }, append: (...k) => n.kids.push(...k) }; return n; };
+  const env = { document: { createElement: el } };
+  vm.createContext(env);
+  vm.runInContext([line(/^  const WD = .*$/m), line(/^  const todayJST = .*$/m), extract('daysFromToday'), line(/^  const OUT_ARRIVED = .*$/m),
+    extract('paperNote'), extract('arrivalFact'), 'globalThis.arrivalFact = arrivalFact;'].join('\n'), env);
+  // 札の最後の子が「入荷済／予定／要確認」の小さな文字
+  const r = (o) => { const a = env.arrivalFact({ progOut: '', stock: false, ...o }); return a.cls.join(' ') + '|' + (a.kids.filter(k => k && k.cls).pop()?.textContent || ''); };
+  assert.equal(r({ paper: '2000-01-01', mat: '入荷済' }), 'ok|入荷済');
+  assert.equal(r({ paper: '2000-01-01' }), 'late|要確認', 'mat の無い古い形の行は今までどおり');
+  assert.equal(r({ paper: '2099-01-01', mat: '手配済み 1/1' }), 'soon|予定');
+  assert.equal(r({ paper: '2000-01-01', mat: '在庫シート', stock: true }), 'ok|在庫シート');
+});
+test('RV1-4 機械貼だけの受注は 材料=入荷済 で着手可。前の部屋が済んでいなければ着手可にしない', () => {
+  const views = V6.map(v => v.key === 'kikai' ? { ...v, readyOut: ['機械貼材料入荷済'] } : ['auton', 'taoshi'].includes(v.key) ? { ...v, readyOut: ['シート材料入荷済', '在庫シート利用'] } : v);
+  const env = { S: { steps: ST6, views, rooms: [] } };
+  vm.createContext(env);
+  vm.runInContext([line(/^  const ITEM_TAG = \{[^]*?\};.*$/m), line(/^  const VIEW_TAG = .*$/m), line(/^  const hasMine = .*$/m), line(/^  const hasTag = .*$/m),
+    line(/^  const SHEET_TAGS = .*$/m), ...['itemTagInfo', 'itemTags', 'doneSteps', 'mineDone', 'viewTags', 'tagDone', 'mineReady'].map(extract),
+    'globalThis.mineReady = mineReady;'].join('\n'), env);
+  const kv = views.find(v => v.key === 'kikai');
+  assert.equal(env.mineReady(ord({ item: 'X #ki', kotei: '|機械貼|', mat: '入荷済' }), kv)?.label, '機械貼材料 入荷済');
+  assert.equal(env.mineReady(ord({ item: 'X #ki', kotei: '|機械貼|', mat: '手配済み 11/20' }), kv), null);
+  assert.equal(env.mineReady(ord({ item: 'X #o#ki', kotei: '|オートン|機械貼|', mat: '入荷済' }), kv), null, 'オートンが済むまでは着手可にしない');
+  const av = views.find(v => v.key === 'auton');
+  assert.equal(env.mineReady(ord({ item: 'X #o', kotei: '|オートン|', mat: '入荷済' }), av)?.label, 'シート入荷済');
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
