@@ -37,10 +37,12 @@ function fixtures() {
     // 機械貼: 前工程（オートン）が済んで着手可。数量の変更が一番新しい記録
     order({ item: '検証箱A 機械貼テスト #o#ki', deli: '本社倉庫', spec: { kname: 'テスト商事', material: 'K5×AF', paperSize: '1100×800', cutSize: '540×390', packUnit: '50', preNdate: '11/05', wscd: '指示1行目\n指示2行目' }, kotei: '|オートン|機械貼|', progIn: 'オートン抜き完了', amount: 1200,
       amountFrom: '1000', amountLog: '1000→1200 田中 2026-11-03 14:32', printedAt: '2026-11-01 09:00',
-      done: { o: '佐藤 2026-11-02 10:15' }, memo: LONG_MEMO, die: ['型修正あり'], room: ['Nao'], views: ['kikai', 'recent'] }),
+      done: { o: '佐藤 2026-11-02 10:15' }, memo: LONG_MEMO, die: ['型修正あり'], room: ['Nao'], views: ['kikai', 'recent'],
+      mat: '入荷済', dieSt: '仕舞い待ち', next: '機械貼待ち', stock: false, caution: [] }),
     // 機械貼: 材料待ち（予定日経過）
-    order({ item: '検証箱B 材料待ち #ki', spec: { kname: 'サンプル紙器' }, kotei: '|機械貼|', progOut: 'シート手配済み', paper: '2026-11-01', ndate: '2026-11-04',
-      printedAt: '2026-11-02 08:30', views: ['kikai'] }),
+    // 2026-11-15 流れの整理: 材料・次の作業 は Airtable の数式（ここでは手で入れた値）。進行社外には古い シート手配待ち が残っている形
+    order({ item: '検証箱B 材料待ち #ki', spec: { kname: 'サンプル紙器' }, kotei: '|機械貼|', progOut: 'シート手配待ち', paper: '2099-11-20', ndate: '2026-11-04',
+      printedAt: '2026-11-02 08:30', views: ['kikai', 'recent'], mat: '手配済み 11/20', dieSt: '', next: '材料待ち（手配済み 11/20）', stock: false, caution: ['納期前倒し希望'] }),
     // 機械貼: 済（記録あり）。工程と納期変更が同時刻
     order({ item: '検証箱C 済 #ki#nao', spec: { kname: 'テスト商事', material: 'C5×AF' }, kotei: '|機械貼|Nao|', progIn: '機械貼完了', done: { kikai: '鈴木 2026-11-03 11:00' },
       ndate: '2026-11-10', ndateFrom: '2026-11-08', ndateLog: '2026-11-08→2026-11-10 鈴木 2026-11-03 11:00', views: ['kikai', 'nao'] }),

@@ -36,6 +36,8 @@ const F = {
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
   ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable', approved: '承認済', deli: 'DeliPlace',
   material: 'Material', paperSize: 'Paper_Size', cutSize: 'Cut_Size', packUnit: 'PackUnit', kname: 'Kname', preNdate: 'PreNdate', wscd: 'info_wscd', finalProcess: 'FinalProcess', updated: '更新時間',
+  // 流れの整理（2026-11-15）: 材料・型・次の作業 は Airtable の数式、在庫シート・注意 は人が入れる欄
+  mat: '材料', dieSt: '型', next: '次の作業', stock: '在庫シート', caution: '注意',
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -202,7 +204,13 @@ function describe(rec) {
     amountLocked: !!f[F.slipId] || ['伝票出力済', '完納済', '完納（数量訂正）', '伝票取消'].includes(String(f[F.progOut] || '')),
     // 画像（添付）。Airtable の URL は数時間で切れるので保存せず、その都度の一覧で返す
     images: imagesOf(f),
-    closed: CLOSED_OUT.has(String(f[F.progOut] || '')),
+    // 一旦キャンセル は 注意（複数選択）でも持つ（2026-11-15 流れの整理 手順2）
+    closed: CLOSED_OUT.has(String(f[F.progOut] || '')) || (Array.isArray(f[F.caution]) && f[F.caution].includes('一旦キャンセル')),
+    // 流れの整理（2026-11-15 手順3）: 材料（手配待ち／手配済み M/D／入荷済／在庫シート）・型・次の作業 は Airtable の数式。
+    // 画面の社外の流れ・待ちの理由はこれを使う（進行社外のシート系の値は古い行に残っているだけ）
+    mat: String(f[F.mat] || ''), dieSt: String(f[F.dieSt] || ''), next: String(f[F.next] || ''),
+    stock: !!f[F.stock] || String(f[F.progOut] || '') === '在庫シート利用',
+    caution: Array.isArray(f[F.caution]) ? f[F.caution].map(String) : [],
     // Add_from_Airtable が ON ＝ まだ Excel に入っていない（Airtable_Fetch.py が行を足すと OFF にする）。画面はこのときだけ削除ボタンを出す
     addPending: !!f[F.addPending],
     approved: !!f[F.approved], // 承認済（チェックボックス）
@@ -313,7 +321,7 @@ function imagesOf(f) {
 
 // 詳細画面の「仕様」に出す欄（2026-11-05）。画面の SPEC_LABEL と同じ並び
 const SPEC_KEYS = ['kname', 'material', 'paperSize', 'cutSize', 'packUnit', 'preNdate', 'wscd'];
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, F.updated, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, F.updated, F.mat, F.dieSt, F.next, F.stock, F.caution, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 // 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）
@@ -371,7 +379,7 @@ async function view(body, user) {
     }
   }
   let rows = [...byId.values()];
-  await Promise.all([autoSheetWait(rows, user), attachEstimates(rows)]);
+  await attachEstimates(rows);
   // 1つのビューならビューの並び順のまま。複数をまとめたときは納期順（空は最後）。アーカイブ済は後ろに納期の新しい順
   if (v.sources.length > 1) rows.sort((a, b) => (!!a.archived - !!b.archived)
     || (a.archived ? String(b.ndate || '').localeCompare(String(a.ndate || ''))
@@ -381,38 +389,10 @@ async function view(body, user) {
   return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: at });
 }
 
-// ---- 進行社外が空白のシート待ち → 「シート手配待ち」（2026-10-29）----
-// オートン・たおしの抜きはシートが要る。進行社外が空白のままだと、後の部屋の一覧で「オートン抜き待ち」と出て
-// シートが揃っているように見えてしまう（ユーザー指摘）。作業リストを読んだときに、まだ何も済んでいない行
-// （進行社内が空白か工程表発行済で、工程の記録も無い）の空白を シート手配待ち にする。
-// 在庫のシートを使うなら、工程カードの「在庫シート利用」で変える（シート手配待ちからも変えられる）
-// 紙入荷日が入っていて今日（日本時間）以前なら、シート手配待ちではなく シート材料入荷済 にする（ユーザー指定）。
-// 紙入荷日が先の日付なら シート手配済み にする（2026-11-06 ユーザー指定。Airtable のオートメーション
-// 「紙入荷日が入ったら進行社外を「シート手配済み」へ」と同じ決まり。あちらは紙入荷日を書いたときに動く）。
-// シート手配待ち・シート手配済み のまま紙入荷日を迎えたものは、Airtable のオートメーション（毎日11:00）が入荷済にする
-const SHEET_WAIT = 'シート手配待ち';
-const SHEET_ORDERED = 'シート手配済み';
-const SHEET_ARRIVED = 'シート材料入荷済';
-const todayJST = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
-const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
-const needsSheetWait = (r) => !r.progOut && !r.closed && !r.archived && SHEET_TAGS.some(t => hasTag(r, t))
-  && ['', '工程表発行済'].includes(r.progIn) && !Object.keys(r.done).length;
-async function autoSheetWait(rows, user) {
-  const today = todayJST();
-  const need = rows.filter(needsSheetWait).map(r => ({ r,
-    to: !/^\d{4}-\d\d-\d\d$/.test(r.paper) ? SHEET_WAIT : r.paper <= today ? SHEET_ARRIVED : SHEET_ORDERED }));
-  for (let i = 0; i < need.length; i += 10) {
-    const part = need.slice(i, i + 10);
-    try {
-      await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: part.map(x => ({ id: x.r.id, fields: { [F.progOut]: x.to } })) }) });
-    } catch { return; } // 書けなくても一覧は出す（次に開いたときにまた試す）
-    for (const x of part) x.r.progOut = x.to;
-    viewCache.clear();
-    await writeWorkLog(user, part.map(({ r, to }) => ({ recordIds: [r.id], book: r.book, wc: r.wc, action: '進行社外変更',
-      detail: to === SHEET_ARRIVED ? `${to}（自動。進行社外が空白で、紙入荷日 ${r.paper} を過ぎていたため）`
-        : to === SHEET_ORDERED ? `${to}（自動。進行社外が空白で、紙入荷日 ${r.paper} が入っていたため）` : `${to}（自動。進行社外が空白だったため）` })));
-  }
-}
+// ---- 進行社外が空白のシート待ち → 「シート手配待ち」（2026-10-29〜2026-11-15 廃止）----
+// 以前は作業リストを読んだときに、進行社外が空白のシートの要る受注へ シート手配待ち／シート手配済み／シート材料入荷済 を書いていた。
+// 2026-11-15 流れの整理（手順3）で、材料は Airtable の数式「材料」（紙入荷日から）が出すようにしたので書かない。
+// 進行社外は書類（受領伝票発行可能・伝票出力済・完納…）の欄にしていく
 
 // 作業リストの画像だけ（{ 受注ID: [画像…] }）。画面は一覧を出した後にこれで縮小画像を足す
 async function viewImages(body) {
@@ -813,6 +793,7 @@ async function setStock(body, user) {
   if (!OUT_BUTTONS.has(out)) return json({ ok: false, error: '進行社外の指定が正しくありません' }, 400);
   const report = ARRIVED_OUTS.has(out);
   const base = { recordIds: [rec.id], book: f[F.book] || '', wc: f[F.wc] ?? '' };
+  if (out === STOCK_OUT) return setStockSheet(rec, body?.on !== false, user, base);
   if (body?.on !== false) {
     if (cur === out) return json({ ok: true, progOut: cur, unchanged: true });
     if (!STOCK_REPLACEABLE.has(cur)) {
@@ -835,6 +816,23 @@ async function setStock(body, user) {
   await writeWorkLog(user, report ? { ...base, action: '状況報告取消', step: out, detail }
     : { ...base, action: '進行社外変更', detail });
   return json({ ok: true, progOut: prev });
+}
+// 在庫シート（2026-11-15 流れの整理 手順3）: 進行社外ではなくチェック「在庫シート」に書く。材料の話なので伝票の段階に関係なく変えられる。
+// 古い行で 進行社外＝在庫シート利用 が残っているときは、取り消しで進行社外も入れる前の値（シート手配済み など）へ戻す
+async function setStockSheet(rec, on, user, base) {
+  const f = rec.fields || {};
+  const cur = String(f[F.progOut] || '').trim();
+  const had = !!f[F.stock] || cur === STOCK_OUT;
+  if (on && had) return json({ ok: true, progOut: cur, stock: true, unchanged: true });
+  if (!on && !had) return json({ ok: false, error: '在庫シートはもう入っていません（誰かが先に変えた可能性があります）', stale: true }, 409);
+  const fields = { [F.stock]: on };
+  let progOut = cur;
+  if (!on && cur === STOCK_OUT) { progOut = await findPrevOut(rec, STOCK_OUT); fields[F.progOut] = progOut || null; }
+  await airtable(API, { method: 'PATCH', body: JSON.stringify({ records: [{ id: rec.id, fields }] }) });
+  viewCache.clear();
+  await writeWorkLog(user, { ...base, action: '進行社外変更',
+    detail: on ? `${STOCK_OUT}（在庫シート のチェックを入れた）` : `${STOCK_OUT} を取り消し（在庫シート のチェックを外した${fields[F.progOut] !== undefined ? `。進行社外は ${progOut || '空白'} に戻した` : ''}）` });
+  return json({ ok: true, progOut, stock: on });
 }
 
 // ---- 同じ品目の新規受注（2026-10-30）----

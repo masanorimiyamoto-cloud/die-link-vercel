@@ -1104,7 +1104,7 @@
     ab.textContent = pn.day;
     const w = document.createElement('span'); w.className = 'when';
     if (OUT_ARRIVED.includes(o.progOut)) { a.classList.add('ok'); w.textContent = '入荷済'; }
-    else if (o.progOut === '在庫シート利用') { a.classList.add('ok'); w.textContent = '在庫シート'; }
+    else if (o.stock || o.progOut === '在庫シート利用') { a.classList.add('ok'); w.textContent = '在庫シート'; }
     else if (pn.diff > 0) { a.classList.add('soon'); w.textContent = '予定'; }
     else { a.classList.add('late'); w.textContent = pn.diff === 0 ? '本日・確認待ち' : '要確認'; }
     a.append(w);
@@ -1281,6 +1281,25 @@
     if (OUT_END.includes(v)) return [...OUT_SLIP, v].map(label => ({ label }));
     return [{ label: v, alert: true }]; // 納期変更・キャンセル・伝票取消など、流れの外の知らせ
   }
+  // 社外の流れ（2026-11-15 流れの整理 手順3）。材料は Airtable の数式「材料」（紙入荷日から）、書類は進行社外、客先の事情は 注意。
+  // 進行社外に残っている古いシート系の値（シート手配待ち など）は材料の札には使わない（数式の方が新しい）。
+  // 伝票・納品の段階を過ぎたら材料は出さない（今までと同じ）
+  const MAT_OUTS = [...OUT_MAT, ...OUT_MAT1];
+  function outFlowNew(o, view) {
+    const items = [];
+    const slip = OUT_SLIP.includes(o.progOut) || OUT_END.includes(o.progOut);
+    if (o.mat && !slip) {
+      const pn = paperNote(o);
+      const name = view === 'kikai' || !SHEET_TAGS.some(t => hasTag(o, t)) ? '機械貼材料' : 'シート';
+      if (o.mat === '在庫シート') items.push({ label: '在庫シート', arrived: true });
+      else if (o.mat === '手配待ち') items.push({ label: `${name} 手配待ち` });
+      else if (o.mat.startsWith('手配済み')) items.push({ label: `${name} 手配済み`, sub: pn ? pn.text : '' });
+      else if (o.mat === '入荷済') items.push({ label: `${name} 入荷済`, arrived: true, sub: pn ? pn.day : '' });
+    }
+    if (o.progOut && !MAT_OUTS.includes(o.progOut)) items.push(...outFlow(o.progOut));
+    for (const c of o.caution || []) items.push({ label: c, alert: true, caution: true }); // 知らせなので「今」の段階にはしない
+    return items;
+  }
   // 「2026-10-03 14:20」「佐藤 2026-10-03 14:20」→「10/3」
   const md = (t) => { const m = /\d{4}-(\d\d)-(\d\d)/.exec(t || ''); return m ? `${+m[1]}/${+m[2]}` : ''; };
   // 進行社内は 工程表印刷日時 と各工程の「〜記録」の日時で並べる。記録の無い今の進行（抜き作業中など）は最後に足す
@@ -1393,7 +1412,8 @@
 
   function progressStrip(o, view = '') {
     const box = document.createElement('div'); box.className = 'prog';
-    const out = outFlow(o.progOut);
+    // 材料（数式）を返すサーバーなら新しい社外の流れ。古い形の行（mat が無い）だけ下の今までの出し方
+    const out = o.mat !== undefined ? outFlowNew(o, view) : outFlow(o.progOut);
     // シート・機械貼材料の手配・入荷のときだけ、紙入荷日をさりげなく添える（先の日付は「予定」）
     // 機械貼材料の入荷日も 紙入荷日 に入れる（以前は連絡事項のメモに書いていた。2026-10-22）。
     // 進行社外に機械貼材料の「手配済み」は無いので、機械貼の作業リストでは進行社外が空でも「機械貼材料 ○/○予定」と出す
@@ -1403,7 +1423,7 @@
     // 2026-10-23 予定日だけで「入荷した」とは見せない。入荷確認済み（緑）は進行社外が入荷済のときだけ。
     // 予定日が今日・過ぎたのに入荷済になっていないものは、黄土色のまま「確認待ち」「要確認」と出す。
     // 在庫シート利用は新しく入荷したものではないので、紙入荷日は添えない（緑の「在庫シート利用」だけ）
-    const pn = paperNote(o);
+    const pn = o.mat !== undefined ? null : paperNote(o);
     if (pn && o.progOut !== '在庫シート利用') {
       if (OUT_ARRIVED.includes(o.progOut)) out[out.length - 1].sub = pn.day;
       else if (OUT_MAT.includes(o.progOut)) out[out.length - 1].sub = pn.text;
@@ -1418,7 +1438,8 @@
     if (lc) ins.items.forEach(it => { if (it.key && lc.keys.has(it.key)) it.chg = lc; });
     // 自分が記録した済の工程は、枠を押すと取り消しの帯を出す（2026-11-13）
     ins.items.forEach(it => { const k = it.key?.startsWith('step:') ? it.key.slice(5) : ''; if (k && ownRecord(o.done?.[k])) it.undo = k; });
-    box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoFlow(o)));
+    const outCur = out.findLastIndex(x => !x.caution); // 注意（納期前倒し希望 など）は今の段階として光らせない
+    box.append(flowRow('社外', 'out', out, outCur), flowRow('社内', 'in', ins.items, ins.cur, todoFlow(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
     // 抜型状況。仕舞い完了があるのに「型まだ仕舞済でない」が残っていたら、古い方は出さない
     const DIE_CLASS = { '抜型照合済': 'd-check', '抜型を棚に仕舞い完了': 'd-stored', '型まだ仕舞済でない': 'd-notyet', '今回新型': 'd-new', '型修正あり': 'd-fix' };
@@ -2213,6 +2234,9 @@
   const SHEET_WAIT = 'シート手配待ち';
   const SHEET_TAGS = ['オートン', 'たおしK判', 'たおしM判'];
   const roomLabel = (tag) => S.rooms.find(r => r.tag === tag)?.name || tag;
+  // シートの手配を待っているか（2026-11-15 から数式「材料」で見る。mat の無い古い形の行だけ進行社外で見る）
+  const sheetWaiting = (o) => o.mat !== undefined ? o.mat === '手配待ち' : o.progOut === SHEET_WAIT;
+  const sheetOrdered = (o) => o.mat !== undefined ? o.mat.startsWith('手配済み') : (o.progOut === 'シート手配済み' || (!o.progOut && !!paperNote(o)));
   function waitReason(o, v) {
     const tags = itemTags(o), mine = viewTags(v);
     const at = tags.findIndex(t => mine.includes(t));
@@ -2226,7 +2250,7 @@
         const s = S.steps.find(x => x.variants.some(y => y.tag === left[0]));
         // 先に済ませるのがシートの要る抜き（オートン・たおし）で、進行社外が シート手配待ち なら、抜きより先にシートを待っている。
         // 在庫シート利用・入荷済なら今までどおり「オートン抜き待ち」（2026-10-29 ユーザー指定）
-        if (o.progOut === SHEET_WAIT && SHEET_TAGS.includes(left[0])) {
+        if (sheetWaiting(o) && SHEET_TAGS.includes(left[0])) {
           return { text: SHEET_WAIT, sub: 'その後 ' + left.map(roomLabel).join('・'), title };
         }
         return { text: (s ? s.label.replace(/完了$/, '') : roomLabel(left[0]) + 'の作業') + '待ち',
@@ -2234,13 +2258,21 @@
       }
     }
     if (!(v.readyOut || []).length || doneSteps(o).some(x => x.s.group !== 'status')) return null;
-    if (o.progOut === SHEET_WAIT) return { text: SHEET_WAIT };
+    if (sheetWaiting(o)) return { text: SHEET_WAIT };
     const pn = paperNote(o);
-    if (o.progOut === 'シート手配済み' || (!o.progOut && pn)) {
+    if (sheetOrdered(o)) {
       if (!pn) return { text: '材料の入荷待ち' };
       return { text: pn.diff > 0 ? `材料 ${pn.text}` : '材料の入荷確認待ち', title: '紙入荷日 ' + pn.text };
     }
     return null;
+  }
+  // 「次の作業」（Airtable の数式）の札。待ち（材料・型・キャンセル）は黄、作業待ちは緑、仕上がった後は控えめに
+  const NEXT_KIND = (t) => /^(材料待ち|型待ち|キャンセル中|伝票取消)/.test(t) ? 'wait' : /^(完成|伝票待ち|発行済|完納)/.test(t) ? 'note' : 'ready';
+  function nextBadge(o) {
+    if (!o.next || o.archived) return null;
+    const b = document.createElement('span'); b.className = 'minebadge nextbadge ' + NEXT_KIND(o.next);
+    b.textContent = '次: ' + o.next; b.title = 'Airtable の「次の作業」（材料・型・進行から自動）';
+    return b;
   }
   function stateBadge(st, v) {
     const b = document.createElement('span'); b.className = 'minebadge';
@@ -2305,6 +2337,8 @@
       const info = document.createElement('div'); info.className = 'info';
       const bd = document.createElement('div'); bd.className = 'badges';
       const sb = stateBadge(st, v); if (sb) bd.append(sb);
+      // 自分の工程の札が無い一覧（全件・Recent など）と状態未確認には、Airtable の「次の作業」を出す（2026-11-15）
+      if (!sb || st.kind === 'unknown') { const nb = nextBadge(o); if (nb) bd.append(nb); }
       const ub = S.view === 'recent' ? updBadge(o) : null; if (ub) { bd.append(ub.el); if (ub.level) el.classList.add('upd-' + ub.level); }
       const sm = S.view === 'recent' ? seen.badge(o) : null; if (sm) { bd.append(sm); el.classList.add('seenchg'); }
       if (S.sel === o.id) { const s = document.createElement('span'); s.className = 'selmark'; s.textContent = '選択中'; bd.append(s); }
@@ -2378,7 +2412,9 @@
   function mineReady(o, v) {
     if (!v || !(v.mine || []).length || o.closed || mineDone(o, v)) return null;
     const list = doneSteps(o).filter(x => x.s.group !== 'status');
-    const mat = (v.readyOut || []).includes(o.progOut) ? o.progOut : '';
+    // 2026-11-15 から シートの入荷・在庫シート は数式「材料」と在庫シートのチェックでも見る（紙入荷日を迎えたら入荷済）
+    const sheetReady = (v.readyOut || []).includes('シート材料入荷済') && SHEET_TAGS.some(t => hasTag(o, t)) && (o.stock || o.mat === '入荷済');
+    const mat = (v.readyOut || []).includes(o.progOut) ? o.progOut : sheetReady ? (o.stock ? '在庫シート' : 'シート入荷済') : '';
     if (!list.length && !mat) return null;
     const tags = itemTags(o), mine = viewTags(v);
     const at = tags.findIndex(t => mine.includes(t));
@@ -2507,7 +2543,7 @@
   function auxDefaults(o, v) {
     ['auxOther', 'auxEdit', 'auxRoom', 'auxDone'].forEach(id => { $(id).open = false; });
     const st = v ? rowState(o, v) : { kind: '' };
-    $('auxStatus').open = ['シート手配待ち', 'シート手配済み'].includes(o.progOut) || (st.kind === 'wait' && /材料|シート/.test(st.text));
+    $('auxStatus').open = sheetWaiting(o) || sheetOrdered(o) || (st.kind === 'wait' && /材料|シート/.test(st.text));
   }
   // 「工程を選んで記録」「他の工程を記録」: 工程の一覧を開き、そこまで動かして最初の押せるボタンへ
   function openAux(id) {
@@ -3327,14 +3363,16 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   const SHEET_ARRIVED_OUT = 'シート材料入荷済';
   const KIKAI_ARRIVED_OUT = '機械貼材料入荷済';
   const STOCK_REPLACEABLE = ['', 'シート手配待ち', 'シート手配済み'];
+  // 在庫シート は 2026-11-15 から進行社外ではなくチェック「在庫シート」（o.stock）に入れる。伝票の段階に関係なく変えられる
   function stockCell(o, out) {
-    if (o.progOut === out) {
+    const isStock = out === STOCK_OUT;
+    if (isStock ? o.stock : o.progOut === out) {
       const cell = document.createElement('div'); cell.className = 'stepcell';
       const st = document.createElement('div'); st.className = 'step done past status';
       st.append(document.createTextNode('✓ ' + out));
-      const sm = document.createElement('small'); sm.textContent = '進行社外に入っています'; st.append(sm);
+      const sm = document.createElement('small'); sm.textContent = isStock ? '在庫シート のチェックが入っています' : '進行社外に入っています'; st.append(sm);
       const un = document.createElement('button'); un.type = 'button'; un.className = 'undo'; un.textContent = '取り消す'; un.dataset.w = '1';
-      un.setAttribute('aria-label', `進行社外の「${out}」を取り消す`);
+      un.setAttribute('aria-label', isStock ? '在庫シートを取り消す' : `進行社外の「${out}」を取り消す`);
       un.onclick = () => setStockOut(o, false, out);
       cell.append(st, un);
       return cell;
@@ -3342,15 +3380,16 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'step status';
     btn.append(document.createTextNode(out));
     const sm = document.createElement('small');
-    const can = STOCK_REPLACEABLE.includes(o.progOut || '');
-    sm.textContent = can ? '進行社外に入れる' : `進行社外が「${o.progOut}」なので変えられません`;
+    const can = isStock ? !o.closed : STOCK_REPLACEABLE.includes(o.progOut || '');
+    sm.textContent = isStock ? (can ? '在庫のシートを使う' : '閉じた受注なので変えられません')
+      : can ? '進行社外に入れる' : `進行社外が「${o.progOut}」なので変えられません`;
     btn.append(sm);
     btn.dataset.w = '1'; btn.dataset.off = can ? '' : '1'; btn.disabled = !can;
     btn.onclick = () => setStockOut(o, true, out);
     return btn;
   }
   async function setStockOut(o, on, out) {
-    if (!on && !confirm(`進行社外の「${out}」を取り消しますか？\n入れる前の値（シート手配済み など）に戻します。`)) return;
+    if (!on && !confirm(out === STOCK_OUT ? '在庫シートを取り消しますか？\n材料は紙入荷日から決まるようになります。' : `進行社外の「${out}」を取り消しますか？\n入れる前の値（シート手配済み など）に戻します。`)) return;
     await runOp(o, async () => {
       sayAt($('stepsStatus').parentNode, on ? '進行社外に記録しています…' : '取り消しています…');
       const j = await write({ action: 'stock', id: o.id, on, out });
@@ -3361,11 +3400,13 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
         sayAt(current() ? $('stepsStatus').parentNode : null, j.error || '進行社外を変えられませんでした', 'err');
         return;
       }
-      patch(o, x => { x.progOut = j.progOut; });
+      patch(o, x => { x.progOut = j.progOut; if (typeof j.stock === 'boolean') { x.stock = j.stock; if (x.mat !== undefined) x.mat = j.stock ? '在庫シート' : x.mat === '在庫シート' ? '' : x.mat; } });
       navigator.vibrate?.(40);
       // 着手可・材料の表示が変わるので、作業リストは取り直してから戻る
       if (S.mode === 'list') await loadView(S.view, true);
-      backToRow(o.id, on ? `進行社外を「${out}」にしました` : `進行社外の「${out}」を取り消しました（進行社外: ${j.progOut || '空白'}）`, on ? 'ok' : 'warn');
+      const said = out === STOCK_OUT ? (on ? '在庫シートにしました' : '在庫シートを取り消しました')
+        : on ? `進行社外を「${out}」にしました` : `進行社外の「${out}」を取り消しました（進行社外: ${j.progOut || '空白'}）`;
+      backToRow(o.id, said, on ? 'ok' : 'warn');
     });
   }
 

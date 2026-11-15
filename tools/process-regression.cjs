@@ -1167,12 +1167,12 @@ test('RS2 画面の路線の祝日（ROSEN_HOLIDAYS）は事務所の rosen_pick
   assert.deepEqual(jsDays, pyDays);
 });
 
-// ---- SW1 進行社外が空白のシート待ち: 紙入荷日が先なら シート手配済み 2026-11-06（偽の Airtable。本物には繋がない） ----
-test('SW1 進行社外が空白の抜きの受注は 紙入荷日なし→シート手配待ち／先の日付→シート手配済み／今日以前→シート材料入荷済', async () => {
+// ---- SW1 作業リストを読んでも進行社外にシートの値を書かない（2026-11-15 流れの整理 手順3。材料は数式「材料」。偽の Airtable。本物には繋がない） ----
+test('SW1 進行社外が空白のシートの要る受注でも、一覧を読むだけでは何も書かない。材料・型・次の作業・在庫シート・注意を返す', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
   const calls = []; const prevFetch = global.fetch;
   const rec = (id, f) => ({ id, fields: { Book: 'Ko', WorkCord: 1, NAmount: 10, ItemName: '箱 #o', '工程(自動)': '|オートン|', Ndate: '2026-12-01', ...f } });
-  const active = [rec('recSHEETNONE00001', {}), rec('recSHEETFUTURE001', { '紙入荷日': '2099-01-01' }), rec('recSHEETPAST00001', { '紙入荷日': '2000-01-01' }),
+  const active = [rec('recSHEETNONE00001', { '材料': '手配待ち', '次の作業': '材料待ち（手配待ち）' }), rec('recSHEETFUTURE001', { '紙入荷日': '2099-01-01' }), rec('recSHEETPAST00001', { '紙入荷日': '2000-01-01' }),
     rec('recSHEETKIKAI0001', { ItemName: '箱 #ki', '工程(自動)': '|機械貼|', '紙入荷日': '2099-01-01' })];
   global.fetch = async (url, init = {}) => {
     const u = new URL(String(url)); const m = init.method || 'GET';
@@ -1187,11 +1187,9 @@ test('SW1 進行社外が空白の抜きの受注は 紙入荷日なし→シー
     const r = await mod.handleProcess('view', { view: 'all', refresh: true, lite: true }, { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } });
     const j = await r.json();
     assert.equal(j.ok, true, JSON.stringify(j).slice(0, 200));
-    const wrote = {};
-    for (const c of calls.filter(c => c.m === 'PATCH' && /TableJuchu/.test(c.u.pathname))) {
-      for (const x of JSON.parse(c.body).records) wrote[x.id] = x.fields['進行社外'];
-    }
-    assert.deepEqual(wrote, { recSHEETNONE00001: 'シート手配待ち', recSHEETFUTURE001: 'シート手配済み', recSHEETPAST00001: 'シート材料入荷済' }, '機械貼だけの受注には書かない');
+    assert.equal(calls.filter(c => c.m !== 'GET').length, 0, '一覧を読むだけでは書かない（シート手配待ち などを進行社外に入れない）');
+    const listUrl = calls.find(c => c.m === 'GET' && /TableJuchu/.test(c.u.pathname)).u;
+    for (const f of ['材料', '型', '次の作業', '在庫シート', '注意']) assert.ok(listUrl.searchParams.getAll('fields[]').includes(f), f);
   } finally { global.fetch = prevFetch; }
 });
 
@@ -1728,6 +1726,76 @@ test('DN1 まだの工程の枠に ✓ 完了。部屋ごとの完了の工程�
   assert.ok(cb.includes('if (needsAmountCheck(o, v.value))'));
   assert.ok(cb.includes('showAmountCheck(o, s, v, false, bar, box)'));
   assert.ok(cb.includes('runOp(o, () => saveComplete(o, s, v, false, bar))'));
+});
+
+// ---- FL3 流れの整理 手順3（2026-11-15）: 社外の流れは数式「材料」と書類（進行社外）と注意。在庫シートはチェックに書く ----
+test('FL3 社外の流れは 材料（数式）→ 書類 → 注意。古いシートの値は材料に使わない。伝票以降は材料を出さない。待ち・着手可も材料で見る', () => {
+  const env = { S: { steps: ST6, views: V6, rooms: [] } };
+  vm.createContext(env);
+  vm.runInContext([
+    line(/^  const WD = .*$/m), line(/^  const todayJST = .*$/m), extract('daysFromToday'), line(/^  const hasTag = .*$/m),
+    line(/^  const SHEET_WAIT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const OUT_MAT = .*$/m), line(/^  const OUT_MAT1 = .*$/m),
+    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const OUT_ARRIVED = .*$/m), line(/^  const MAT_OUTS = .*$/m),
+    line(/^  const sheetWaiting = .*$/m), line(/^  const sheetOrdered = .*$/m),
+    ...['paperNote', 'outFlow', 'outFlowNew'].map(extract),
+    'Object.assign(globalThis, { outFlowNew, sheetWaiting, sheetOrdered });',
+  ].join('\n'), env);
+  const lab = (o, view) => env.outFlowNew({ progOut: '', caution: [], kotei: '|オートン|', paper: '', ...o }, view).map(x => x.label + (x.arrived ? '✓' : '') + (x.alert ? '!' : '')).join(' → ');
+  assert.equal(lab({ mat: '手配待ち', progOut: 'シート手配待ち' }), 'シート 手配待ち');
+  assert.equal(lab({ mat: '手配済み 11/17', progOut: 'シート手配待ち', paper: '2099-11-17' }), 'シート 手配済み', '古い進行社外（手配待ち）より数式を信じる');
+  assert.equal(lab({ mat: '入荷済', progOut: 'シート手配済み', paper: '2000-01-01' }), 'シート 入荷済✓');
+  assert.equal(lab({ mat: '在庫シート' }), '在庫シート✓');
+  assert.equal(lab({ mat: '手配済み 11/20', kotei: '|機械貼|', paper: '2099-11-20' }), '機械貼材料 手配済み');
+  assert.equal(lab({ mat: '入荷済', progOut: '受領伝票発行可能' }), '受領伝票発行可能', '伝票以降は材料を出さない');
+  assert.equal(lab({ mat: '入荷済', progOut: '完納済' }), '受領伝票発行可能 → 伝票出力済 → 完納済');
+  assert.equal(lab({ mat: '入荷済', progOut: '納期変更になりました', caution: ['納期前倒し希望'] }), 'シート 入荷済✓ → 納期変更になりました! → 納期前倒し希望!');
+  assert.equal(lab({ mat: '' }), '');
+  assert.equal(env.sheetWaiting({ mat: '手配待ち', progOut: '' }), true);
+  assert.equal(env.sheetWaiting({ mat: '入荷済', progOut: 'シート手配待ち' }), false, '数式が入荷済なら古い シート手配待ち は見ない');
+  assert.equal(env.sheetWaiting({ progOut: 'シート手配待ち' }), true, 'mat の無い古い形の行は今までどおり');
+  assert.equal(env.sheetOrdered({ mat: '手配済み 11/20', progOut: '' }), true);
+  // 着手可: 紙入荷日を迎えた（材料=入荷済）・在庫シートのチェック でもオートン・たおしは着手可
+  const mr = extract('mineReady');
+  assert.ok(mr.includes("(o.stock || o.mat === '入荷済')"));
+  assert.ok(extract('progressStrip').includes("const out = o.mat !== undefined ? outFlowNew(o, view) : outFlow(o.progOut);"));
+  // 在庫シートの札・押したとき: チェックで見る・閉じた受注以外は押せる・結果の stock を受注に入れる
+  const sc = extract('stockCell');
+  assert.ok(sc.includes('if (isStock ? o.stock : o.progOut === out) {'));
+  assert.ok(sc.includes("const can = isStock ? !o.closed : STOCK_REPLACEABLE.includes(o.progOut || '');"));
+  assert.ok(extract('setStockOut').includes("if (typeof j.stock === 'boolean') { x.stock = j.stock;"));
+  // 次の作業の札: 待ちは黄・作業は緑・仕上がり後は控えめ
+  const env3 = {}; vm.createContext(env3);
+  vm.runInContext(line(/^  const NEXT_KIND = .*$/m) + '\nglobalThis.NEXT_KIND = NEXT_KIND;', env3);
+  assert.equal(env3.NEXT_KIND('材料待ち（手配済み 11/20）'), 'wait');
+  assert.equal(env3.NEXT_KIND('型待ち'), 'wait');
+  assert.equal(env3.NEXT_KIND('抜き待ち'), 'ready');
+  assert.equal(env3.NEXT_KIND('伝票待ち'), 'note');
+});
+test('FL3 サーバー: 在庫シートはチェック「在庫シート」に書き進行社外は変えない。古い 在庫シート利用 の取り消しは進行社外も戻す。注意の一旦キャンセルは閉じた受注', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const prevFetch = global.fetch; const patches = [];
+  let fields = { Book: 'Ko', WorkCord: 1, ItemName: '箱 #o', '工程(自動)': '|オートン|', '進行社外': '受領伝票発行可能' };
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const m = init.method || 'GET';
+    if (m === 'PATCH' && /TableJuchu/.test(u.pathname)) { const f = JSON.parse(init.body).records[0].fields; patches.push(f); fields = { ...fields, ...f }; return new Response(JSON.stringify({ records: [] }), { status: 200 }); }
+    if (/TableJuchu\/rec/.test(u.pathname)) return new Response(JSON.stringify({ id: 'recSTOCKTEST00001', fields }), { status: 200 });
+    if (m === 'GET' && /tblQFZ7QEuRaBW4oj/.test(u.pathname)) return new Response(JSON.stringify({ records: [{ fields: { '内容': '在庫シート利用（前の進行社外: シート手配済み）' } }] }), { status: 200 });
+    return new Response(JSON.stringify({ records: [] }), { status: 200 });
+  };
+  try {
+    const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+    const user = { user: { id: 'recSTAFF0000000001', no: 9001, name: 'テスト 太郎' } };
+    let j = await (await mod.handleProcess('stock', { id: 'recSTOCKTEST00001', on: true, out: '在庫シート利用' }, user)).json();
+    assert.equal(j.ok, true, JSON.stringify(j)); assert.equal(j.stock, true);
+    assert.equal(JSON.stringify(patches[0]), JSON.stringify({ '在庫シート': true }), '伝票の段階でも入れられる・進行社外は触らない');
+    j = await (await mod.handleProcess('stock', { id: 'recSTOCKTEST00001', on: false, out: '在庫シート利用' }, user)).json();
+    assert.equal(j.stock, false); assert.equal(JSON.stringify(patches[1]), JSON.stringify({ '在庫シート': false }));
+    // 古い行（進行社外＝在庫シート利用）の取り消しは、進行社外を入れる前の値へ戻す
+    fields = { ...fields, '在庫シート': false, '進行社外': '在庫シート利用' }; patches.length = 0;
+    j = await (await mod.handleProcess('stock', { id: 'recSTOCKTEST00001', on: false, out: '在庫シート利用' }, user)).json();
+    assert.equal(j.progOut, 'シート手配済み'); assert.equal(JSON.stringify(patches[0]), JSON.stringify({ '在庫シート': false, '進行社外': 'シート手配済み' }));
+  } finally { global.fetch = prevFetch; }
+  assert.ok(fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8').includes("(Array.isArray(f[F.caution]) && f[F.caution].includes('一旦キャンセル'))"));
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
