@@ -123,6 +123,11 @@
     border:2px solid var(--warn, #f59e0b); background:var(--surf); font-size:14px; line-height:1.5 }
   .undobar .ut{ flex:1 1 14em }
   .undobar .btn{ padding:8px 14px }
+  /* まだの工程の枠（2026-11-15）。押すとその場に完了の帯を出す。✓ 完了 の印で押せると分かるように */
+  .fs.todo.doable{ cursor:pointer; border-color:var(--ok, #22c55e); color:var(--txt, inherit); min-height:32px; justify-content:center }
+  .fs.todo.doable .dr{ font-size:11px; font-weight:600; color:var(--ok, #22c55e); margin-left:3px }
+  .undobar.donebar{ border-color:var(--ok, #22c55e) }
+  .undobar.donebar .variants{ flex:1 1 100%; margin:0 }
   /* この先の工程は点線の枠と控えめな色で。半透明にすると小さい文字が読みにくくなるので透明度は下げない（2026-10-23） */
   .fs.todo{ border-style:dashed; color:var(--dim) }
   .farr.todo{ opacity:.6 }
@@ -1340,6 +1345,20 @@
     if (o.closed || o.group === '最終' || o.done.finish) return [];
     return itemTags(o).filter(tag => !tagDone(o, tag)).map(tag => S.rooms.find(r => r.tag === tag)?.name || tag);
   }
+  // その部屋（工程(自動) のタグ）で記録する完了の工程（2026-11-15）。部屋の作業リストの「自分の工程」（Nao・2F 小 は シール貼完了 と 仕上がりました）、
+  // 作業リストの無い部屋はタグの付いた工程。もう済んだ工程・状況（抜き半製品あり など）は出さない
+  function doneCandidates(o, tag) {
+    const vs = S.views.filter(x => viewTags(x).includes(tag));
+    const keys = vs.length ? [...new Set(vs.flatMap(x => x.mine || []))] : S.steps.filter(s => s.variants.some(v => v.tag === tag)).map(s => s.key);
+    return keys.map(k => S.steps.find(s => s.key === k))
+      .filter(s => s && s.group !== 'status' && !o.done?.[s.key] && !s.variants.some(v => v.value === o.progIn));
+  }
+  // 社内の流れの「この先の工程」。完了を記録できる部屋は can（枠を押すと完了の帯）
+  function todoFlow(o) {
+    if (o.closed || o.group === '最終' || o.done.finish) return [];
+    return itemTags(o).filter(tag => !tagDone(o, tag))
+      .map(tag => ({ tag, name: S.rooms.find(r => r.tag === tag)?.name || tag, can: doneCandidates(o, tag).length > 0 }));
+  }
   function flowRow(name, cls, items, cur, todo = []) {
     const row = document.createElement('div'); row.className = 'flow ' + cls;
     const h = document.createElement('span'); h.className = 'fl'; h.textContent = name; row.append(h);
@@ -1357,10 +1376,16 @@
       row.append(b);
     });
     // まだの工程は点線の枠で暗く出す。タグの並びが実際の作業順なので → でつなぐ（→ Nao → 機械貼）
-    todo.forEach((name, i) => {
+    // todo は部屋名か { name, tag, can }。can なら枠を押して完了を記録できる（2026-11-15）
+    todo.forEach((t, i) => {
+      const name = typeof t === 'string' ? t : t.name;
       if (items.length || i) { const a = document.createElement('span'); a.className = 'farr todo'; a.textContent = '→'; row.append(a); }
       const b = document.createElement('span'); b.className = 'fs todo'; b.title = 'この先の工程（未完了）';
       b.textContent = name;
+      if (t.can) {
+        b.classList.add('doable'); b.dataset.done = t.tag; b.title = '押すと、この工程の完了を記録できます';
+        const dr = document.createElement('span'); dr.className = 'dr'; dr.textContent = '✓ 完了'; b.append(dr);
+      }
       row.append(b);
     });
     return row;
@@ -1393,7 +1418,7 @@
     if (lc) ins.items.forEach(it => { if (it.key && lc.keys.has(it.key)) it.chg = lc; });
     // 自分が記録した済の工程は、枠を押すと取り消しの帯を出す（2026-11-13）
     ins.items.forEach(it => { const k = it.key?.startsWith('step:') ? it.key.slice(5) : ''; if (k && ownRecord(o.done?.[k])) it.undo = k; });
-    box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoRooms(o)));
+    box.append(flowRow('社外', 'out', out, out.length - 1), flowRow('社内', 'in', ins.items, ins.cur, todoFlow(o)));
     const tags = document.createElement('div'); tags.className = 'tags';
     // 抜型状況。仕舞い完了があるのに「型まだ仕舞済でない」が残っていたら、古い方は出さない
     const DIE_CLASS = { '抜型照合済': 'd-check', '抜型を棚に仕舞い完了': 'd-stored', '型まだ仕舞済でない': 'd-notyet', '今回新型': 'd-new', '型修正あり': 'd-fix' };
@@ -2580,18 +2605,70 @@
     un.focus({ preventScroll: true });
     bar.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
-  // 工程カードの中の流れ。自分の済の工程の枠を押せば取り消しの帯（カードは開いたまま）
+  // まだの工程の枠を押したら、カードのすぐ下に完了の帯を出す（2026-11-15 ユーザー指定。取り消しの帯と同じ置き方）。
+  // 工程が2つ考えられる部屋（Nao・2F 小 は シール貼完了 と 仕上がりました）はボタンを並べ、自動では選ばない。
+  // 受領伝票発行可能になる工程は、帯の中で仕上がり数量を確かめてから記録する（工程カードと同じ）
+  function toggleDoneBar(o, tag, after, fromList) {
+    const prev = document.querySelector('.undobar');
+    const same = prev && prev.dataset.id === o.id && prev.dataset.tag === tag;
+    if (prev) prev.remove();
+    if (same) return;
+    const cands = o.closed ? [] : doneCandidates(o, tag);
+    if (!cands.length) return;
+    const room = S.rooms.find(r => r.tag === tag)?.name || tag;
+    const bar = document.createElement('div'); bar.className = 'undobar donebar'; bar.dataset.id = o.id; bar.dataset.tag = tag;
+    bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', `「${room}」の完了の記録`);
+    const t = document.createElement('span'); t.className = 'ut';
+    t.textContent = cands.length > 1 ? `「${room}」の完了を記録します。どちらかを選んでください` : `「${room}」の完了を記録します`;
+    bar.append(t);
+    const btns = cands.map(s => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = s.label;
+      b.onclick = () => { if (!busyNow()) completeFromBar(o, s, bar, fromList, btns); };
+      return b;
+    });
+    const cl = document.createElement('button'); cl.type = 'button'; cl.className = 'btn ghost'; cl.textContent = '閉じる';
+    cl.onclick = () => bar.remove();
+    bar.append(...btns, cl);
+    (after.closest?.('.lrow') || after).after(bar);
+    btns[0].focus({ preventScroll: true });
+    bar.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  // 帯のボタンから完了を記録する。送るのは工程カードのボタンと同じ saveComplete（結果は画面の下の案内、失敗は帯の中）
+  async function completeFromBar(o, s, bar, fromList, btns) {
+    const v = s.variants[0];
+    if (fromList) S.sel = o.id; // runOp は開いている受注にだけ書く。帯の受注を対象にする（取り消しの帯と同じ）
+    else o = current() || o;
+    const lock = (on) => btns.forEach(b => { b.disabled = on; });
+    if (needsAmountCheck(o, v.value)) {
+      lock(true);
+      const box = document.createElement('div');
+      showAmountCheck(o, s, v, false, bar, box);
+      // やめた・保存できなかったときはもう一度選べるように
+      box.querySelector('.amtbtn')?.addEventListener('click', () => lock(false));
+      return;
+    }
+    lock(true);
+    try { await runOp(o, () => saveComplete(o, s, v, false, bar)); } finally { if (bar.isConnected) lock(false); }
+    // 記録できたか分からないとき（電波など）は、確かめ方の出る工程カードを開く（一覧のままだと案内が見えない）
+    if (fromList && S.unsure?.id === o.id && $('stepCard').hidden) { bar.remove(); selectOrder(o.id); }
+  }
+  // 工程カードの中の流れ。自分の済の工程の枠を押せば取り消しの帯、まだの工程の枠なら完了の帯（カードは開いたまま）
   function detailStrip(o) {
     const strip = progressStrip(o, S.mode === 'list' ? S.view : '');
-    strip.onclick = (e) => { const u = e.target?.closest?.('[data-undo]'); if (u && !busyNow()) toggleUndoBar(o, u.dataset.undo, strip, false); };
+    strip.onclick = (e) => {
+      const u = e.target?.closest?.('[data-undo]'); if (u && !busyNow()) return toggleUndoBar(o, u.dataset.undo, strip, false);
+      const d = e.target?.closest?.('[data-done]'); if (d && !busyNow()) toggleDoneBar(o, d.dataset.done, strip, false);
+    };
     return strip;
   }
-  // カード（一覧・品番で探す）の押し場所が自分の済の工程の枠なら取り消しの帯、それ以外は今までどおり工程カードを開く
+  // カード（一覧・品番で探す）の押し場所が自分の済の工程の枠なら取り消しの帯、まだの工程の枠なら完了の帯、
+  // それ以外は今までどおり工程カードを開く
   function undoTap(e, o, after) {
     const u = e.target?.closest?.('[data-undo]');
-    if (!u) return false;
+    const d = u ? null : e.target?.closest?.('[data-done]');
+    if (!u && !d) return false;
     e.preventDefault(); e.stopPropagation();
-    if (!busyNow()) toggleUndoBar(o, u.dataset.undo, after, true);
+    if (!busyNow()) u ? toggleUndoBar(o, u.dataset.undo, after, true) : toggleDoneBar(o, d.dataset.done, after, true);
     return true;
   }
   // near: 取り消しの途中・結果の案内を出す場所（ボタンのある箱）
@@ -3402,8 +3479,9 @@ ${mt.go.length ? `この ${mt.go.length + 1}件を1つの受領伝票にまと�
   function needsAmountCheck(o, value) {
     return !o.amountLocked && reachesSlip(o, value);
   }
-  function showAmountCheck(o, s, v, force, near) {
-    const box = $('variants'); box.textContent = ''; box.hidden = false; box.className = 'variants amt amtcheck';
+  // box: 数量の欄を置く箱。工程の枠からの完了の帯は、その帯の中に新しい箱を渡す（2026-11-15）
+  function showAmountCheck(o, s, v, force, near, box = $('variants')) {
+    box.textContent = ''; box.hidden = false; box.className = 'variants amt amtcheck';
     if (near) near.append(box); else $('primary').after(box);
     const head = document.createElement('p');
     head.textContent = `「${v.value}」を記録すると受領伝票を発行できるようになります。仕上がり数量を確かめてください`;

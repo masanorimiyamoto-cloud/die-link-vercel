@@ -1686,6 +1686,50 @@ test('UD2 自分の済の工程の枠だけ ↺ 取消 を付け、押すとカ�
   assert.ok(source.includes("if (strip) strip.replaceWith(detailStrip(cur));"));
 });
 
+// ---- DN1 社内の流れのまだの工程の枠を押して完了（2026-11-15。工程カードを開かない） ----
+test('DN1 まだの工程の枠に ✓ 完了。部屋ごとの完了の工程（Nao・2F 小 は2つ）を帯に出し、済・閉じた受注は押せない', () => {
+  const e = planEnv();
+  vm.runInContext(['doneCandidates', 'todoFlow'].map(extract).join('\n') + '\nObject.assign(globalThis, { doneCandidates, todoFlow });', e);
+  const lbl = (o, t) => e.doneCandidates(o, t).map(s => s.key).join(',');
+  assert.equal(lbl(ord({ kotei: '|オートン|' }), 'オートン'), 'o');
+  assert.equal(lbl(ord({ kotei: '|機械貼|' }), '機械貼'), 'kikai');
+  assert.equal(lbl(ord({ kotei: '|花|' }), '花'), 'tebari');
+  assert.equal(lbl(ord({ kotei: '|Nao|' }), 'Nao'), 'finish,seal', 'Nao は2つ並べて選ばせる');
+  assert.equal(lbl(ord({ kotei: '|2F_小|' }), '2F_小'), 'finish,seal');
+  assert.equal(lbl(ord({ kotei: '|断裁ステッチ|' }), '断裁ステッチ'), 'finish');
+  assert.equal(lbl(ord({ kotei: '|福祉|' }), '福祉'), '', '完了の工程が分からない部屋は押せない');
+  assert.equal(lbl(ord({ kotei: '|Nao|', done: { seal: '佐藤 2026-11-15 10:00' } }), 'Nao'), 'finish', '済んだ工程は出さない');
+  // 流れ: 済んでいない部屋だけ。押せるかどうか（can）を付ける
+  const f = e.todoFlow(ord({ item: 'X #o#ki', kotei: '|オートン|機械貼|', done: { o: '佐藤 2026-11-15 10:00' }, progIn: 'オートン抜き完了' }));
+  assert.equal(JSON.stringify(f.map(x => [x.tag, x.can])), JSON.stringify([['機械貼', true]]));
+  assert.equal(e.todoFlow(ord({ kotei: '|オートン|', closed: true })).length, 0, '閉じた受注は出さない');
+  assert.equal(e.todoFlow(ord({ kotei: '|オートン|', group: '最終' })).length, 0);
+  assert.equal(JSON.stringify(e.todoFlow(ord({ kotei: '|福祉|' })).map(x => x.can)), '[false]');
+  // 枠と押したとき: 一覧のカードは undoTap が完了の帯へ、カードの中の流れも同じ
+  assert.ok(extract('flowRow').includes('b.dataset.done = t.tag'));
+  assert.ok(extract('progressStrip').includes("flowRow('社内', 'in', ins.items, ins.cur, todoFlow(o))"));
+  const calls = [];
+  const env2 = { busyNow: () => false, toggleUndoBar: (...a) => calls.push(['undo', ...a]), toggleDoneBar: (...a) => calls.push(['done', ...a]) };
+  vm.createContext(env2);
+  vm.runInContext(extract('undoTap') + '\nglobalThis.undoTap = undoTap;', env2);
+  const ev = (sel, val) => ({ prevented: 0, target: { closest: (s) => s === sel ? { dataset: { undo: val, done: val } } : null }, preventDefault() { this.prevented++; }, stopPropagation() {} });
+  assert.equal(env2.undoTap(ev('[data-done]', '機械貼'), { id: 'recA' }, 'el'), true);
+  assert.equal(JSON.stringify(calls[0].slice(0, 3).concat(calls[0][4])), JSON.stringify(['done', { id: 'recA' }, '機械貼', true]));
+  assert.equal(env2.undoTap(ev('[data-undo]', 'o'), { id: 'recA' }, 'el'), true); assert.equal(calls[1][0], 'undo');
+  assert.equal(env2.undoTap(ev('x', ''), { id: 'recA' }, 'el'), false, '枠の外はカードを開く');
+  assert.ok(extract('detailStrip').includes('toggleDoneBar(o, d.dataset.done, strip, false)'));
+  // 帯: 閉じた受注は出さない・同じ枠でもう一度押すと閉じる・横並びの箱の外。記録は工程カードと同じ saveComplete、最終になる工程は数量を確かめる
+  const tb = extract('toggleDoneBar');
+  assert.ok(tb.includes('const cands = o.closed ? [] : doneCandidates(o, tag);'));
+  assert.ok(tb.includes('if (same) return;'));
+  assert.ok(tb.includes("(after.closest?.('.lrow') || after).after(bar);"));
+  const cb = extract('completeFromBar');
+  assert.ok(cb.includes('if (fromList) S.sel = o.id;'));
+  assert.ok(cb.includes('if (needsAmountCheck(o, v.value))'));
+  assert.ok(cb.includes('showAmountCheck(o, s, v, false, bar, box)'));
+  assert.ok(cb.includes('runOp(o, () => saveComplete(o, s, v, false, bar))'));
+});
+
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----
 test('AU1 未ログインは 401（needLogin）。社員表を読めないときは 503 で未ログインと取り違えない。伝票照合は照合した人を作業ログに残す', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
