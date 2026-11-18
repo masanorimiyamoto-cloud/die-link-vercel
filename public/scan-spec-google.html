@@ -395,6 +395,37 @@
   #boxVerdict .vsub{ display:block; font-size:14px; font-weight:800; margin-top:5px; opacity:.96; }
   @keyframes vpop{ from{ transform:scale(.85); opacity:0 } to{ transform:scale(1); opacity:1 } }
 
+  /* --- 生地から品番を探す（2026-11-18） --- */
+  .modeseg{ flex-wrap:wrap; border-radius:16px; }
+  #fsBar{ bottom:0; padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  #fsBar #fsStatus{ flex:1; color:#fff; font-size:13px; font-weight:700; text-shadow:0 1px 2px #000; }
+  #fsBar .bbactions button{ min-height:60px; font-size:18px; border-radius:12px; }
+  .fs-msg{ border-radius:10px; padding:12px 14px; font-size:14px; line-height:1.5; background:#f8f9fa; border:1px solid var(--border); }
+  .fs-msg.warn{ background:rgba(245,159,0,.10); border-color:#f59f00; }
+  .fs-msg.ng{ background:rgba(240,62,62,.08); border-color:var(--ng); }
+  .fs-msg b{ display:block; font-size:16px; margin-bottom:4px; }
+  .fs-actions{ display:flex; gap:8px; margin-top:10px; }
+  .fs-actions .btn{ flex:1; }
+  .fs-cands{ display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:10px; }
+  .fs-cand{ flex:0 0 120px; border:2px solid var(--border); border-radius:10px; background:#fff; padding:4px; text-align:left; cursor:pointer; font:inherit; color:inherit; }
+  .fs-cand.sel{ border-color:var(--primary); background:var(--primary-bg); }
+  .fs-cand img{ width:100%; height:80px; object-fit:cover; border-radius:6px; display:block; background:#eee; }
+  .fs-cand .nm{ font-size:12px; font-weight:800; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fs-cand .sc{ font-size:11px; color:var(--text-sub); }
+  .fs-head{ display:flex; gap:10px; align-items:flex-start; margin-bottom:8px; }
+  .fs-head img{ width:96px; height:96px; object-fit:cover; border-radius:8px; flex:0 0 auto; background:#eee; }
+  .fs-head .ttl{ font-size:16px; font-weight:800; }
+  .fs-head .sub{ font-size:12px; color:var(--text-sub); margin-top:2px; }
+  .fs-count{ font-size:15px; font-weight:800; margin:8px 0 6px; }
+  .fs-item{ display:flex; width:100%; gap:8px; align-items:center; text-align:left; padding:10px 12px; margin-bottom:6px;
+    border:1px solid var(--border); border-radius:10px; background:#fff; font:inherit; color:inherit; cursor:pointer; }
+  .fs-item:active{ background:var(--primary-bg); }
+  .fs-item .code{ font-weight:800; white-space:nowrap; }
+  .fs-item .nm{ flex:1; min-width:0; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fs-item .tag{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; background:#eee; color:#666; }
+  .fs-item .tag.on{ background:rgba(18,184,134,.15); color:var(--ok); }
+  .fs-note{ font-size:12px; color:var(--text-sub); margin-top:6px; }
+
   /* --- 伝票照合（受領伝票QR → Airtable照合） --- */
   .topbar{ flex-wrap:wrap; gap:8px; }
   .slip-toolbar{ display:flex; gap:8px; margin-bottom:12px; }
@@ -431,6 +462,7 @@
     </div>
     <span class="modeseg">
       <button id="modeSpec" class="modebtn active" type="button">📐 仕様を見る</button>
+      <button id="modeFabSearch" class="modebtn" type="button">🔎 生地から品番を探す</button>
       <button id="modeBox" class="modebtn" type="button">🧩 半製品を照合</button>
       <button id="modeMeasure" class="modebtn" type="button">📏 採寸</button>
       <button id="modeSlip" class="modebtn" type="button">🧾 伝票照合</button>
@@ -481,6 +513,12 @@
               <button id="boxOvToggle" type="button">🖼 図面を重ねる</button>
             </div>
           </div>
+          <div id="fsBar" class="box-ctrlbar">
+            <div class="bbrow"><span id="fsStatus">生地を真上から画面いっぱいに映して「📸 撮影して探す」</span></div>
+            <div class="bbrow bbactions">
+              <button id="fsCapture" class="bbprimary" type="button">📸 撮影して探す</button>
+            </div>
+          </div>
           <div id="measBar" class="box-ctrlbar">
             <div class="bbrow">
               <span id="measStatus">CAL-QR（脇に置く）と現物を画面に収めてください</span>
@@ -511,6 +549,10 @@
             <input id="inpWc" type="text" inputmode="numeric" class="inp-control" placeholder="WorkCord" />
           </div>
           <button id="btnManual" class="btn btn-sub" style="align-self:flex-end; height:38px;">照会</button>
+        </div>
+
+        <div id="fsPanel" style="display:none; margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
+          <div id="fsResult"><div class="msg-empty">品番が分からない生地を撮影すると、その生地を使う品番の候補が出ます</div></div>
         </div>
 
         <div id="boxPanel" style="display:none; margin-top:16px; padding-top:16px; border-top:1px dashed var(--border);">
