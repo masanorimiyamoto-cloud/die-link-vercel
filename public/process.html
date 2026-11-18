@@ -220,6 +220,18 @@
   :root .lrow .order.upd-hot{ outline:3px solid #f97316; outline-offset:-3px }
   :root .lrow .order.upd-warm{ outline:2px solid rgba(251,146,60,.55); outline-offset:-2px }
   :root .lrow .order.seenchg{ border-left:5px solid #38bdf8; padding-left:10px } /* 皮・テーマの .order より強く（Recent には着手可・待ちの枠は無い） */
+  /* 作業時間（2026-11-18）。部屋ごとの受注残の時間と1営業日あたりの時間 */
+  .load-sum{ padding:12px 14px; border-radius:12px; border:1px solid var(--line2); background:var(--surf2); }
+  .load-sum .big{ font-size:22px; font-weight:800; }
+  .load-sum .sub, .load-room .sub, .load-note{ font-size:12px; color:var(--mut); margin-top:4px; line-height:1.5; }
+  .load-room{ display:block; width:100%; text-align:left; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:var(--surf2); color:var(--txt); font:inherit; cursor:pointer; }
+  .load-room .top{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .load-room .nm{ font-size:16px; font-weight:800; min-width:6em; }
+  .load-room .h{ font-size:15px; }
+  .load-room .pd{ margin-left:auto; font-size:18px; font-weight:800; }
+  .load-room .pd.hi{ color:var(--st-late); }
+  .load-room .pd.mid{ color:var(--st-wait); }
+  .load-room.err{ border-color:var(--st-late); }
   .selmark{ font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:var(--sel); color:var(--bg) }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
@@ -1982,12 +1994,15 @@
     S.views = j.views; S.steps = j.steps; S.rooms = j.rooms || []; S.view = j.view || j.views[0].key;
     store.set('process.view', S.view);
     S.orders = j.rows;
+    S.load = j.load || null; // 作業時間（部屋ごとの行）
     if (S.view === 'recent') seen.update(j.rows); else seen.leave();
     S.listAt = j.cachedAt || Date.now(); S.listFail = false; $('listRetry').hidden = true;
     // 前に取った画像があればすぐ付ける（自動の読み直しで画像が消えないように）
     for (const o of S.orders) o.images = imgById.get(o.id) || [];
     renderChips();
     // 自動の読み直しで中身が変わっていなければ、行も画像も作り直さない（スマホで画像を全部取り直して重くなるため。2026-10-20）
+    // 作業時間は受注のカードが無い（rows が空）ので、毎回描き直す。画像も読まない
+    if (S.load) { renderList(); updateListHead(); return true; }
     const sig = rowsSig(j.rows);
     // ただし前の読み込みの失敗の案内が本文に残っていれば、件数の案内に戻す（見出しと本文を食い違わせない）
     if (quiet && sig === shownSig) { refreshUpd(); showFresh(); if (S.listMsgErr) showListMsg(); loadImages(S.view, true); return true; }
@@ -2027,7 +2042,8 @@
     $('listHeadName').textContent = `作業リスト（${v ? v.label : ''}）`;
     const n = S.orders.length, c = S.counts || {};
     // 止まっている受注は、読んだ受注のうち当てはまった件数を出す（2026-11-08）
-    $('listHeadCnt').textContent = !n ? '0件'
+    $('listHeadCnt').textContent = v?.load ? '部屋ごと'
+      : !n ? '0件'
       : v?.stalled ? `${S.shown ?? 0}件（未完了${n}件中）`
       : (S.filter !== 'all' || S.cust != null) ? `表示${S.shown ?? n}件／全${n}件`
       : [`${n}件`, c.ready && `着手可${c.ready}`, c.done && `済${c.done}`].filter(Boolean).join('・');
@@ -2305,8 +2321,9 @@
   }
 
   function renderList() {
-    const box = $('list'); box.textContent = '';
     const v = S.views.find(x => x.key === S.view);
+    if (v?.load) { renderCust(); renderLoad(); return; }
+    const box = $('list'); box.textContent = '';
     // 顧客で絞ってから状態を数える（状態の件数は選んだ顧客の中の数）
     renderCust();
     let base = S.cust == null ? S.orders : S.orders.filter(o => !o.archived && custOf(o) === S.cust);
@@ -2394,6 +2411,103 @@
     if (o.group === '最終') return { label: v.label, who: '仕上がり済' };
     return null;
   }
+  /* ---------- 作業時間（2026-11-18） ---------- */
+  // 部屋ごとに、まだ済んでいない受注の時間（推定）を足し、1営業日あたりに要る時間を出す。決まり（2026-11-18 ユーザー指定）:
+  // ・時間＝数量×1個あたり分（TableWorkTimeEstimate。過去3回以上の品番だけサーバーが est を付ける）。延べ（かかわる人全員の合計）
+  // ・記録は手作業の分給なので、手作業の部屋も通る受注の時間は手作業の部屋に全部数える（抜きの部屋では「他の部屋で計上」）。
+  //   手作業の部屋を2つ以上通るなら、品名の #タグの順で最初の部屋に数える（二重に数えない）
+  // ・手作業の部屋で見積の無い受注は、その部屋の見積のある受注の1個あたり分の中央値で補う。抜きの部屋は補わない（見積なし）
+  // ・1営業日あたり＝部屋の時間の合計 ÷ 今日から一番遅い納期の前日までの営業日（土日・ROSEN_HOLIDAYS を除く。最低1日）
+  // 数える受注: 閉じていない・伝票に進んでいない・仕上がっていない・その部屋の工程が済んでいない（作業リストの「済」と同じ mineDone）
+  const LOAD_HAND = ['pre', 'tebari', 'dansai', 'f2', 'nao', 'omamori'];
+  const LOAD_TAG_ROOM = { 'プレ': 'pre', '花': 'tebari', '断裁ステッチ': 'dansai', '2F_小': 'f2', 'Nao': 'nao' };
+  const LOAD_SKIP_OUT = new Set(['受領伝票発行可能', '伝票出力済', '完納済', '完納（数量訂正）', '伝票取消']);
+  // 今日から due の前日までの営業日の数
+  function workdaysUntil(today, due) {
+    let n = 0;
+    const d = new Date(today + 'T00:00:00Z');
+    for (; d.toISOString().slice(0, 10) < due; d.setUTCDate(d.getUTCDate() + 1)) {
+      if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6 && !ROSEN_HOLIDAYS.has(d.toISOString().slice(5, 10))) n++;
+    }
+    return n;
+  }
+  function roomLoad(rooms, today) {
+    const per = rooms.map(r => {
+      const v = S.views.find(x => x.key === r.key);
+      const rows = r.error ? [] : (r.rows || []).filter(o => !o.closed && !LOAD_SKIP_OUT.has(o.progOut) && o.group !== '最終' && !(v && mineDone(o, v)));
+      return { key: r.key, label: v?.label || r.key, error: r.error || '', rows, hand: LOAD_HAND.includes(r.key) };
+    });
+    // 受注ごとに時間を数える部屋を1つ決める
+    const where = new Map();
+    for (const p of per) for (const o of p.rows) { if (!where.has(o.id)) where.set(o.id, { o, keys: [] }); where.get(o.id).keys.push(p.key); }
+    const owner = new Map();
+    for (const [id, { o, keys }] of where) {
+      const hands = keys.filter(k => LOAD_HAND.includes(k));
+      const byTag = itemTags(o).map(t => LOAD_TAG_ROOM[t]).find(k => k && hands.includes(k));
+      owner.set(id, byTag || hands[0] || keys[0]);
+    }
+    return per.map(p => {
+      const pps = p.rows.filter(o => o.est?.pp > 0).map(o => o.est.pp).sort((a, b) => a - b);
+      const h = pps.length >> 1;
+      const med = !pps.length ? 0 : pps.length % 2 ? pps[h] : (pps[h - 1] + pps[h]) / 2;
+      let min = 0, nEst = 0, nFill = 0, nNone = 0, nOther = 0, last = '';
+      for (const o of p.rows) {
+        if (owner.get(o.id) !== p.key) { nOther++; continue; }
+        const amt = Number(o.amount);
+        if (o.est?.pp > 0 && amt > 0) { min += amt * o.est.pp; nEst++; }
+        else if (p.hand && med > 0 && amt > 0) { min += amt * med; nFill++; }
+        else { nNone++; continue; }
+        if (o.ndate && o.ndate > last) last = o.ndate;
+      }
+      const days = min > 0 ? Math.max(1, last ? workdaysUntil(today, last) : 1) : 0;
+      return { key: p.key, label: p.label, error: p.error, count: p.rows.length, hours: min / 60, nEst, nFill, nNone, nOther, last, days,
+        perDay: days ? min / 60 / days : 0, noDate: min > 0 && !last };
+    });
+  }
+  const fmtH = (h) => (h >= 10 ? Math.round(h) : Math.round(h * 10) / 10) + '時間';
+  function renderLoad() {
+    const box = $('list'); box.textContent = '';
+    S.shown = 0; S.counts = {};
+    renderFilter({}, 0); renderDensity(null);
+    const rooms = S.load?.rooms || [];
+    if (!rooms.length) { say($('listMsg'), '部屋の一覧を読めませんでした', 'err'); return; }
+    const res = roomLoad(rooms, todayJST());
+    const tot = res.reduce((s, r) => s + r.hours, 0), totDay = res.reduce((s, r) => s + r.perDay, 0);
+    const sum = document.createElement('div'); sum.className = 'load-sum';
+    const big = document.createElement('div'); big.className = 'big'; big.textContent = `1営業日あたり 延べ ${fmtH(totDay)}`;
+    const sub = document.createElement('div'); sub.className = 'sub';
+    sub.textContent = `受注残 合計 延べ${fmtH(tot)}（下の部屋の合計）。8時間×人数 を超える分が残業の目安です`;
+    sum.append(big, sub); box.append(sum);
+    for (const r of res) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'load-room' + (r.error ? ' err' : '');
+      const top = document.createElement('div'); top.className = 'top';
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.label;
+      const hh = document.createElement('span'); hh.className = 'h'; hh.textContent = r.error ? '読めませんでした' : `残${r.count}件・延べ${fmtH(r.hours)}`;
+      top.append(nm, hh);
+      if (!r.error && r.perDay > 0) {
+        const pd = document.createElement('span'); pd.className = 'pd' + (r.perDay > 8 ? ' hi' : r.perDay > 6 ? ' mid' : '');
+        pd.textContent = `1日 ${fmtH(r.perDay)}`; top.append(pd);
+      }
+      const s = document.createElement('div'); s.className = 'sub';
+      if (r.error) s.textContent = r.error;
+      else {
+        const [, m, d] = (r.last || '--').split('-');
+        const parts = [];
+        if (r.hours > 0) parts.push(r.noDate ? '納期の入った受注なし（今日1日で計算）' : `最後の納期 ${+m}/${+d} の前日まで ${r.days}営業日`);
+        parts.push(`見積 ${r.nEst}件` + (r.nFill ? `・中央値で補った ${r.nFill}件` : '') + (r.nNone ? `・見積なし ${r.nNone}件` : '') + (r.nOther ? `・他の部屋で計上 ${r.nOther}件` : ''));
+        s.textContent = parts.join('　');
+      }
+      b.append(top, s);
+      b.onclick = () => { if (!busyNow()) loadView(r.key); };
+      box.append(b);
+    }
+    const note = document.createElement('div'); note.className = 'load-note';
+    note.textContent = '時間は過去の作業記録の1個あたり分（中央値）×数量の推定で、外れは3割ほどあります。延べ＝かかわる人全員の合計。'
+      + '記録は手作業の分給なので、手作業の部屋も通る受注は手作業の部屋に数えます。抜き（オートン・たおし・CAD）は記録のある品番だけです。部屋を押すとその作業リストを開きます';
+    box.append(note);
+    say($('listMsg'), `部屋ごとの受注残（${res.length}部屋）`);
+  }
+
   // 作業リストが受け持つ部屋（工程(自動) のタグ）。完了ボタンのある工程はそのタグ、ボタンの無い部屋はリストのキーから
   const VIEW_TAG = { nao: 'Nao', f2: '2F_小', dansai: '断裁ステッチ', pre: 'プレ' };
   function viewTags(v) {

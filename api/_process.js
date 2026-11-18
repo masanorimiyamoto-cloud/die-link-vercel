@@ -148,7 +148,12 @@ export const VIEWS = {
   // （最後の動き＝工程の記録・数量／納期の変更・工程表の印刷 と 納期から。決まりは process.html の stalledInfo）
   stalled: { label: '止まっている', stalled: true, sources: [{ id: 'viwQW1JdhvjK5hbwF', steps: [],
     formula: "AND(NOT({アーカイブ済}), NOT({Ndate}=BLANK()), {進行社内グループ}!='最終', NOT(OR({進行社外}='受領伝票発行可能', {進行社外}='伝票出力済', {進行社外}='完納済', {進行社外}='完納（数量訂正）', {進行社外}='伝票取消', {進行社外}='一旦キャンセルです')))" }] },
+  // 作業時間（2026-11-18）。下の LOAD_ROOMS の部屋の一覧をまとめて読み、部屋ごとの受注残の時間と1営業日あたりの時間を画面が出す。
+  // 受注のカードは出さない（rows は空、部屋ごとの行は load に入れて返す）。計算の決まりは process.html の roomLoad
+  load:    { label: '作業時間', load: true, sources: [] },
 };
+// 作業時間で見る部屋（並びは画面の表の順）
+export const LOAD_ROOMS = ['pre', 'tebari', 'auton', 'taoshi', 'dansai', 'f2', 'nao', 'omamori', 'cad'];
 const DEFAULT_VIEW = 'cad';
 const VIEW_CACHE_MS = 20 * 1000; // 何人も開くので20秒は使い回す。完了を書いたら捨てる
 const viewCache = new Map();     // key -> { at, rows }
@@ -348,17 +353,12 @@ async function readView(viewId, formula = '', fields = LIST_FIELDS, map = descri
   return rows;
 }
 
-async function view(body, user) {
-  // 古い画面が覚えているキー（以前の tm など）でも止めずに既定の一覧を返す
-  const key = VIEWS[String(body?.view || '')] ? String(body.view) : DEFAULT_VIEW;
+// 一覧の行を読む（20秒使い回す）。読めなければ { error, status } を投げる
+async function viewRows(key, lite, refresh) {
   const v = VIEWS[key];
-  const lite = !!body?.lite;               // 画像なし（作業リストの最初の表示用）
   const ck = key + (lite ? '|lite' : '');
-  const roomsP = roomChoices();            // 部屋の選択肢は一覧と並べて読む（以前は一覧の後に順番に読んでいた）
   const c = viewCache.get(ck);
-  if (c && Date.now() - c.at < VIEW_CACHE_MS && !body?.refresh) {
-    return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: c.at });
-  }
+  if (c && Date.now() - c.at < VIEW_CACHE_MS && !refresh) return c;
   const byId = new Map();
   for (const src of v.sources) {
     let got;
@@ -366,9 +366,9 @@ async function view(body, user) {
     catch (e) {
       // Airtable でビューを消したり作り直したりすると ID が変わる。何が起きたか画面で分かるようにする
       const gone = /airtable (404|422)/.test(String(e?.message || ''));
-      return json({ ok: false, error: gone
+      throw { status: gone ? 404 : 502, error: gone
         ? `「${v.label}」の Airtable ビューが見つかりません。ビューを削除・作り直した場合は管理者に連絡してください。`
-        : `「${v.label}」を読み込めませんでした（${String(e?.message || e).slice(0, 80)}）` }, gone ? 404 : 502);
+        : `「${v.label}」を読み込めませんでした（${String(e?.message || e).slice(0, 80)}）` };
     }
     for (const r of got) {
       const steps = typeof src.steps === 'function' ? src.steps(r) : src.steps;
@@ -384,9 +384,35 @@ async function view(body, user) {
   if (v.sources.length > 1) rows.sort((a, b) => (!!a.archived - !!b.archived)
     || (a.archived ? String(b.ndate || '').localeCompare(String(a.ndate || ''))
       : String(a.ndate || '9999').localeCompare(String(b.ndate || '9999'))));
-  const at = Date.now();
-  viewCache.set(ck, { at, rows });
-  return json({ ok: true, view: key, rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: at });
+  const out = { at: Date.now(), rows };
+  viewCache.set(ck, out);
+  return out;
+}
+
+// 作業時間の計算に要る欄だけにする（9部屋分を一度に返すので軽くする）
+const loadRow = (r) => ({ id: r.id, book: r.book, wc: r.wc, item: r.item, amount: r.amount, ndate: r.ndate, progIn: r.progIn, progOut: r.progOut,
+  group: r.group, kotei: r.kotei, done: r.done, closed: !!r.closed, ...(r.est ? { est: r.est } : {}) });
+
+async function view(body, user) {
+  // 古い画面が覚えているキー（以前の tm など）でも止めずに既定の一覧を返す
+  const key = VIEWS[String(body?.view || '')] ? String(body.view) : DEFAULT_VIEW;
+  const v = VIEWS[key];
+  const lite = !!body?.lite;               // 画像なし（作業リストの最初の表示用）
+  const roomsP = roomChoices();            // 部屋の選択肢は一覧と並べて読む（以前は一覧の後に順番に読んでいた）
+  if (v.load) {
+    // 部屋ごとに読む。Airtable の回数制限（毎秒5回）に当たらないよう3つずつ。読めなかった部屋はその部屋だけエラーにする
+    const rooms = [];
+    for (let i = 0; i < LOAD_ROOMS.length; i += 3) {
+      rooms.push(...await Promise.all(LOAD_ROOMS.slice(i, i + 3).map(k => viewRows(k, true, !!body?.refresh)
+        .then(c => ({ key: k, at: c.at, rows: c.rows.map(loadRow) })).catch(e => ({ key: k, error: e?.error || String(e?.message || e) })))));
+    }
+    const at = Math.min(...rooms.map(r => r.at || Date.now()));
+    return json({ ok: true, view: key, rows: [], load: { rooms }, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: at });
+  }
+  let c;
+  try { c = await viewRows(key, lite, !!body?.refresh); }
+  catch (e) { return json({ ok: false, error: e?.error || String(e?.message || e) }, e?.status || 502); }
+  return json({ ok: true, view: key, rows: c.rows, steps: publicSteps(), views: publicViews(), rooms: await roomsP, cachedAt: c.at });
 }
 
 // ---- 進行社外が空白のシート待ち → 「シート手配待ち」（2026-10-29〜2026-11-15 廃止）----
@@ -415,7 +441,7 @@ async function viewImages(body) {
 }
 
 export function publicViews() {
-  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [], readyOut: v.readyOut || [], keepOrder: !!v.keepOrder, stalled: !!v.stalled }));
+  return Object.entries(VIEWS).map(([key, v]) => ({ key, label: v.label, mine: v.mine || [], mineValues: v.mineValues || [], readyOut: v.readyOut || [], keepOrder: !!v.keepOrder, stalled: !!v.stalled, load: !!v.load }));
 }
 
 async function orders(body) {

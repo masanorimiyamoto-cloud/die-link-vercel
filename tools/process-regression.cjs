@@ -2050,6 +2050,78 @@ test('AU1 未ログインは 401（needLogin）。社員表を読めないとき
   } finally { global.fetch = prevFetch; }
 });
 
+// ---- WL 作業時間（2026-11-18） ----
+test('WL1 作業時間: 済・閉じた・伝票済は数えない。手作業の部屋に全部数え二重にしない。手作業は中央値で補い抜きは補わない。合計÷最後の納期の前日までの営業日', () => {
+  const views = [...V6, { key: 'omamori', label: 'omamori', mine: ['finish'], mineValues: [] }];
+  const env = { S: { steps: ST6, views, rooms: [] } };
+  vm.createContext(env);
+  vm.runInContext([line(/^  const ITEM_TAG = \{[^]*?\};.*$/m), line(/^  const ROSEN_HOLIDAYS = .*$/m),
+    line(/^  const LOAD_HAND = .*$/m), line(/^  const LOAD_TAG_ROOM = .*$/m), line(/^  const LOAD_SKIP_OUT = .*$/m), line(/^  const shortStamp = .*$/m),
+    ...['itemTagInfo', 'itemTags', 'mineDone', 'workdaysUntil', 'roomLoad'].map(extract),
+    'globalThis.roomLoad = roomLoad; globalThis.workdaysUntil = workdaysUntil;'].join('\n'), env);
+  // 2026-11-18(水) から 11-25(水) の前日まで: 18,19,20,(21土22日)24 … 23(月)は勤労感謝の日で休み → 18,19,20,24 = 4
+  assert.equal(env.workdaysUntil('2026-11-18', '2026-11-25'), 4);
+  assert.equal(env.workdaysUntil('2026-11-18', '2026-11-18'), 0);
+  const o = (id, p) => ord({ id, ndate: '2026-11-25', ...p });
+  const rooms = [
+    { key: 'tebari', rows: [
+      o('recA', { item: 'A #o#h', kotei: '|オートン|花|', amount: 100, est: { pp: 3 } }),       // 300分 → 手貼り
+      o('recB', { item: 'B #h', kotei: '|花|', amount: 200 }),                                   // 見積なし → 中央値（A 3・F 1 → 2）で 400分
+      o('recC', { item: 'C #h', kotei: '|花|', amount: 50, est: { pp: 9 }, done: { tebari: '佐藤 2026-11-17 10:00' } }), // 済 → 数えない
+      o('recD', { item: 'D #h', kotei: '|花|', amount: 10, est: { pp: 1 }, closed: true }),     // 閉じた → 数えない
+      o('recE', { item: 'E #h', kotei: '|花|', amount: 10, est: { pp: 1 }, progOut: '受領伝票発行可能' }), // 伝票へ → 数えない
+      o('recF', { item: 'F #h#nao', kotei: '|花|Nao|', amount: 60, est: { pp: 1 }, ndate: '2026-11-20' })] },          // 60分 → 手貼り（品名の先）
+    { key: 'nao', rows: [o('recF', { item: 'F #h#nao', kotei: '|花|Nao|', amount: 60, est: { pp: 1 }, ndate: '2026-11-20' })] },
+    { key: 'auton', rows: [
+      o('recA', { item: 'A #o#h', kotei: '|オートン|花|', amount: 100, est: { pp: 3 } }),       // 手貼りで計上
+      o('recG', { item: 'G #o', kotei: '|オートン|', amount: 600, est: { pp: 0.1 }, ndate: '2026-12-02' }), // 60分
+      o('recH', { item: 'H #o', kotei: '|オートン|', amount: 600 })] },                          // 抜きは補わない → 見積なし
+    { key: 'cad', error: '「CAD」を読み込めませんでした' },
+  ];
+  const r = Object.fromEntries(env.roomLoad(rooms, '2026-11-18').map(x => [x.key, x]));
+  assert.equal(r.tebari.count, 3, 'A・B・F');
+  assert.equal(r.tebari.hours, (300 + 400 + 60) / 60);
+  assert.deepEqual([r.tebari.nEst, r.tebari.nFill, r.tebari.nNone, r.tebari.nOther], [2, 1, 0, 0]);
+  assert.equal(r.tebari.last, '2026-11-25'); assert.equal(r.tebari.days, 4); assert.equal(r.tebari.perDay, 760 / 60 / 4);
+  assert.equal(r.nao.hours, 0); assert.equal(r.nao.nOther, 1, 'F は手貼りで数えたので二重にしない'); assert.equal(r.nao.perDay, 0);
+  assert.equal(r.auton.hours, 1); assert.deepEqual([r.auton.nEst, r.auton.nFill, r.auton.nNone, r.auton.nOther], [1, 0, 1, 1]);
+  assert.equal(r.auton.last, '2026-12-02', '最後の納期は時間を数えた受注から');
+  assert.equal(r.cad.error, '「CAD」を読み込めませんでした'); assert.equal(r.cad.count, 0);
+  // 納期を過ぎた受注だけなら今日1日で
+  const late = env.roomLoad([{ key: 'tebari', rows: [o('recZ', { item: 'Z #h', kotei: '|花|', amount: 60, est: { pp: 2 }, ndate: '2026-11-10' })] }], '2026-11-18')[0];
+  assert.equal(late.days, 1); assert.equal(late.perDay, 2);
+});
+test('WL2 サーバー: 作業時間の一覧は9部屋を読み、部屋ごとの行（計算に要る欄だけ）を load に入れて返す。読めない部屋はその部屋だけエラー', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const P = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+  assert.deepEqual(P.LOAD_ROOMS, ['pre', 'tebari', 'auton', 'taoshi', 'dansai', 'f2', 'nao', 'omamori', 'cad']);
+  assert.ok(P.publicViews().find(v => v.key === 'load')?.load);
+  const prevFetch = global.fetch; const asked = [];
+  const cadView = P.VIEWS.cad.sources[0].id;
+  global.fetch = async (url) => {
+    const u = new URL(String(url));
+    const ok = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    const vid = u.searchParams.get('view');
+    if (vid) {
+      asked.push(vid);
+      if (vid === cadView) return new Response('{"error":"NOT_FOUND"}', { status: 404 });
+      return ok({ records: [{ id: 'recL' + vid.slice(3, 15), fields: { Book: 'Ta', WorkCord: 1, ItemName: '箱 #h', NAmount: 10, '工程(自動)': '|花|', Ndate: '2026-12-01' } }] });
+    }
+    return ok({ records: [] }); // 推定の表・部屋の選択肢
+  };
+  try {
+    const r = await P.handleProcess('view', { view: 'load', refresh: true }, { user: null });
+    const j = await r.json();
+    assert.equal(j.ok, true); assert.deepEqual(j.rows, []);
+    assert.equal(j.load.rooms.length, 9);
+    assert.equal(new Set(asked).size, 9, '9部屋のビューを読む');
+    const cad = j.load.rooms.find(x => x.key === 'cad');
+    assert.match(cad.error, /CAD/); assert.ok(!cad.rows);
+    const pre = j.load.rooms.find(x => x.key === 'pre').rows[0];
+    assert.deepEqual(Object.keys(pre).sort(), ['amount', 'book', 'closed', 'done', 'group', 'id', 'item', 'kotei', 'ndate', 'progIn', 'progOut', 'wc'].sort(), '計算に要る欄だけ');
+  } finally { global.fetch = prevFetch; }
+});
+
 // ---- FS 生地から品番を探す（2026-11-18。偽の Airtable・偽の AI。本物には繋がない） ----
 const fabricMod = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_fabric.js')).href);
 test('FS1 品番欄の読み取り・AI に送る組分け・AI の答えの検証（知らない札は捨てる・同じ生地は高い方）・品番の並び', async () => {
