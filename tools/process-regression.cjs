@@ -1956,6 +1956,13 @@ test('RV1-4 機械貼だけの受注は 材料=入荷済 で着手可。前の�
   assert.equal(env.mineReady(ord({ item: 'X #o#ki', kotei: '|オートン|機械貼|', mat: '入荷済' }), kv), null, 'オートンが済むまでは着手可にしない');
   const av = views.find(v => v.key === 'auton');
   assert.equal(env.mineReady(ord({ item: 'X #o', kotei: '|オートン|', mat: '入荷済' }), av)?.label, 'シート入荷済');
+  // 2026-11-18: プレなど readyOut の無い一覧は、紙入荷日を迎えた（材料=入荷済）ら着手可
+  const pv = views.find(v => v.key === 'pre');
+  assert.equal(env.mineReady(ord({ item: 'X #pre', kotei: '|プレ|', paper: '2026-11-12', mat: '入荷済' }), pv)?.label, '材料 入荷済');
+  assert.equal(env.mineReady(ord({ item: 'X #pre', kotei: '|プレ|', paper: '2099-01-01', mat: '手配済み 1/1' }), pv), null, 'まだ入荷日前');
+  assert.equal(env.mineReady(ord({ item: 'X #pre', kotei: '|プレ|' }), pv), null, '紙入荷日の無い受注は今までどおり');
+  const tv = views.find(v => v.key === 'tebari');
+  assert.equal(env.mineReady(ord({ item: 'X #o#h', kotei: '|オートン|花|', paper: '2026-11-12', mat: '入荷済' }), tv), null, 'シートの要る抜きが先なら、シートの入荷だけでは手貼りは着手可にしない');
 });
 
 // ---- AU1 照合・棚登録・図面・伝票の API はログイン必須（2026-11-10。偽の Airtable。本物には繋がない） ----

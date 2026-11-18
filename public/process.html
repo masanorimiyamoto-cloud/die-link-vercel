@@ -2261,7 +2261,8 @@
           sub: left.length > 1 ? 'ほか ' + left.slice(1).map(roomLabel).join('・') : '', title };
       }
     }
-    if (!(v.readyOut || []).length || doneSteps(o).some(x => x.s.group !== 'status')) return null;
+    // readyOut の無い一覧でも、紙入荷日が入っていれば材料待ち（手配済み M/D）を出す（2026-11-18）
+    if ((!(v.readyOut || []).length && !o.paper) || doneSteps(o).some(x => x.s.group !== 'status')) return null;
     if (sheetWaiting(o)) return { text: SHEET_WAIT };
     const pn = paperNote(o);
     if (sheetOrdered(o)) {
@@ -2419,9 +2420,12 @@
     // 2026-11-15 から シートの入荷・在庫シート は数式「材料」と在庫シートのチェックでも見る（紙入荷日を迎えたら入荷済）
     const sheetReady = (v.readyOut || []).includes('シート材料入荷済') && SHEET_TAGS.some(t => hasTag(o, t)) && (o.stock || o.mat === '入荷済');
     // 機械貼だけの受注（シートの要る抜きが無い）は、数式「材料」の入荷済＝機械貼材料の入荷済（2026-11-15 レビュー）
-    const kikaiReady = (v.readyOut || []).includes('機械貼材料入荷済') && !SHEET_TAGS.some(t => hasTag(o, t)) && o.mat === '入荷済';
+    const noSheet = !SHEET_TAGS.some(t => hasTag(o, t));
+    const kikaiReady = (v.readyOut || []).includes('機械貼材料入荷済') && noSheet && o.mat === '入荷済';
+    // 材料の報告の値（readyOut）が無い一覧（プレ・手貼り・2F 小・Nao など）は、紙入荷日を迎えた（材料=入荷済）ら着手可（2026-11-18 ユーザー指定）
+    const paperReady = !(v.readyOut || []).length && noSheet && !!o.paper && o.mat === '入荷済';
     const mat = (v.readyOut || []).includes(o.progOut) ? o.progOut : sheetReady ? (o.stock ? '在庫シート' : 'シート入荷済')
-      : kikaiReady ? '機械貼材料 入荷済' : '';
+      : kikaiReady ? '機械貼材料 入荷済' : paperReady ? '材料 入荷済' : '';
     if (!list.length && !mat) return null;
     const tags = itemTags(o), mine = viewTags(v);
     const at = tags.findIndex(t => mine.includes(t));
