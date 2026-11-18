@@ -229,9 +229,14 @@
   .load-room .nm{ font-size:16px; font-weight:800; min-width:6em; }
   .load-room .h{ font-size:15px; }
   .load-room .pd{ margin-left:auto; font-size:18px; font-weight:800; }
-  .load-room .pd.hi{ color:var(--st-late); }
-  .load-room .pd.mid{ color:var(--st-wait); }
   .load-room.err{ border-color:var(--st-late); }
+  /* 前週比（2026-11-18）。増えた＝赤・減った＝緑・横ばい＝灰 */
+  .trend{ font-size:13px; font-weight:700; width:100%; color:var(--mut); }
+  .load-sum .trend{ font-size:15px; margin-top:4px; }
+  .trend.up{ color:var(--st-late); } .trend.down{ color:var(--st-ready); }
+  .load-room.t-up{ border-left:6px solid var(--st-late); background:var(--st-late-bg); }
+  .load-room.t-down{ border-left:6px solid var(--st-ready); background:var(--st-ready-bg); }
+  .load-room.t-flat{ border-left:6px solid var(--line2); }
   .selmark{ font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; background:var(--sel); color:var(--bg) }
   .order.closed{ opacity:.5 }
   .order .item{ font-size:21px; font-weight:600; line-height:1.4; letter-spacing:.01em }
@@ -2460,33 +2465,70 @@
         if (o.ndate && o.ndate > last) last = o.ndate;
       }
       const days = min > 0 ? Math.max(1, last ? workdaysUntil(today, last) : 1) : 0;
+      const perDay = days ? min / 60 / days : 0;
+      // 1週＝5営業日として（2026-11-18 ユーザー指定で 1日あたり → 1週あたり）
       return { key: p.key, label: p.label, error: p.error, count: p.rows.length, hours: min / 60, nEst, nFill, nNone, nOther, last, days,
-        perDay: days ? min / 60 / days : 0, noDate: min > 0 && !last };
+        perDay, perWeek: perDay * 5, noDate: min > 0 && !last };
     });
   }
+  // 前週との変化（2026-11-18）。絶対値は推定で当てにならないので、受注残の延べ時間が前週からどれだけ増えたか減ったかを色で出す。
+  // ±10% と ±2時間 の両方を超えたら 増（赤）／減（緑）、それ以外は 横ばい（灰）。前週の記録が無ければ none
+  function loadTrend(cur, prev) {
+    if (!prev || !Number.isFinite(Number(prev.hours))) return { kind: 'none' };
+    const d = cur - Number(prev.hours), base = Math.max(Number(prev.hours), 0.1);
+    const pct = d / base * 100;
+    const kind = Math.abs(d) >= 2 && Math.abs(pct) >= 10 ? (d > 0 ? 'up' : 'down') : 'flat';
+    return { kind, d, pct, date: prev.date || '' };
+  }
+  const trendText = (t) => t.kind === 'none' ? '前週の記録なし'
+    : `${t.kind === 'up' ? '▲' : t.kind === 'down' ? '▼' : '→'} 前週比 ${t.d >= 0 ? '+' : '−'}${fmtH(Math.abs(t.d))}` + (Math.abs(t.pct) >= 1 && Math.abs(t.pct) < 1000 ? `（${t.d >= 0 ? '+' : '−'}${Math.round(Math.abs(t.pct))}%）` : '');
+  // 開いたときの値を記録し、前週の値をもらう（同じ日は上書き）。自動の読み直しのたびには送らない（値が変わったか30分たったときだけ）
+  let loadSnapSig = '', loadSnapAt = 0;
+  async function sendLoadSnap(res) {
+    const sig = todayJST() + '|' + res.map(r => r.key + ':' + r.hours.toFixed(1)).join(',');
+    if (sig === loadSnapSig && Date.now() - loadSnapAt < 30 * 60 * 1000) return;
+    loadSnapSig = sig; loadSnapAt = Date.now();
+    const rooms = res.filter(r => !r.error).map(r => ({ key: r.key, count: r.count, hours: r.hours, week: r.perWeek }));
+    const j = await api({ action: 'loadSnap', rooms });
+    if (!j.ok || S.view !== 'load') return;
+    S.loadPrev = j.prev || {};
+    renderLoad(true);
+  }
   const fmtH = (h) => (h >= 10 ? Math.round(h) : Math.round(h * 10) / 10) + '時間';
-  function renderLoad() {
+  // again: 前週の値が届いて描き直すとき（記録は送り直さない）
+  function renderLoad(again) {
     const box = $('list'); box.textContent = '';
     S.shown = 0; S.counts = {};
     renderFilter({}, 0); renderDensity(null);
     const rooms = S.load?.rooms || [];
     if (!rooms.length) { say($('listMsg'), '部屋の一覧を読めませんでした', 'err'); return; }
     const res = roomLoad(rooms, todayJST());
-    const tot = res.reduce((s, r) => s + r.hours, 0), totDay = res.reduce((s, r) => s + r.perDay, 0);
+    const prev = S.loadPrev || null;   // まだ届いていなければ null（比べる行は「前週の値を確認中」）
+    const tot = res.reduce((s, r) => s + r.hours, 0), totWeek = res.reduce((s, r) => s + r.perWeek, 0);
+    const prevRooms = prev ? res.filter(r => !r.error && prev[r.key]) : [];
+    const totT = prevRooms.length ? loadTrend(prevRooms.reduce((s, r) => s + r.hours, 0), { hours: prevRooms.reduce((s, r) => s + Number(prev[r.key].hours || 0), 0) }) : { kind: 'none' };
     const sum = document.createElement('div'); sum.className = 'load-sum';
-    const big = document.createElement('div'); big.className = 'big'; big.textContent = `1営業日あたり 延べ ${fmtH(totDay)}`;
+    const big = document.createElement('div'); big.className = 'big'; big.textContent = `1週あたり 延べ ${fmtH(totWeek)}`;
+    const tr = document.createElement('div'); tr.className = 'trend ' + totT.kind;
+    tr.textContent = prev ? `受注残 ${trendText(totT)}` + (totT.kind !== 'none' && prevRooms.length < res.filter(r => !r.error).length ? '（前週の記録がある部屋だけ）' : '') : '前週の値を確認中…';
     const sub = document.createElement('div'); sub.className = 'sub';
-    sub.textContent = `受注残 合計 延べ${fmtH(tot)}（下の部屋の合計）。8時間×人数 を超える分が残業の目安です`;
-    sum.append(big, sub); box.append(sum);
+    sub.textContent = `受注残 合計 延べ${fmtH(tot)}（下の部屋の合計）。時間の絶対値は推定なので、前週からの増減（▲赤＝増えた・▼緑＝減った）を目安にしてください`;
+    sum.append(big, tr, sub); box.append(sum);
     for (const r of res) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'load-room' + (r.error ? ' err' : '');
+      const t = prev && !r.error ? loadTrend(r.hours, prev[r.key]) : { kind: 'none' };
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'load-room' + (r.error ? ' err' : '') + (t.kind !== 'none' ? ' t-' + t.kind : '');
       const top = document.createElement('div'); top.className = 'top';
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.label;
       const hh = document.createElement('span'); hh.className = 'h'; hh.textContent = r.error ? '読めませんでした' : `残${r.count}件・延べ${fmtH(r.hours)}`;
       top.append(nm, hh);
-      if (!r.error && r.perDay > 0) {
-        const pd = document.createElement('span'); pd.className = 'pd' + (r.perDay > 8 ? ' hi' : r.perDay > 6 ? ' mid' : '');
-        pd.textContent = `1日 ${fmtH(r.perDay)}`; top.append(pd);
+      if (!r.error && r.perWeek > 0) {
+        const pd = document.createElement('span'); pd.className = 'pd';
+        pd.textContent = `1週 ${fmtH(r.perWeek)}`; top.append(pd);
+      }
+      if (!r.error && prev) {
+        const tb = document.createElement('div'); tb.className = 'trend ' + t.kind;
+        tb.textContent = trendText(t) + (t.date ? `（${+t.date.slice(5, 7)}/${+t.date.slice(8)} と比べて）` : '');
+        top.append(tb);
       }
       const s = document.createElement('div'); s.className = 'sub';
       if (r.error) s.textContent = r.error;
@@ -2502,10 +2544,12 @@
       box.append(b);
     }
     const note = document.createElement('div'); note.className = 'load-note';
-    note.textContent = '時間は過去の作業記録の1個あたり分（中央値）×数量の推定で、外れは3割ほどあります。延べ＝かかわる人全員の合計。'
+    note.textContent = '時間は過去の作業記録の1個あたり分（中央値）×数量の推定で、外れは3割ほどあります。延べ＝かかわる人全員の合計。1週＝5営業日。'
+      + '前週比は受注残の延べ時間を、7日前に一番近い日（4〜10日前）にこの画面を開いたときの値と比べます（±10%かつ±2時間を超えたら色付き）。'
       + '記録は手作業の分給なので、手作業の部屋も通る受注は手作業の部屋に数えます。抜き（オートン・たおし・CAD）は記録のある品番だけです。部屋を押すとその作業リストを開きます';
     box.append(note);
     say($('listMsg'), `部屋ごとの受注残（${res.length}部屋）`);
+    if (!again) sendLoadSnap(res).catch(() => { if (!S.loadPrev) { S.loadPrev = {}; renderLoad(true); } });
   }
 
   // 作業リストが受け持つ部屋（工程(自動) のタグ）。完了ボタンのある工程はそのタグ、ボタンの無い部屋はリストのキーから

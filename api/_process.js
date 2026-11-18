@@ -102,7 +102,7 @@ const RECORD_FIELDS = Object.values(STEPS).map(s => s.field);
 // 受注の行き先がもう決まっているもの（画面では閉じた受注として薄く出す）
 const CLOSED_OUT = new Set(['完納済', '完納（数量訂正）', '伝票取消', '一旦キャンセルです']);
 
-export const PROCESS_ACTIONS = new Set(['orders', 'items', 'orderTemplates', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus', 'labelPrint', 'labelPrintStatus']);
+export const PROCESS_ACTIONS = new Set(['orders', 'items', 'orderTemplates', 'view', 'viewImages', 'complete', 'undo', 'cancel', 'amount', 'ndate', 'paper', 'room', 'stock', 'neworder', 'delete', 'approve', 'deletions', 'koteiCopy', 'koteiCopyStatus', 'slipIssue', 'slipIssueStatus', 'labelPrint', 'labelPrintStatus', 'loadSnap']);
 
 // 作業リストに出すビュー。key は画面との識別子。ビューIDは Airtable の URL の viw... の部分。
 // sources が複数なら、それぞれのビューを読んで1つの一覧にまとめ、納期順に並べる。
@@ -312,6 +312,7 @@ export async function handleProcess(action, body, who) {
   if (action === 'slipIssueStatus') return slipIssueStatus(body);
   if (action === 'labelPrint') return labelPrint(body, who.user);
   if (action === 'labelPrintStatus') return labelPrintStatus(body);
+  if (action === 'loadSnap') return loadSnap(body);
   return json({ ok: false, error: 'unknown action' }, 400);
 }
 
@@ -387,6 +388,61 @@ async function viewRows(key, lite, refresh) {
   const out = { at: Date.now(), rows };
   viewCache.set(ck, out);
   return out;
+}
+
+// ---- 作業時間の記録（2026-11-18）----
+// 画面が計算した部屋ごとの値を TableLoadSnapshot に1日1行（部屋ごと）で上書きし、前週の値を返す。
+// 前週＝7日前に一番近い日（4〜10日前の中）。開かれなかった日は記録が無いので、近い日で比べる
+const SNAP_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/tbllAEeflCGaD9gYi`;
+const SN = { key: 'fld5apDvxBCWpXe8s', date: 'fldMswsMtnxI5CrVi', room: 'fldc9KhfcYdYbs4R2', count: 'fldPJuXTStvx8SXNW', hours: 'fldo4wlgTSvrtczJQ', week: 'fldrBU1LPTxxrCQi8', at: 'fld7UQVAJ36uRJivr' };
+const dayShift = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+// 部屋ごとに、7日前に一番近い記録（4〜10日前）を選ぶ。同じ近さなら古い方
+export function pickPrevWeek(rows, today) {
+  const lo = dayShift(today, -10), hi = dayShift(today, -4), want = Date.parse(dayShift(today, -7));
+  const out = {};
+  for (const r of rows) {
+    if (!r.date || r.date < lo || r.date > hi || !LOAD_ROOMS.includes(r.room)) continue;
+    const cur = out[r.room], dist = Math.abs(Date.parse(r.date) - want);
+    if (!cur || dist < cur._d || (dist === cur._d && r.date < cur.date)) out[r.room] = { ...r, _d: dist };
+  }
+  for (const k of Object.keys(out)) delete out[k]._d;
+  return out;
+}
+const snapNum = (x, max) => { const n = Number(x); return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 10) / 10 : null; };
+async function loadSnap(body) {
+  const today = nowJST().slice(0, 10);
+  const rooms = (Array.isArray(body?.rooms) ? body.rooms : []).filter(r => LOAD_ROOMS.includes(r?.key)).map(r => ({
+    key: r.key, count: snapNum(r.count, 100000), hours: snapNum(r.hours, 1000000), week: snapNum(r.week, 1000000) })).filter(r => r.count != null && r.hours != null && r.week != null);
+  // 14日分を読む（今日の行の上書き先と、前週の値）
+  const url = new URL(SNAP_API);
+  url.searchParams.set('filterByFormula', `IS_AFTER({日付}, DATETIME_PARSE('${dayShift(today, -15)}'))`);
+  url.searchParams.set('pageSize', '100'); url.searchParams.set('returnFieldsByFieldId', 'true');
+  const rows = [];
+  let offset;
+  do {
+    if (offset) url.searchParams.set('offset', offset);
+    const j = await airtable(url);
+    rows.push(...(j.records || []));
+    offset = j.offset;
+  } while (offset);
+  const list = rows.map(r => ({ id: r.id, key: r.fields?.[SN.key], date: r.fields?.[SN.date] || '', room: r.fields?.[SN.room] || '',
+    count: r.fields?.[SN.count] ?? null, hours: r.fields?.[SN.hours] ?? null, week: r.fields?.[SN.week] ?? null }));
+  // 今日の行を上書き（無ければ作る）。書けなくても前週の値は返す
+  let saved = false;
+  if (rooms.length) {
+    try {
+      const at = new Date().toISOString();
+      const fields = (r) => ({ [SN.key]: `${today}|${r.key}`, [SN.date]: today, [SN.room]: r.key, [SN.count]: r.count, [SN.hours]: r.hours, [SN.week]: r.week, [SN.at]: at });
+      const byKey = new Map(list.map(x => [x.key, x.id]));
+      const upd = rooms.filter(r => byKey.has(`${today}|${r.key}`)).map(r => ({ id: byKey.get(`${today}|${r.key}`), fields: fields(r) }));
+      const add = rooms.filter(r => !byKey.has(`${today}|${r.key}`)).map(r => ({ fields: fields(r) }));
+      for (let i = 0; i < upd.length; i += 10) await airtable(SNAP_API, { method: 'PATCH', body: JSON.stringify({ records: upd.slice(i, i + 10) }) });
+      for (let i = 0; i < add.length; i += 10) await airtable(SNAP_API, { method: 'POST', body: JSON.stringify({ records: add.slice(i, i + 10) }) });
+      saved = true;
+    } catch { /* 記録できなくても比べる値は返す */ }
+  }
+  const prev = pickPrevWeek(list, today);
+  return json({ ok: true, today, saved, prev: Object.fromEntries(Object.entries(prev).map(([k, v]) => [k, { date: v.date, count: v.count, hours: v.hours, week: v.week }])) });
 }
 
 // 作業時間の計算に要る欄だけにする（9部屋分を一度に返すので軽くする）

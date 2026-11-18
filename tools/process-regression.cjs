@@ -2091,6 +2091,47 @@ test('WL1 作業時間: 済・閉じた・伝票済は数えない。手作業�
   const late = env.roomLoad([{ key: 'tebari', rows: [o('recZ', { item: 'Z #h', kotei: '|花|', amount: 60, est: { pp: 2 }, ndate: '2026-11-10' })] }], '2026-11-18')[0];
   assert.equal(late.days, 1); assert.equal(late.perDay, 2);
 });
+test('WL3 1週あたり＝1日あたり×5。前週比は ±10% かつ ±2時間 を超えたら増・減、ほかは横ばい。記録が無ければ none', () => {
+  const env = {};
+  vm.createContext(env);
+  vm.runInContext([line(/^  const fmtH = .*$/m), extract('loadTrend'), line(/^  const trendText = [^]*?;$/m), 'globalThis.loadTrend = loadTrend; globalThis.trendText = trendText;'].join('\n'), env);
+  assert.equal(env.loadTrend(30, { hours: 20, date: '2026-11-11' }).kind, 'up');
+  assert.equal(env.loadTrend(15, { hours: 20 }).kind, 'down');
+  assert.equal(env.loadTrend(21, { hours: 20 }).kind, 'flat', '+1時間は横ばい');
+  assert.equal(env.loadTrend(3, { hours: 1.5 }).kind, 'flat', '+100% でも +1.5時間なら横ばい');
+  assert.equal(env.loadTrend(10, null).kind, 'none');
+  assert.equal(env.trendText(env.loadTrend(30, { hours: 20 })), '▲ 前週比 +10時間（+50%）');
+  assert.equal(env.trendText(env.loadTrend(15, { hours: 20 })), '▼ 前週比 −5時間（−25%）');
+  assert.match(source, /perWeek: perDay \* 5/);
+});
+test('WL4 サーバー: 作業時間の記録は1日1行（部屋ごと）で上書きし、7日前に一番近い日（4〜10日前）の値を前週として返す', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const P = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
+  const r = (date, room, hours) => ({ date, room, hours });
+  const prev = P.pickPrevWeek([r('2026-11-12', 'tebari', 5), r('2026-11-10', 'tebari', 9), r('2026-11-11', 'pre', 3), r('2026-11-17', 'pre', 1),
+    r('2026-11-07', 'nao', 4), r('2026-11-08', 'cad', 2), r('2026-11-11', 'xxx', 1)], '2026-11-18');
+  assert.equal(prev.tebari.hours, 9, '11/11 に近いのは 11/10 と 11/12（同じ近さ）→ 古い方');
+  assert.equal(prev.pre.hours, 3); assert.equal(prev.cad.date, '2026-11-08', '10日前まで');
+  assert.ok(!prev.nao, '11日前は使わない'); assert.ok(!prev.xxx, '知らない部屋は外す');
+  // 書き込み: 今日の行があれば上書き、無ければ作る。数でない値の部屋は書かない
+  const prevFetch = global.fetch; const calls = [];
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); calls.push({ method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null, u });
+    const ok = (b) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } });
+    if ((init.method || 'GET') === 'GET') return ok({ records: [{ id: 'recSNAP0000000001', fields: { fld5apDvxBCWpXe8s: `${today}|tebari`, fldMswsMtnxI5CrVi: today, fldc9KhfcYdYbs4R2: 'tebari', fldo4wlgTSvrtczJQ: 1 } }] });
+    return ok({ records: [] });
+  };
+  try {
+    const res = await P.handleProcess('loadSnap', { rooms: [{ key: 'tebari', count: 3, hours: 12.34, week: 6 }, { key: 'pre', count: 1, hours: 2, week: 1 }, { key: 'nao', count: 1, hours: 'x', week: 1 }, { key: 'evil', count: 1, hours: 1, week: 1 }] }, { user: null });
+    const j = await res.json();
+    assert.equal(j.ok, true); assert.equal(j.saved, true);
+    const patch = calls.find(c => c.method === 'PATCH'), post = calls.find(c => c.method === 'POST');
+    assert.equal(patch.body.records[0].id, 'recSNAP0000000001'); assert.equal(patch.body.records[0].fields.fldo4wlgTSvrtczJQ, 12.3);
+    assert.deepEqual(post.body.records.map(x => x.fields.fldc9KhfcYdYbs4R2), ['pre'], 'nao（数でない）・evil（知らない部屋）は書かない');
+    assert.ok(calls.every(c => c.u.pathname.includes('tbllAEeflCGaD9gYi')), '記録の表だけ');
+  } finally { global.fetch = prevFetch; }
+});
 test('WL2 サーバー: 作業時間の一覧は9部屋を読み、部屋ごとの行（計算に要る欄だけ）を load に入れて返す。読めない部屋はその部屋だけエラー', async () => {
   process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
   const P = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_process.js')).href);
