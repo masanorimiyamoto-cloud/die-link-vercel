@@ -1115,7 +1115,7 @@ test('SL2 依頼: 1回にまとめるのは選んだ受注＋9件まで。一緒
     assert.equal(r.status, 502); assert.equal(bad.reqs.size, 0);
   } finally { bad.restore(); }
 });
-test('SL2 画面: 一緒に入る受注をボタンの下と確認に出し、確認した ID だけを with で送る。送り直しは同じ内容', () => {
+test('SL2 画面: 発行を依頼できる仲間は最大9件。依頼中と未完了は分けて表示する', () => {
   const ctx = { SL_MATE_MAX: 9 };
   vm.runInNewContext(extract('slMates') + '; this.f = slMates;', ctx);
   const ready = Array.from({ length: 12 }, (_, i) => ({ id: 'r' + i, pending: i === 0 }));
@@ -1124,17 +1124,10 @@ test('SL2 画面: 一緒に入る受注をボタンの下と確認に出し、�
   assert.ok(!m.go.some(x => x.pending), '依頼中の受注は一緒に入れない');
   assert.equal(JSON.stringify(ctx.f({})), JSON.stringify({ go: [], over: 0, busy: [], wait: [] }));
   assert.equal(ctx.f({ mates: null }).go.length, 0, '読めなかったときはこの受注だけ');
-  const rq = extract('slRequest');
-  assert.ok(rq.indexOf('await slLoad(o.id)') < rq.indexOf('confirm('), '確認の前に読み直す');
-  assert.ok(rq.includes('一緒に同じ伝票に入れる受注') && rq.includes('まだ発行可能でないので入らない受注'));
-  assert.ok(rq.includes('withIds = mt.go.map(x => x.id)') && rq.includes('with: withIds') && rq.includes('st.retryWith = withIds'));
-  const rn = extract('renderSlipIssue');
-  assert.ok(rn.includes('一緒に同じ伝票に入れます') && rn.includes('この伝票に入りません') && rn.includes('件まとめて'));
 });
 test('SL1 画面: 受領伝票発行可能でなければ送らずに断る。発行済みはボタンを出さない', () => {
   const src = extract('slRequest');
-  assert.ok(src.indexOf('slipRefusal(o)') < src.indexOf("api({ action: 'slipIssue'"), '送る前に断る');
-  assert.ok(src.indexOf('slipRefusal(o)') < src.indexOf('confirm('), '確認より前に断る');
+  assert.ok(src.indexOf('slipRefusal(o)') < src.indexOf('await slLoad(o.id)'), '確認より前に断る');
   const ctx = { SL_READY: '受領伝票発行可能' };
   vm.runInNewContext(extract('slipRefusal') + '; this.f = slipRefusal;', ctx);
   assert.equal(ctx.f({ progOut: '受領伝票発行可能' }), '');
@@ -1142,6 +1135,90 @@ test('SL1 画面: 受領伝票発行可能でなければ送らずに断る。�
   assert.match(ctx.f({ progOut: '受領伝票発行可能', slipId: 'X1' }), /発行済み/);
   assert.match(ctx.f({ progOut: '受領伝票発行可能', archived: true }), /アーカイブ済/);
   assert.ok(extract('renderSlipIssue').includes('SL_AFTER.has(o.progOut)'), '伝票の後の段階ではボタンを出さない');
+});
+function slipScreen(api) {
+  function createElement(tag) {
+    let text = '';
+    return { tag, kids: [], disabled: false, append(...kids) { this.kids.push(...kids); }, setAttribute() {},
+      get textContent() { return text + this.kids.map(k => k.textContent).join(''); },
+      set textContent(value) { text = value; this.kids = []; } };
+  }
+  const box = createElement('div'), timers = new Map();
+  const o = { id: SREC, progOut: '受領伝票発行可能', item: '検証箱', book: 'Ta', wc: 3666, amount: 100, ndate: '2026-11-10' };
+  const env = { S: { sl: {} }, api, $, current: () => o, detailOpen: () => true, busyNow: () => false,
+    document: { createElement }, itemShort: x => x.item, hm: x => x || '', navigator: {}, crypto: { randomUUID: () => 'sl-test-12345678' },
+    time: 1000, Date: { now: () => env.time },
+    setTimeout(fn) { const id = Symbol(); timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
+  };
+  function $() { return box; }
+  vm.runInNewContext([
+    ...['SL_READY', 'SL_AFTER', 'SL_LABEL', 'SL_MATE_MAX', 'SL_STATUS_TIMEOUT_MS', 'slPending', 'slPollExpired', 'slMateText', 'outcomeUnknown'].map(name => line(new RegExp(`^  const ${name} = .*$`, 'm'))),
+    ...['slipRefusal', 'renderSlipIssue', 'slMates', 'slNote', 'slMateList', 'slLoad', 'slShowResult', 'slLoadNow', 'slPoll', 'slRequest', 'slSend'].map(extract),
+    'Object.assign(globalThis, { renderSlipIssue, slLoad });',
+  ].join('\n'), env);
+  const buttons = (n) => n.kids.flatMap(k => k.tag === 'button' ? [k] : buttons(k));
+  const button = (label) => buttons(box).find(b => b.textContent.includes(label));
+  return { env, box, button, timers, o };
+}
+test('SL3 通信待ちを取りやめられる。描画した確認からだけ送信し、結果不明なら同じ依頼を確認する', async () => {
+  const d = deferredApi(), timeouts = [];
+  const { env, box, button, o } = slipScreen((body, timeout) => { timeouts.push(timeout); return d.api(body); });
+  env.S.sl[o.id] = { at: env.time };
+  env.renderSlipIssue(o);
+  const cancelled = button('受領伝票をすぐ発行').onclick();
+  assert.equal(timeouts[0], 8000);
+  assert.ok(button('受領伝票をすぐ発行').disabled);
+  button('やめる').onclick();
+  assert.equal(button('受領伝票をすぐ発行').disabled, false);
+  const grouped = { ok: true, requests: [], mates: { ready: [{ id: SM(1), item: '同梱箱' }], wait: [{ id: SM(2), item: '未完了箱' }] } };
+  d.q[0].resolve(grouped);
+  await cancelled;
+  assert.equal(button('この内容で発行を依頼'), undefined);
+  const opening = button('受領伝票をすぐ発行').onclick();
+  d.q[1].resolve(grouped);
+  await opening;
+  assert.match(box.textContent, /この 2件を1枚/);
+  assert.match(box.textContent, /同梱箱/);
+  assert.match(box.textContent, /未完了箱/);
+  assert.equal(d.q.length, 2, '確認を描くだけでは書かない');
+  const submit = button('この内容で発行を依頼');
+  const sent = submit.onclick();
+  submit.onclick();
+  assert.equal(d.q.length, 3, '確認ボタンを押し直しても1回だけ送る');
+  assert.equal(d.q[2].body.action, 'slipIssue');
+  assert.equal(JSON.stringify(d.q[2].body.with), JSON.stringify([SM(1)]));
+  d.q[2].resolve({ ok: true }); // 依頼を受けたか判断できない応答
+  await sent;
+  const retry = button('発行依頼の結果を確認').onclick();
+  assert.equal(JSON.stringify(d.q[3].body), JSON.stringify(d.q[2].body));
+  d.q[3].resolve({ ok: true, again: true, request: { reqId: d.q[2].body.reqId, state: '発行済', slipId: 'TEST' } });
+  await retry;
+  assert.match(box.textContent, /受領伝票を発行しました.*TEST/);
+  assert.equal(button('発行状況を確認'), undefined);
+  o.slipId = 'TEST'; env.renderSlipIssue(o);
+  assert.equal(button('受領伝票をすぐ発行'), undefined);
+});
+test('SL3 発行待ちの自動確認が終わっても手で読み直せる。通信失敗後も再依頼は送らない', async () => {
+  const d = deferredApi(), { env, box, button, timers, o } = slipScreen(d.api);
+  const status = { ok: true, requests: [{ reqId: SREQ, state: '依頼済' }], mates: { ready: [], wait: [] } };
+  const reading = env.slLoad(o.id);
+  d.q[0].resolve(status);
+  await reading;
+  assert.equal(timers.size, 1);
+  env.time += 600000;
+  for (const tick of [...timers.values()]) tick();
+  const pending = button('発行状況を確認').onclick();
+  assert.equal(d.q.length, 2, '手動・自動が重なっても読み取りは1回');
+  d.q[1].resolve({ ok: false, timeout: true });
+  await pending;
+  assert.equal(timers.size, 0);
+  assert.match(box.textContent, /発行状況を読み取れませんでした/);
+  assert.ok(button('受領伝票をすぐ発行').disabled);
+  const manual = button('発行状況を確認').onclick();
+  d.q[2].resolve({ ...status, requests: [{ reqId: SREQ, state: '発行済', slipId: 'TEST' }] });
+  await manual;
+  assert.ok(d.q.every(x => x.body.action === 'slipIssueStatus'));
+  assert.match(box.textContent, /受領伝票を発行しました.*TEST/);
 });
 test('KC1 画面: 確認してから依頼IDを作って送り、結果不明は同じIDで送り直す。依頼中はボタンを止める', () => {
   const src = extract('kcRequest');
