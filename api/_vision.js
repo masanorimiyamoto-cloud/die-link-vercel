@@ -4,18 +4,15 @@
 // parts: 順序付き配列。各要素は { text } または { image:{ mime, data(base64) } }。
 // 返り値: モデル出力テキストから抽出した JSON オブジェクト。
 //
-// ※ モデルIDはここの MODELS で一元管理。OpenAI の正式な公開IDが変わった場合は
-//   'gpt-6.1-sol' の id を実際のIDに直すだけでよい。
-//   2026-10-06 gpt-6-sol → gpt-6.1-sol（NAS の .env と揃えた）。古い画面やスマホに残った
-//   'gpt-6-sol' の指定も 6.1 で動くよう、キーだけ残して同じIDに向ける。
-
-const GPT_SOL = { provider: 'openai', id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' };
+// 古い画面が送る GPT Sol のモデルキーも、現在のモデルに読み替える。
+export const DEFAULT_MODEL = 'gpt-6.2-sol';
+const GPT_SOL = { provider: 'openai', id: DEFAULT_MODEL, label: 'GPT-6.2 Sol' };
 export const MODELS = {
-  'gpt-6.1-sol':   GPT_SOL,
-  'gpt-6-sol':     GPT_SOL,
+  [DEFAULT_MODEL]: GPT_SOL,
+  'gpt-6.1-sol': GPT_SOL,
+  'gpt-6-sol': GPT_SOL,
   'claude-sonnet-5': { provider: 'anthropic', id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
 };
-export const DEFAULT_MODEL = 'gpt-6.1-sol';
 
 export function resolveModel(key) {
   return MODELS[key] || MODELS[DEFAULT_MODEL];
@@ -93,7 +90,7 @@ async function callOpenAI(modelId, system, parts, maxTokens) {
   return msg;
 }
 
-// modelKey: クライアントから渡されたモデルキー（未知/未指定なら既定=GPT-6 Sol）
+// modelKey: クライアントから渡されたモデルキー（未知・未指定の場合は DEFAULT_MODEL）
 export async function callVisionJSON({ modelKey, system = '', parts = [], maxTokens = 1024 }) {
   const m = resolveModel(modelKey);
   const raw = m.provider === 'openai'
