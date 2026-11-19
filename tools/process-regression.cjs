@@ -1884,6 +1884,16 @@ test('FL4 生地照合は進行社内に 生地照合済 を書かずチェッ�
   assert.ok(pr.includes('const RESTORE_OUT = new Set();'));
   assert.ok(pr.includes("return m && RESTORE_OUT.has(m[1]) ? m[1] : '';"));
 });
+test('FL5 生地照合は進行社外にも書かない。生地照合のチェックを一覧で返し、カードに 生地照合済 の札を出す（2026-11-19）', () => {
+  const up = fs.readFileSync(path.join(__dirname, '..', 'api', 'airtable-update-progress.js'), 'utf8');
+  assert.ok(up.includes('const ACTION_PROGRESS_OUT_IF_EMPTY = {};'), 'fabric で進行社外に書かない');
+  const pr = fs.readFileSync(path.join(__dirname, '..', 'api', '_process.js'), 'utf8');
+  assert.ok(pr.includes("fabric: '生地照合'"));
+  assert.ok(pr.includes('F.caution, F.fabric,'), '一覧で 生地照合 を取る');
+  assert.ok(pr.includes('fabric: !!f[F.fabric]'));
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
+  assert.ok(html.includes("if (o.fabric) {") && html.includes('✓ 生地照合済'));
+});
 
 // ---- RV1 2026-11-15 レビュー（docs/review-2026-11-15.md）の4件を実際に動かして確かめる ----
 test('RV1-1 たおしの枠は品名のタグの工程だけ（K判の枠に M判を出さない）。両方あれば枠ごとに分ける', () => {

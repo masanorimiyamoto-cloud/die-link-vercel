@@ -173,7 +173,7 @@
     const amt = (t.namount != null && t.namount !== '') ? `${Number(t.namount).toLocaleString()}枚` : '数量なし';
     const nd  = t.ndate ? `納期${t.ndate.slice(5).replace('-','/')}` : '納期なし';
     const multi = j.candidates > 1 ? `／同品番の受注${j.candidates}件のうち1件` : '';
-    const head = t.alreadyDone ? '✅ 生地照合 完了（この受注は照合済）' : `✅ 生地照合 完了（進行社内 →「${j.status}」）`;
+    const head = t.alreadyDone ? '✅ 生地照合 完了（この受注は照合済）' : '✅ 生地照合 完了（生地照合 のチェックを入れました）'; // 2026-11-15 から進行社内、11-19 から進行社外にも書かない
     setBoxStatus(`${head}　${t.itemName}　${amt}　${nd}${multi}`, true);
   }
 

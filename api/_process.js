@@ -38,6 +38,7 @@ const F = {
   material: 'Material', paperSize: 'Paper_Size', cutSize: 'Cut_Size', packUnit: 'PackUnit', kname: 'Kname', preNdate: 'PreNdate', wscd: 'info_wscd', finalProcess: 'FinalProcess', updated: '更新時間',
   // 流れの整理（2026-11-15）: 材料・型・次の作業 は Airtable の数式、在庫シート・注意 は人が入れる欄
   mat: '材料', dieSt: '型', next: '次の作業', stock: '在庫シート', caution: '注意',
+  fabric: '生地照合', // checkbox。知る の生地照合が ON にする（2026-11-19 カードに「生地照合済」の札を出す）
 };
 
 // ---- Room（作業する部屋。複数選択）----
@@ -216,6 +217,7 @@ function describe(rec) {
     mat: String(f[F.mat] || ''), dieSt: String(f[F.dieSt] || ''), next: String(f[F.next] || ''),
     stock: !!f[F.stock] || String(f[F.progOut] || '') === '在庫シート利用',
     caution: Array.isArray(f[F.caution]) ? f[F.caution].map(String) : [],
+    fabric: !!f[F.fabric], // 生地照合（チェック）。以前は 進行社内＝生地照合済 で見えていたので札で出す（2026-11-19）
     // Add_from_Airtable が ON ＝ まだ Excel に入っていない（Airtable_Fetch.py が行を足すと OFF にする）。画面はこのときだけ削除ボタンを出す
     addPending: !!f[F.addPending],
     approved: !!f[F.approved], // 承認済（チェックボックス）
@@ -327,7 +329,7 @@ function imagesOf(f) {
 
 // 詳細画面の「仕様」に出す欄（2026-11-05）。画面の SPEC_LABEL と同じ並び
 const SPEC_KEYS = ['kname', 'material', 'paperSize', 'cutSize', 'packUnit', 'preNdate', 'wscd'];
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, F.updated, F.mat, F.dieSt, F.next, F.stock, F.caution, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, F.updated, F.mat, F.dieSt, F.next, F.stock, F.caution, F.fabric, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 // 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）
@@ -839,8 +841,8 @@ async function setRoom(body, user) {
 }
 
 // ---- 進行社外「在庫シート利用」「シート材料入荷済」（2026-10-23 / 10-29）----
-// 工程カードの「状況」から入れる。進行社外は伝票発行の判定に使うので、生地照合（airtable-update-progress.js の fabric）と
-// 同じく、空白か材料待ち（シート手配待ち／シート手配済み）のときだけ書く。受領伝票発行可能・伝票出力済・完納済・
+// 工程カードの「状況」から入れる。進行社外は伝票発行の判定に使うので、
+// 空白か材料待ち（シート手配待ち／シート手配済み）のときだけ書く（生地照合は 2026-11-19 から進行社外に書かない）。受領伝票発行可能・伝票出力済・完納済・
 // 納期変更 などは上書きしない（8/7 の事故の再発防止）。選択肢は既にあるので typecast は使わない。
 // on=false は取り消し: 進行社外がその値のままなら、入れる前の値（作業ログの「前の進行社外: ○○」）へ戻す
 // シート材料入荷済・機械貼材料入荷済（2026-10-29）は入荷を人が確かめた報告なので、作業ログを「状況報告」（実績対象）で残しインセンティブに数える。

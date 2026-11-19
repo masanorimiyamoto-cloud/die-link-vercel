@@ -270,6 +270,7 @@
   .pc.die.d-notyet{ background:#be185d; color:#fff; font-weight:600 }
   .pc.die.d-new{ background:rgba(59,130,246,.16); color:#bfdbfe }
   .pc.die.d-fix{ background:rgba(234,179,8,.15); color:#fde68a }
+  .pc.fabric{ background:rgba(37,99,235,.18); color:#bfdbfe }
   /* 見出しは Airtable の欄名のように小さく控えめに、下に細い線 */
   .steps{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
   .stephead, .roomhead{ grid-column:1/-1; font-size:12.5px; font-weight:600; letter-spacing:.08em; color:#93c5fd;
@@ -354,6 +355,7 @@
   :root[data-theme=light] .pc.die.d-notyet{ background:#db2777; color:#fff }
   :root[data-theme=light] .pc.die.d-new{ background:#dbeafe; color:#1e40af }
   :root[data-theme=light] .pc.die.d-fix{ background:#fef9c3; color:#854d0e }
+  :root[data-theme=light] .pc.fabric{ background:#dbeafe; color:#1e40af }
   :root[data-theme=light] .pc.room{ background:#fff; color:var(--txt) }
   :root[data-theme=light] .memo{ color:#92400e; background:#fffbeb; border-left-color:#f59e0b }
   :root[data-theme=light] .amt input[type=date]{ color-scheme:light }
@@ -1468,6 +1470,9 @@
     for (const v of die) {
       const c = document.createElement('span'); c.className = 'pc die ' + (DIE_CLASS[v] || ''); c.textContent = v; tags.append(c);
     }
+    // 生地照合（チェック）。以前は 進行社内＝生地照合済 で見えていた。2026-11-15 から進行社内に書かず、
+    // 2026-11-19 から進行社外にも書かないので、チェックを札で出す
+    if (o.fabric) { const c = document.createElement('span'); c.className = 'pc fabric'; c.textContent = '✓ 生地照合済'; tags.append(c); }
     // Room に入っている部屋のうち、普段の部屋（品名タグ）以外＝応援先を出す
     for (const r of (o.room || []).filter(r => !hasTag(o, roomTag(r)))) {
       const c = document.createElement('span'); c.className = 'pc room';
