@@ -385,7 +385,7 @@ test('N3 日時: タイムゾーン無しは日本時間、Z・オフセット�
 });
 test('N4 二重操作: 書き込み中は次の操作を始めない。結果不明の受注・開いていない受注には書かない', async () => {
   const env = { S: { sel: 'recA', unsure: null }, writing: 0, msgs: [], locks: 0,
-    $: () => ({}), say: (el, t) => env.msgs.push(t), applyLocks: () => { env.locks++; }, hideToast() {}, updateNav() {} };
+    $: () => ({}), say: (el, t) => env.msgs.push(t), applyLocks: () => { env.locks++; }, hideToast() {}, updateNav() {}, releaseInput() {} };
   vm.createContext(env);
   vm.runInContext('let op = null, listGen = 0, listBusy = 0, findGen = 0;\n' + extract('runOp') + '\nglobalThis.runOp = runOp; globalThis.opNow = () => op;', env);
   let release; let runs = 0;
@@ -433,7 +433,7 @@ test('N5 保存後: 一覧の読み直しに失敗しても complete は送り�
 function raceEnv() {
   const d = deferredApi();
   const e = listEnv(d.api);
-  Object.assign(e, { applyLocks() {}, hideToast() {}, updateNav() {} });
+  Object.assign(e, { applyLocks() {}, hideToast() {}, updateNav() {}, releaseInput() {} });
   vm.runInContext([
     'let op = null, findGen = 0;', line(/^  const current = .*$/m), extract('runOp'), extract('patch'),
     'globalThis.runOp = runOp; globalThis.patch = patch; globalThis.current = current;',
@@ -1893,6 +1893,28 @@ test('FL5 生地照合は進行社外にも書かない。生地照合のチェ�
   assert.ok(pr.includes('fabric: !!f[F.fabric]'));
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
   assert.ok(html.includes("if (o.fabric) {") && html.includes('✓ 生地照合済'));
+});
+test('FL6 保存の前後で入力欄を閉じ、作業リストでずれたページ全体を戻す（紙入荷日の保存で画面が固まった件 2026-11-19）', () => {
+  const blurred = [], scrolled = [];
+  const inStep = { tagName: 'INPUT', blur() { blurred.push('step'); } };
+  const outside = { tagName: 'INPUT', blur() { blurred.push('out'); } };
+  const env = {
+    document: { activeElement: inStep, body: { classList: { contains: (c) => c === 'has-head' } } },
+    window: { scrollX: 0, scrollY: 120, scrollTo: (x, y) => { scrolled.push([x, y]); env.window.scrollY = 0; } },
+    setTimeout: (f) => f(),
+  };
+  vm.createContext(env);
+  vm.runInContext(extract('releaseInput') + '\nglobalThis.releaseInput = releaseInput;', env);
+  const card = { contains: (el) => el === inStep };
+  env.releaseInput(card);
+  assert.deepEqual(blurred, ['step']); assert.deepEqual(scrolled, [[0, 0]]);
+  env.document.activeElement = outside; env.releaseInput(card);
+  assert.deepEqual(blurred, ['step'], '工程カードの外（検索欄など）は閉じない');
+  env.releaseInput(); assert.deepEqual(blurred, ['step', 'out'], '書き込みの開始では、どこの入力欄でも閉じる');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
+  assert.ok(html.includes("releaseInput($('stepCard'));"), 'renderSteps の描き直しの前');
+  assert.ok(/if \(S\.sel !== o\.id\) return;[^\n]*\n\s*releaseInput\(\);/.test(html), 'runOp の書き込みの前');
+  assert.ok(html.includes('updateNav(); releaseInput(); }'), 'runOp の終わり');
 });
 
 // ---- RV1 2026-11-15 レビュー（docs/review-2026-11-15.md）の4件を実際に動かして確かめる ----

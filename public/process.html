@@ -859,8 +859,21 @@
     if (op) { say($('stepMsg'), '前の操作を処理しています。終わるまでお待ちください', 'warn'); return; }
     if (!o || (S.unsure && S.unsure.id === o.id)) { applyLocks(); return; }
     if (S.sel !== o.id) return; // 開いている受注が変わっていたら送らない
+    releaseInput();
     op = { id: o.id }; writing++; listGen++; listBusy = 0; findGen++; hideToast(); applyLocks();
-    try { return await fn(); } finally { op = null; writing--; applyLocks(); updateNav(); }
+    try { return await fn(); } finally { op = null; writing--; applyLocks(); updateNav(); releaseInput(); }
+  }
+  // 入力欄（紙入荷日・納期のカレンダー、数量のキーボード）を閉じ、ずれたページ全体の位置を戻す（2026-11-19）。
+  // 作業リストではページ全体を止めて .wrap だけをスクロールさせている（body.has-head）。スマホはカレンダー・キーボードを
+  // 開くと入力欄を見せるためにページ全体をずらす。フォーカスを残したまま保存の描き直しで入力欄を消すと、ずれが戻らず、
+  // ページ全体はスクロールできないので、画面がタップもスクロールも受け付けないように固まっていた（紙入荷日の保存で発生）。
+  // within を渡すと、その中の入力欄だけを閉じる（描き直しの対象外の検索欄などで打っている途中のキーボードは閉じない）
+  function releaseInput(within) {
+    const a = document.activeElement;
+    if (a && a !== document.body && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && (!within || within.contains(a))) a.blur();
+    if (document.body.classList.contains('has-head') && (window.scrollX || window.scrollY)) window.scrollTo(0, 0);
+    // iOS はキーボードを閉じた後に遅れて位置を戻すことがあるので、少し後にもう一度だけ確かめる
+    setTimeout(() => { if (document.body.classList.contains('has-head') && (window.scrollX || window.scrollY)) window.scrollTo(0, 0); }, 300);
   }
   // 保存の結果を受注へ入れる。操作を始めたときの受注（o）と、今の一覧にある同じ ID の受注が別のもの（読み直しで置き換わった）なら両方へ
   function patch(o, fn) {
@@ -3371,6 +3384,7 @@ Excel と受注の記録（工程表印刷済・進行）は変えません。`)
 
   function renderSteps() {
     const o = current(); if (!o) return;
+    releaseInput($('stepCard')); // 描き直しで工程カードの入力欄（日付・数量）が消える前にキーボード／カレンダーを閉じる（2026-11-19）
     S.slCheck = null; // 数量・納期などを読み直したら発行の内容も確認し直す
     const v = detailView();
     const plan = primaryPlan(o, v);
