@@ -1814,7 +1814,7 @@ test('FL3 社外の流れは 材料（数式）→ 書類 → 注意。古いシ
     line(/^  const SHEET_WAIT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const OUT_MAT = .*$/m), line(/^  const OUT_MAT1 = .*$/m),
     line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const OUT_ARRIVED = .*$/m), line(/^  const MAT_OUTS = .*$/m),
     line(/^  const sheetWaiting = .*$/m), line(/^  const sheetOrdered = .*$/m),
-    ...['paperNote', 'outFlow', 'outFlowNew'].map(extract),
+    ...['paperNote', 'outFlow', 'matName', 'outFlowNew'].map(extract),
     'Object.assign(globalThis, { outFlowNew, sheetWaiting, sheetOrdered });',
   ].join('\n'), env);
   const lab = (o, view) => env.outFlowNew({ progOut: '', caution: [], kotei: '|オートン|', paper: '', ...o }, view).map(x => x.label + (x.arrived ? '✓' : '') + (x.alert ? '!' : '')).join(' → ');
@@ -1893,6 +1893,22 @@ test('FL5 生地照合は進行社外にも書かない。生地照合のチェ�
   assert.ok(pr.includes('fabric: !!f[F.fabric]'));
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
   assert.ok(html.includes("if (o.fabric) {") && html.includes('✓ 生地照合済'));
+});
+test('FL7 材料の札の名前: 進行社外のシート系の値が先、無ければシートのタグ（一覧に関係なく）。機械貼だけは 機械貼材料（2026-11-19）', () => {
+  const env = {};
+  vm.createContext(env);
+  vm.runInContext([line(/^  const OUT_MAT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const hasTag = .*$/m),
+    extract('matName'), 'globalThis.matName = matName;'].join('\n'), env);
+  const n = (o) => env.matName({ progOut: '', kotei: '', ...o });
+  assert.equal(n({ kotei: '|オートン|機械貼|', progOut: 'シート手配済み' }), 'シート', '進行社外 シート手配済み はシート');
+  assert.equal(n({ kotei: '|機械貼|', progOut: 'シート手配済み' }), 'シート', '進行社外が先');
+  assert.equal(n({ kotei: '|オートン|機械貼|' }), 'シート', '#o#ki は機械貼の一覧で見てもシート');
+  assert.equal(n({ kotei: '|たおしK判|' }), 'シート');
+  assert.equal(n({ kotei: '|機械貼|' }), '機械貼材料');
+  assert.equal(n({ kotei: '|Nao|' }), '機械貼材料');
+  assert.equal(n({ kotei: '|オートン|機械貼|', progOut: '機械貼材料入荷済' }), '機械貼材料');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
+  assert.ok(html.includes('const name = matName(o);'));
 });
 test('FL6 保存の前後で入力欄を閉じ、作業リストでずれたページ全体を戻す（紙入荷日の保存で画面が固まった件 2026-11-19）', () => {
   const blurred = [], scrolled = [];
