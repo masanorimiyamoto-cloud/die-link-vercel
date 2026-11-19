@@ -1826,7 +1826,7 @@ test('FL3 社外の流れは 材料（数式）→ 書類 → 注意。古いシ
   vm.runInContext([
     line(/^  const WD = .*$/m), line(/^  const todayJST = .*$/m), extract('daysFromToday'), line(/^  const hasTag = .*$/m),
     line(/^  const SHEET_WAIT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const OUT_MAT = .*$/m), line(/^  const OUT_MAT1 = .*$/m),
-    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const OUT_ARRIVED = .*$/m), line(/^  const MAT_OUTS = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m),
+    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const OUT_ARRIVED = .*$/m), line(/^  const MAT_OUTS = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m), line(/^  const isOmamori = .*$/m),
     line(/^  const sheetWaiting = .*$/m), line(/^  const sheetOrdered = .*$/m),
     ...['paperNote', 'outFlow', 'matName', 'outFlowNew'].map(extract),
     'Object.assign(globalThis, { outFlowNew, sheetWaiting, sheetOrdered });',
@@ -1911,7 +1911,7 @@ test('FL5 生地照合は進行社外にも書かない。生地照合のチェ�
 test('FL7 材料の札の名前: 進行社外のシート系の値が先、無ければシートのタグ（一覧に関係なく）。機械貼だけは 機械貼材料（2026-11-19）', () => {
   const env = {};
   vm.createContext(env);
-  vm.runInContext([line(/^  const OUT_MAT = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const hasTag = .*$/m),
+  vm.runInContext([line(/^  const OUT_MAT = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m), line(/^  const isOmamori = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const hasTag = .*$/m),
     extract('matName'), 'globalThis.matName = matName;'].join('\n'), env);
   const n = (o) => env.matName({ progOut: '', kotei: '', ...o });
   assert.equal(n({ kotei: '|オートン|機械貼|', progOut: 'シート手配済み' }), 'シート', '進行社外 シート手配済み はシート');
@@ -1926,6 +1926,11 @@ test('FL7 材料の札の名前: 進行社外のシート系の値が先、無�
   assert.equal(n({ kotei: '|オートン|機械貼|', progOut: 'シート材料入荷済', fabric: true }), 'シート', '#o#ki の旧受注はシート');
   assert.equal(n({ kotei: '|機械貼|', progOut: 'シート材料入荷済' }), 'シート', '生地照合なしで人が入れた シート材料入荷済 は今までどおり');
   assert.equal(n({ kotei: '|機械貼|', progOut: 'シート手配済み', fabric: true }), 'シート', 'シート手配の値は生地照合があっても見る');
+  // お守り（品名の先頭）は 生地（2026-11-19）
+  assert.equal(n({ item: 'お守り 赤 #ki', kotei: '|機械貼|' }), '生地');
+  assert.equal(n({ item: 'お守り 赤 #ki', kotei: '|機械貼|', progOut: '機械貼材料入荷済' }), '生地');
+  assert.equal(n({ item: ' お守り', kotei: '' }), '生地', '先頭の空白・全角は NFKC で揃える');
+  assert.equal(n({ item: '箱 お守り用 #ki', kotei: '|機械貼|' }), '機械貼材料', '先頭でなければ今までどおり');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
   assert.ok(html.includes('const name = matName(o);'));
 });
@@ -1935,7 +1940,7 @@ test('FL8 旧版の生地照合が書いた シート材料入荷済: #ki だけ
   vm.runInContext([
     line(/^  const WD = .*$/m), line(/^  const todayJST = .*$/m), extract('daysFromToday'), line(/^  const hasTag = .*$/m),
     line(/^  const SHEET_TAGS = .*$/m), line(/^  const OUT_MAT = .*$/m), line(/^  const OUT_MAT1 = .*$/m),
-    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const MAT_OUTS = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m),
+    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const MAT_OUTS = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m), line(/^  const isOmamori = .*$/m),
     ...['paperNote', 'outFlow', 'matName', 'outFlowNew'].map(extract),
     'Object.assign(globalThis, { outFlowNew });',
   ].join('\n'), env);
@@ -1944,6 +1949,7 @@ test('FL8 旧版の生地照合が書いた シート材料入荷済: #ki だけ
   for (const view of ['recent', 'ki', 'sheet', 'o', 'all']) {
     assert.equal(lab({ kotei: '|機械貼|', item: 'X #ki' }, view), '機械貼材料 入荷済✓', '#ki だけ: ' + view);
     assert.equal(lab({ kotei: '|オートン|機械貼|', item: 'X #o#ki' }, view), 'シート 入荷済✓', '#o#ki: ' + view);
+    assert.equal(lab({ kotei: '|機械貼|', item: 'お守り 赤 #ki', progOut: '' }, view), '生地 入荷済✓', 'お守り: ' + view);
   }
 });
 test('FL6 保存の前後で入力欄を閉じ、作業リストでずれたページ全体を戻す（紙入荷日の保存で画面が固まった件 2026-11-19）', () => {
@@ -2032,11 +2038,14 @@ test('RV1-4 機械貼だけの受注は 材料=入荷済 で着手可。前の�
   const env = { S: { steps: ST6, views, rooms: [] } };
   vm.createContext(env);
   vm.runInContext([line(/^  const ITEM_TAG = \{[^]*?\};.*$/m), line(/^  const VIEW_TAG = .*$/m), line(/^  const hasMine = .*$/m), line(/^  const hasTag = .*$/m),
-    line(/^  const SHEET_TAGS = .*$/m), ...['itemTagInfo', 'itemTags', 'doneSteps', 'mineDone', 'viewTags', 'tagDone', 'mineReady'].map(extract),
+    line(/^  const SHEET_TAGS = .*$/m), line(/^  const isOmamori = .*$/m), ...['itemTagInfo', 'itemTags', 'doneSteps', 'mineDone', 'viewTags', 'tagDone', 'mineReady'].map(extract),
     'globalThis.mineReady = mineReady;'].join('\n'), env);
   const kv = views.find(v => v.key === 'kikai');
   assert.equal(env.mineReady(ord({ item: 'X #ki', kotei: '|機械貼|', mat: '入荷済' }), kv)?.label, '機械貼材料 入荷済');
   assert.equal(env.mineReady(ord({ item: 'X #ki', kotei: '|機械貼|', mat: '手配済み 11/20' }), kv), null);
+  // お守り（品名の先頭）は貼の作業が無いので 生地 入荷済（2026-11-19）
+  assert.equal(env.mineReady(ord({ item: 'お守り 赤 #ki', kotei: '|機械貼|', mat: '入荷済' }), kv)?.label, '生地 入荷済');
+  assert.equal(env.mineReady(ord({ item: 'お守り 赤 #ki', kotei: '|機械貼|', progOut: '機械貼材料入荷済' }), kv)?.label, '生地 入荷済');
   assert.equal(env.mineReady(ord({ item: 'X #o#ki', kotei: '|オートン|機械貼|', mat: '入荷済' }), kv), null, 'オートンが済むまでは着手可にしない');
   const av = views.find(v => v.key === 'auton');
   assert.equal(env.mineReady(ord({ item: 'X #o', kotei: '|オートン|', mat: '入荷済' }), av)?.label, 'シート入荷済');
