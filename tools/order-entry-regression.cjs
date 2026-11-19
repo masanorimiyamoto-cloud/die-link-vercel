@@ -124,6 +124,7 @@ function pageWorld(api, sharedStore = new Map(), user = who.user) {
     document: { createElement: tag => new Element(tag) }, store: { get: k => sharedStore.get(k), set: (k, v) => sharedStore.set(k, v) },
     api, say: (el, text, cls = '') => { el.textContent = text; el.className = 'msg ' + cls; },
     approveCtl: () => new Element(), hideToast() {}, updateNav() {}, scrollToCard() {},
+    releaseInput() {}, // runOp が保存の前後で入力欄を閉じる（2026-11-19）。中身は process-regression の FL6 で確かめる
     itemShort: o => o.item, navigator: { vibrate() {} }, WD: ['日', '月', '火', '水', '木', '金', '土'],
     current: () => ctx.S.orders.find(o => o.id === ctx.S.sel), detailOpen: () => false,
     confirm: () => true,

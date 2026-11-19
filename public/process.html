@@ -1321,8 +1321,12 @@
   // 材料の札の名前（2026-11-19 ユーザー指定）。進行社外にシート系の値（シート手配済み など）があれば「シート」、
   // 機械貼材料入荷済 なら「機械貼材料」。どちらも無ければ品名のタグで、シートのタグ（#o・#tk・#tm）があれば
   // どの一覧で見ても「シート」（以前は機械貼の一覧だと #o#ki でも「機械貼材料 手配済み」と出ていた）
+  // ただし 生地照合 のチェックがある受注の シート材料入荷済 は見ない（2026-11-19）。2026-11-19 より前の生地照合は、
+  // 進行社外が空白なら品名のタグを見ずに シート材料入荷済 を自動で書いていたため、#ki だけの受注にも入っている。
+  // その値は人が決めたシートの印ではないので、品名のタグで決める（#ki だけ → 機械貼材料、#o#ki → シート）
+  const OLD_FABRIC_OUT = 'シート材料入荷済';
   function matName(o) {
-    if (OUT_MAT.includes(o.progOut)) return 'シート';
+    if (OUT_MAT.includes(o.progOut) && !(o.fabric && o.progOut === OLD_FABRIC_OUT)) return 'シート';
     if (o.progOut === '機械貼材料入荷済') return '機械貼材料';
     return SHEET_TAGS.some(t => hasTag(o, t)) ? 'シート' : '機械貼材料';
   }
@@ -1918,6 +1922,9 @@
     ['工程', o => Object.keys(o.done || {}).sort().map(k => k + '=' + o.done[k]).join('|')],
     ['数量', o => o.amount], ['納期', o => o.ndate], ['紙入荷日', o => o.paper], ['連絡事項', o => o.memo],
     ['Room', o => (o.room || []).join('|')], ['抜型', o => (o.die || []).join('|')], ['工程表', o => o.printedAt],
+    // 生地照合のチェック（2026-11-19）。生地照合は進行社外・進行社内に書かないので、この欄が無いと変化に出ない。
+    // 欄は必ず末尾に足す（前の版が保存した指紋は短いので、無い欄は比べない＝足しただけで全カードが「変化」にならない）
+    ['生地照合', o => o.fabric ? '1' : ''],
   ];
   const seen = {
     base: null, marks: new Map(), touched: new Set(), chgOnly: false,
@@ -1938,7 +1945,9 @@
         if (!was) { seen.marks.set(o.id, { isNew: true, fields: [] }); continue; }
         if (was === now[o.id]) continue;
         const a = was.split('.'), b = now[o.id].split('.');
-        const fields = SEEN_FIELDS.filter((_, i) => a[i] !== b[i]).map(([n]) => n);
+        // 前の版の指紋に無い欄（後から足した欄）は比べない
+        const fields = SEEN_FIELDS.filter((_, i) => i < a.length && a[i] !== b[i]).map(([n]) => n);
+        if (!fields.length && a.length < b.length) continue;
         seen.marks.set(o.id, { isNew: false, fields: fields.length ? fields : ['内容'] });
       }
       if (!seen.marks.size) seen.chgOnly = false;

@@ -1576,6 +1576,20 @@ test('RC1 Recent 1day は前回この端末で見た姿と比べて 新・変化
   seen.update([A2, B3, C]);
   assert.equal(seen.marks.get('recB').fields.join(), '連絡事項', '他の人の変化はその後も付く');
   // 戻り直すと、最後に出した姿が基準になり印は消える
+  seen.leave(); seen.update([A2, B3, C]);
+  // 生地照合のチェックだけが OFF → ON になったら「変化: 生地照合」
+  seen.leave(); seen.update([A2, { ...B3, fabric: true }, C]);
+  assert.deepEqual([...seen.marks.keys()], ['recB']);
+  assert.equal(JSON.stringify(seen.marks.get('recB')), JSON.stringify({ isNew: false, fields: ['生地照合'] }));
+  // 生地照合の欄が無い前の版の指紋（欄が1つ少ない）とは、ある欄だけ比べる（足しただけで全カードを変化にしない）
+  const saved = JSON.parse(mem['dl.seen.recent']);
+  for (const id of Object.keys(saved.rows)) saved.rows[id] = saved.rows[id].split('.').slice(0, -1).join('.');
+  mem['dl.seen.recent'] = JSON.stringify(saved);
+  seen.leave(); seen.update([A2, { ...B3, fabric: true }, C]); assert.equal(seen.marks.size, 0, '前の版の指紋: 印なし');
+  const oldFp = JSON.parse(mem['dl.seen.recent']); oldFp.rows.recA = oldFp.rows.recA.split('.').slice(0, -1).join('.'); mem['dl.seen.recent'] = JSON.stringify(oldFp);
+  seen.leave(); seen.update([{ ...A2, memo: '変更' }, { ...B3, fabric: true }, C]);
+  assert.equal(seen.marks.get('recA').fields.join(), '連絡事項', '前の版の指紋でも、ある欄の変化は出る');
+  seen.leave(); seen.update([A2, B3, C]); // 基準を元の姿に戻す
   seen.leave(); seen.update([A2, B3, C]); assert.equal(seen.marks.size, 0);
   // 保存が壊れていても止まらず、基準なしとして扱う
   mem['dl.seen.recent'] = '{壊れた'; seen.leave(); seen.update([A2]); assert.equal(seen.marks.size, 0);
@@ -1812,7 +1826,7 @@ test('FL3 社外の流れは 材料（数式）→ 書類 → 注意。古いシ
   vm.runInContext([
     line(/^  const WD = .*$/m), line(/^  const todayJST = .*$/m), extract('daysFromToday'), line(/^  const hasTag = .*$/m),
     line(/^  const SHEET_WAIT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const OUT_MAT = .*$/m), line(/^  const OUT_MAT1 = .*$/m),
-    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const OUT_ARRIVED = .*$/m), line(/^  const MAT_OUTS = .*$/m),
+    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const OUT_ARRIVED = .*$/m), line(/^  const MAT_OUTS = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m),
     line(/^  const sheetWaiting = .*$/m), line(/^  const sheetOrdered = .*$/m),
     ...['paperNote', 'outFlow', 'matName', 'outFlowNew'].map(extract),
     'Object.assign(globalThis, { outFlowNew, sheetWaiting, sheetOrdered });',
@@ -1897,7 +1911,7 @@ test('FL5 生地照合は進行社外にも書かない。生地照合のチェ�
 test('FL7 材料の札の名前: 進行社外のシート系の値が先、無ければシートのタグ（一覧に関係なく）。機械貼だけは 機械貼材料（2026-11-19）', () => {
   const env = {};
   vm.createContext(env);
-  vm.runInContext([line(/^  const OUT_MAT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const hasTag = .*$/m),
+  vm.runInContext([line(/^  const OUT_MAT = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m), line(/^  const SHEET_TAGS = .*$/m), line(/^  const hasTag = .*$/m),
     extract('matName'), 'globalThis.matName = matName;'].join('\n'), env);
   const n = (o) => env.matName({ progOut: '', kotei: '', ...o });
   assert.equal(n({ kotei: '|オートン|機械貼|', progOut: 'シート手配済み' }), 'シート', '進行社外 シート手配済み はシート');
@@ -1907,8 +1921,30 @@ test('FL7 材料の札の名前: 進行社外のシート系の値が先、無�
   assert.equal(n({ kotei: '|機械貼|' }), '機械貼材料');
   assert.equal(n({ kotei: '|Nao|' }), '機械貼材料');
   assert.equal(n({ kotei: '|オートン|機械貼|', progOut: '機械貼材料入荷済' }), '機械貼材料');
+  // 旧版の生地照合が自動で書いた シート材料入荷済（生地照合のチェックあり）は見ず、品名のタグで決める
+  assert.equal(n({ kotei: '|機械貼|', progOut: 'シート材料入荷済', fabric: true }), '機械貼材料', '#ki だけの旧受注は 機械貼材料');
+  assert.equal(n({ kotei: '|オートン|機械貼|', progOut: 'シート材料入荷済', fabric: true }), 'シート', '#o#ki の旧受注はシート');
+  assert.equal(n({ kotei: '|機械貼|', progOut: 'シート材料入荷済' }), 'シート', '生地照合なしで人が入れた シート材料入荷済 は今までどおり');
+  assert.equal(n({ kotei: '|機械貼|', progOut: 'シート手配済み', fabric: true }), 'シート', 'シート手配の値は生地照合があっても見る');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'process.html'), 'utf8');
   assert.ok(html.includes('const name = matName(o);'));
+});
+test('FL8 旧版の生地照合が書いた シート材料入荷済: #ki だけは 機械貼材料 入荷済、#o#ki はどの一覧でも シート 入荷済（2026-11-19）', () => {
+  const env = { S: { steps: ST6, views: V6, rooms: [] } };
+  vm.createContext(env);
+  vm.runInContext([
+    line(/^  const WD = .*$/m), line(/^  const todayJST = .*$/m), extract('daysFromToday'), line(/^  const hasTag = .*$/m),
+    line(/^  const SHEET_TAGS = .*$/m), line(/^  const OUT_MAT = .*$/m), line(/^  const OUT_MAT1 = .*$/m),
+    line(/^  const OUT_SLIP = .*$/m), line(/^  const OUT_END = .*$/m), line(/^  const MAT_OUTS = .*$/m), line(/^  const OLD_FABRIC_OUT = .*$/m),
+    ...['paperNote', 'outFlow', 'matName', 'outFlowNew'].map(extract),
+    'Object.assign(globalThis, { outFlowNew });',
+  ].join('\n'), env);
+  const lab = (o, view) => env.outFlowNew({ caution: [], paper: '2000-01-01', mat: '入荷済', progOut: 'シート材料入荷済', fabric: true, ...o }, view)
+    .map(x => x.label + (x.arrived ? '✓' : '')).join(' → ');
+  for (const view of ['recent', 'ki', 'sheet', 'o', 'all']) {
+    assert.equal(lab({ kotei: '|機械貼|', item: 'X #ki' }, view), '機械貼材料 入荷済✓', '#ki だけ: ' + view);
+    assert.equal(lab({ kotei: '|オートン|機械貼|', item: 'X #o#ki' }, view), 'シート 入荷済✓', '#o#ki: ' + view);
+  }
 });
 test('FL6 保存の前後で入力欄を閉じ、作業リストでずれたページ全体を戻す（紙入荷日の保存で画面が固まった件 2026-11-19）', () => {
   const blurred = [], scrolled = [];
