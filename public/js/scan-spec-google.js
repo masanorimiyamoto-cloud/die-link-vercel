@@ -1804,7 +1804,7 @@
     D.boxPanel.style.display = 'none';
     D.fsBar.classList.add('show');
     hideVerdict();
-    if(!S.fsData) D.fsResult.innerHTML = '<div class="msg-empty">品番が分からない生地を撮影すると、その生地を使う品番の候補が出ます</div>';
+    if(!S.fsData) D.fsResult.innerHTML = '<div class="msg-empty">品番が分からない生地を撮影すると、その生地を使う品番の候補が出ます</div>' + FS_INDEX_BTN;
     await ensureLiveCam();
     setStatus('生地を撮影', true);
   }
@@ -1855,7 +1855,10 @@
     }
   }
   // 索引（受注の画像から自動で作る見本）の進み具合の一行と「索引を進める」ボタン
+  // 索引は毎晩の自動実行を外したので（トークン節約）、撮影前からいつでも押せるようにする
+  const FS_INDEX_BTN = '<div class="fs-actions"><button class="btn btn-sub" type="button" data-fs="index">⏩ 索引を進める（受注の新しい画像を見本に取り込む）</button></div>';
   function fsIndexNote(ix){
+    if(ix && !ix.total) return `<div class="fs-note">見本の索引がまだありません。「索引を進める」で受注の画像から作ってください。${FS_INDEX_BTN}</div>`;
     if(!ix || !ix.pending) return '';
     return `<div class="fs-note">⏳ 見本の索引を作成中です（受注の画像 ${ix.total} 枚のうち、まだ見ていない画像 ${ix.pending} 枚）。まだ見ていない画像は探していません。`
       + `<div class="fs-actions"><button class="btn btn-sub" type="button" data-fs="index">⏩ 索引を進める</button></div></div>`;
@@ -1902,7 +1905,7 @@
       return fsMsg('ng', j.retry ? '照合に失敗しました（もう一度お試しください）' : '探せませんでした', `${esc(j.error || '不明なエラー')}<br>もう一度撮影してください。続くときは品番を入力して照会してください。` + fsIndexNote(j.index));
     }
     if(j.reason === 'indexing') return fsMsg('warn', '見本の索引を準備中です', '受注に登録してある図面・写真から、生地の見本を自動で作っています。「索引を進める」を押すか、しばらく待ってから撮影してください。' + fsIndexNote(j.index), false);
-    if(j.reason === 'noSamples') return fsMsg('warn', '見本にできる画像がありません', '受注の画像に生地の写っているものがありませんでした。品番が分かる場合は Book と WC を入力して照会してください。', false);
+    if(j.reason === 'noSamples') return fsMsg('warn', '見本にできる画像がありません', '受注の画像に生地の写っているものがありませんでした。品番が分かる場合は Book と WC を入力して照会してください。' + (fsIndexNote(j.index) || FS_INDEX_BTN), false);
     if(j.reason === 'quality') return fsMsg('warn', FS_QUALITY[j.quality] || '写真の状態で判断できませんでした', `${esc(j.advice || '生地を真上から、画面いっぱいに、明るい所で撮り直してください。')}`);
     const items = j.items || [], similar = j.similar || [];
     const partialNote = j.partial ? `<div class="fs-note">⚠ 一部未照合: 見本 ${j.notCompared} 件は画像を読めないか AI が答えなかったため見比べていません。違うと思ったら撮り直してください。</div>` : '';
