@@ -190,6 +190,8 @@ async function airtableWrite(method, table, items) {
 
 /* ---------- 索引の取り込み（action=index） ---------- */
 const IDX_FIELDS = Object.values(IX);
+// 索引の仕分け（生地あり/線画・範囲・色・柄）に使うモデル。安い Haiku（トークン節約）。FABRIC_INDEX_MODEL で替えられる
+const INDEX_MODEL = process.env.FABRIC_INDEX_MODEL || 'claude-haiku-5-5';
 // 1回分: 受注の画像と索引を合わせ（追加・差し替え・削除）、未判定の画像を limit 枚まで AI に見せて書く
 async function indexStep(payload, limit = 16) {
   const juchu = await airtableList(JUCHU_TABLE, { filterByFormula: 'NOT({画像}=BLANK())', fields: [JU.book, JU.wc, JU.image] });
@@ -218,7 +220,9 @@ async function indexStep(payload, limit = 16) {
     const { parts, labels } = buildClassifyParts(b, imgs);
     if (!labels.size) return;
     try {
-      const v = await callVisionJSON({ modelKey: payload?.model, parts, maxTokens: 2048 });
+      // 仕分けは安いモデルで。失敗（鍵が無い等）したらこの組だけ画面のモデルでやり直す
+      const v = await callVisionJSON({ modelKey: INDEX_MODEL, parts, maxTokens: 2048 })
+        .catch(() => callVisionJSON({ modelKey: payload?.model, parts, maxTokens: 2048 }));
       for (const [id, f] of parseClassify(v, labels)) writes.set(id, f);
     } catch { /* この組は失敗のまま（下で 失敗・試行回数+1） */ }
   }));

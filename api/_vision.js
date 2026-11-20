@@ -12,6 +12,8 @@ export const MODELS = {
   'gpt-6.1-sol': GPT_SOL,
   'gpt-6-sol': GPT_SOL,
   'claude-sonnet-5': { provider: 'anthropic', id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+  // 安いモデル（生地の索引の仕分け用。画面のモデル選択には出さない）
+  'claude-haiku-5-5': { provider: 'anthropic', id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', effort: 'low' },
 };
 
 export function resolveModel(key) {
@@ -28,7 +30,7 @@ function extractJson(raw) {
   }
 }
 
-async function callAnthropic(modelId, system, parts, maxTokens) {
+async function callAnthropic(modelId, system, parts, maxTokens, effort = 'medium') {
   const apiKey = process.env.ANTHROPIC_API_KEY || '';
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is missing');
   const content = parts.map(p =>
@@ -44,7 +46,7 @@ async function callAnthropic(modelId, system, parts, maxTokens) {
     thinking: { type: 'adaptive' },
     // 生地の織り目など微妙な差で low だと見が浅くなるため medium。
     // 速度・コスト優先なら 'low' に戻してよい。
-    output_config: { effort: 'medium' },
+    output_config: { effort },
     messages: [{ role: 'user', content }],
   };
   if (system) body.system = system;
@@ -95,6 +97,6 @@ export async function callVisionJSON({ modelKey, system = '', parts = [], maxTok
   const m = resolveModel(modelKey);
   const raw = m.provider === 'openai'
     ? await callOpenAI(m.id, system, parts, maxTokens)
-    : await callAnthropic(m.id, system, parts, maxTokens);
+    : await callAnthropic(m.id, system, parts, maxTokens, m.effort);
   return extractJson(raw);
 }

@@ -2337,6 +2337,16 @@ function fakeWorld(f, { juchu, index, ledger = [], brokenImages = [], ai }) {
       const text = content.filter(c => c.type === 'text').map(c => c.text).join('\n');
       return ok({ choices: [{ message: { content: JSON.stringify(ai(text, seq)) } }] });
     }
+    if (u.host === 'api.anthropic.com') {
+      const content = JSON.parse(init.body).messages[0].content;
+      const seq = []; let label = '';
+      for (const c of content) {
+        if (c.type === 'text') { const mm = /【(?:見本 )?([SI]\d+)】/.exec(c.text); label = mm ? mm[1] : (/撮影/.test(c.text) ? 'CAP' : label); }
+        else seq.push({ label, img: Buffer.from(c.source.data, 'base64').toString() });
+      }
+      const text = content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+      return ok({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(ai(text, seq)) }] });
+    }
     if (u.host === 'api.airtable.com') {
       if (u.pathname.includes(f.JUCHU_TABLE)) {
         const formula = u.searchParams.get('filterByFormula') || '';
@@ -2438,7 +2448,25 @@ test('FS3 索引を進める: 受注の画像を取り込み（重ねない）�
     assert.equal(by(1)[f.IX.state], '失敗'); assert.equal(by(1)[f.IX.tries], 1);
     assert.deepEqual(j.status, { total: 3, ready: 2, fabric: 1, pending: 1, failed: 0 });
     assert.ok(!world.calls.some(c => c.u.pathname.includes(f.JUCHU_TABLE) && c.method !== 'GET'), '受注には書かない');
+    assert.ok(world.calls.some(c => c.u.host === 'api.openai.com'), 'Anthropic の鍵が無ければ画面のモデルでやり直す');
   } finally { global.fetch = prevFetch; }
+});
+
+test('FS4 索引の仕分けは安い Claude Haiku 5.5（effort low）で行い、画面のモデルは使わない', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN'; process.env.OPENAI_API_KEY = 'TEST_ONLY_NOT_A_KEY'; process.env.ANTHROPIC_API_KEY = 'TEST_ONLY_NOT_A_KEY';
+  const f = await fabricMod();
+  const juchu = [{ id: 'recA0000000000001', createdTime: '2026-11-01T00:00:00Z', fields: { [f.JU.book]: 'Ta', [f.JU.wc]: 3688, [f.JU.image]: [att('attA', 'Ta-3688-zu.jpg', 9, 'https://img/Ta-3688')] } }];
+  const index = [];
+  const world = fakeWorld(f, { juchu, index, ai: (text, seq) => ({ images: seq.map(s => ({ id: s.label, kind: 'fabric', region: [0, 0, 1, 1], colors: ['赤'], pattern: '和柄', desc: '赤' })) }) });
+  const prevFetch = global.fetch; global.fetch = world.fetch;
+  try {
+    const { j } = await mmPost({ action: 'index' });
+    assert.equal(j.ok, true, JSON.stringify(j));
+    const ai = world.calls.filter(c => c.u.host === 'api.anthropic.com' || c.u.host === 'api.openai.com');
+    assert.equal(ai.length, 1); assert.equal(ai[0].u.host, 'api.anthropic.com');
+    assert.equal(ai[0].body.model, 'claude-haiku-5-5'); assert.equal(ai[0].body.output_config.effort, 'low');
+    assert.equal(index[0].fields[f.IX.kind], '生地あり');
+  } finally { global.fetch = prevFetch; delete process.env.ANTHROPIC_API_KEY; }
 });
 
 (async () => {
