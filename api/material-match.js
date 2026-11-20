@@ -1,10 +1,15 @@
 // api/material-match.js
 // 目の前の生地（カメラ撮影）と、Google Drive登録済みの参照画像をAIビジョンで照合する。
-// action=search（2026-11-18）: 品番を指定せず、撮影した生地に似た見本を生地の台帳（TableFabric）から探し、
-// その生地を使う品番を全部返す（「知る」の 🔎 生地から探す）。決まりは _fabric.js
+// action=search（2026-11-18 作り替え）: 品番を指定せず、撮影した生地に似た見本を受注の画像から作った索引（TableFabricIndex）と
+// 生地の台帳（TableFabric）から探し、その生地を使う品番を全部返す（「知る」の 🔎 生地から品番を探す）。
+// action=index: 受注の画像を索引に取り込み、AI で生地の有無・範囲・色・柄を書く（画面の「索引を進める」で進める。毎晩の Cron はトークン節約のため外した）。決まりは _fabric.js
 import { callVisionJSON, resolveModel } from './_vision.js';
 import { requireUser } from './_auth.js';
-import { FABRIC_TABLE, FB, toFabric, planBatches, buildParts, mergeResults, lookupItems, itemRows } from './_fabric.js';
+import {
+  FABRIC_TABLE, FB, IDX_TABLE, IX, JUCHU_TABLE, JU, CLASSIFY_BATCH, SEARCH_POOL, toFabric, collectImages, planSync, newIndexFields, pendingRows, indexStatus,
+  buildClassifyParts, parseClassify, DESCRIBE_PROMPT, parseDescribe, prefilter, indexSample, fabricSample, planBatches, buildSearchParts,
+  mergeResults, buildAnswer, lookupItems, itemRows,
+} from './_fabric.js';
 export const config = { runtime: 'edge' };
 
 function json(body, status = 200) {
@@ -165,39 +170,139 @@ async function fetchUrlAsBase64(url) {
   return { mime, data: bytesToBase64(new Uint8Array(await r.arrayBuffer())) };
 }
 
+// Airtable に書く（10行ずつ）。method: POST=作る / PATCH=直す / DELETE=消す
+async function airtableWrite(method, table, items) {
+  const out = [];
+  for (let i = 0; i < items.length; i += 10) {
+    const chunk = items.slice(i, i + 10);
+    let url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${table}`, body;
+    if (method === 'DELETE') url += '?' + chunk.map(id => 'records[]=' + encodeURIComponent(id)).join('&');
+    else body = JSON.stringify({ records: chunk, typecast: true });
+    for (let attempt = 1; ; attempt++) {
+      const r = await fetch(url, { method, headers: { Authorization: `Bearer ${AIRTABLE_PAT}`, 'content-type': 'application/json' }, body, cache: 'no-store' });
+      if (r.ok) { out.push(...((await r.json()).records || [])); break; }
+      if ((r.status !== 429 && r.status < 500) || attempt >= 4) throw new Error(`airtable ${method} ${r.status} ${(await r.text()).slice(0, 200)}`);
+      await new Promise(res => setTimeout(res, 400 * attempt));
+    }
+  }
+  return out;
+}
+
+/* ---------- 索引の取り込み（action=index） ---------- */
+const IDX_FIELDS = Object.values(IX);
+// 1回分: 受注の画像と索引を合わせ（追加・差し替え・削除）、未判定の画像を limit 枚まで AI に見せて書く
+async function indexStep(payload, limit = 16) {
+  const juchu = await airtableList(JUCHU_TABLE, { filterByFormula: 'NOT({画像}=BLANK())', fields: [JU.book, JU.wc, JU.image] });
+  const images = collectImages(juchu);
+  let rows = await airtableList(IDX_TABLE, { fields: IDX_FIELDS });
+  const plan = planSync(images, rows);
+  if (plan.remove.length) await airtableWrite('DELETE', IDX_TABLE, plan.remove);
+  if (plan.update.length) await airtableWrite('PATCH', IDX_TABLE, plan.update);
+  const made = plan.create.length ? await airtableWrite('POST', IDX_TABLE, plan.create.map(img => ({ fields: newIndexFields(img) }))) : [];
+  const gone = new Set(plan.remove);
+  const upd = new Map(plan.update.map(u => [u.id, u.fields]));
+  rows = [...rows.filter(r => !gone.has(r.id)).map(r => upd.has(r.id) ? { ...r, fields: { ...r.fields, ...upd.get(r.id) } } : r), ...made];
+
+  // 画像は今読んだ受注の URL で取る（期限切れにならない）
+  const byKey = new Map([...images.values()].map(img => [img.key, img]));
+  const todo = pendingRows(rows).slice(0, limit);
+  const imgs = new Map(); let unread = 0;
+  await Promise.all(todo.map(r => {
+    const img = byKey.get(r.fields?.[IX.key]);
+    return img ? fetchUrlAsBase64(img.url).then(v => imgs.set(r.id, v)).catch(() => { unread++; }) : (unread++, null);
+  }));
+  const writes = new Map();
+  const batches = [];
+  for (let i = 0; i < todo.length; i += CLASSIFY_BATCH) batches.push(todo.slice(i, i + CLASSIFY_BATCH));
+  await Promise.all(batches.map(async (b) => {
+    const { parts, labels } = buildClassifyParts(b, imgs);
+    if (!labels.size) return;
+    try {
+      const v = await callVisionJSON({ modelKey: payload?.model, parts, maxTokens: 2048 });
+      for (const [id, f] of parseClassify(v, labels)) writes.set(id, f);
+    } catch { /* この組は失敗のまま（下で 失敗・試行回数+1） */ }
+  }));
+  const now = new Date().toISOString();
+  const patch = todo.map(r => ({ id: r.id, fields: { ...(writes.get(r.id) || { [IX.state]: '失敗' }), [IX.tries]: Number(r.fields?.[IX.tries] || 0) + 1, [IX.at]: now } }));
+  if (patch.length) await airtableWrite('PATCH', IDX_TABLE, patch);
+  const pm = new Map(patch.map(p => [p.id, p.fields]));
+  rows = rows.map(r => pm.has(r.id) ? { ...r, fields: { ...r.fields, ...pm.get(r.id), [IX.state]: pm.get(r.id)[IX.state] } } : r);
+  return { created: made.length, updated: plan.update.length, removed: plan.remove.length, classified: writes.size, failed: todo.length - writes.size, unread,
+    images: images.size, status: indexStatus(rows) };
+}
+// Cron: 時間の許す限り繰り返す（最初の応答は空白で返し始めているので、Edge の25秒には当たらない）
+async function indexRun(payload, budgetMs) {
+  const t0 = Date.now(); let last, steps = 0;
+  do { last = await indexStep(payload, 16); steps++; } while (last.status.pending > 0 && last.classified + last.failed > 0 && Date.now() - t0 < budgetMs);
+  return { ok: true, steps, ...last };
+}
+
+/* ---------- 検索（action=search） ---------- */
+// 索引の見本の画像を、受注から今の URL で取る（受注RecordID＋添付ID → 大きめのサムネイル）
+async function resolveIndexPhotos(samples) {
+  const recs = [...new Set(samples.map(s => s.rec).filter(id => /^rec[A-Za-z0-9]{14}$/.test(id || '')))];
+  const urlByAtt = new Map();
+  for (let i = 0; i < recs.length; i += 40) {
+    const f = 'OR(' + recs.slice(i, i + 40).map(id => `RECORD_ID()='${id}'`).join(',') + ')';
+    for (const r of await airtableList(JUCHU_TABLE, { filterByFormula: f, fields: [JU.image] })) {
+      for (const a of r.fields?.[JU.image] || []) urlByAtt.set(a.id, a.thumbnails?.large?.url || a.url);
+    }
+  }
+  for (const s of samples) { const u = urlByAtt.get(s.att); s.photos = u ? [{ url: u }] : []; }
+}
+
 async function fabricSearch(payload, cap) {
   const t0 = Date.now();
-  const recs = await airtableList(FABRIC_TABLE, { filterByFormula: `{有効}`, fields: Object.values(FB) });
-  const fabrics = recs.map(toFabric).filter(fb => fb.photos.length);
-  if (!fabrics.length) return { ok: true, total: 0, candidates: [], quality: 'ok', reason: 'noSamples', ms: Date.now() - t0 };
-  const groups = planBatches(fabrics);
-  if (!groups) return { ok: false, error: `見本の生地が多すぎます（${fabrics.length}件）。前段の絞り込みが必要です`, total: fabrics.length };
+  const model = resolveModel(payload.model).label;
+  // 撮影写真の色・柄（絞り込み用）と、索引・台帳を同時に読む
+  const [descR, idxRows, ledgerRecs] = await Promise.all([
+    callVisionJSON({ modelKey: payload.model, parts: [{ image: cap }, { text: DESCRIBE_PROMPT }], maxTokens: 512 }).then(v => ({ ok: true, v }), e => ({ ok: false, e })),
+    airtableList(IDX_TABLE, { fields: IDX_FIELDS }),
+    airtableList(FABRIC_TABLE, { filterByFormula: `{有効}`, fields: Object.values(FB) }).catch(() => []),
+  ]);
+  const index = indexStatus(idxRows);
+  const ledger = ledgerRecs.map(toFabric);
+  const feat = descR.ok ? parseDescribe(descR.v) : { colors: [], pattern: '', quality: 'ok', advice: '', desc: '' };
+  const base = { ok: true, index, model, quality: feat.quality, advice: feat.advice, seen: { colors: feat.colors, pattern: feat.pattern } };
+  if (!descR.ok) return { ok: false, error: 'AIが撮影写真を読めませんでした: ' + String(descR.e?.message || descR.e).slice(0, 160), index };
 
-  // 札は検索ごとに F1… を振り直す。AI が返した札はこの表でだけ生地に戻す
-  const labels = new Map();
-  groups.flat().forEach((fb, i) => { fb.label = 'F' + (i + 1); labels.set(fb.label, fb); });
-  // 見本写真を先に全部読む（読めなかった写真は飛ばす。生地の写真が1枚も読めなければその生地は送らない）
-  const urls = [...new Set(groups.flat().flatMap(fb => fb.photos.map(p => p.url)))];
+  const fabricRows = idxRows.filter(r => r.fields?.[IX.state]?.name === '済' || r.fields?.[IX.state] === '済')
+    .filter(r => (r.fields?.[IX.kind]?.name || r.fields?.[IX.kind]) === '生地あり');
+  const ledgerSamples = ledger.filter(fb => fb.photos.length).map(fabricSample);
+  if (!fabricRows.length && !ledgerSamples.length) {
+    return { ...base, items: [], similar: [], compared: 0, reason: index.pending ? 'indexing' : 'noSamples', ms: Date.now() - t0 };
+  }
+  if (feat.quality !== 'ok' && !feat.colors.length) return { ...base, items: [], similar: [], compared: 0, reason: 'quality', ms: Date.now() - t0 };
+
+  // 色・柄で絞る（台帳の写真は色・柄が分からないので必ず残す）
+  const pool = [...ledgerSamples, ...prefilter(fabricRows.map(indexSample), feat, Math.max(0, SEARCH_POOL - ledgerSamples.length))];
+  await resolveIndexPhotos(pool.filter(s => s.from === 'image'));
+  const urls = [...new Set(pool.flatMap(s => s.photos.map(p => p.url)))];
   const imgs = new Map();
   await Promise.all(urls.map(u => fetchUrlAsBase64(u).then(v => imgs.set(u, v)).catch(() => {})));
-  const sendable = groups.map(g => g.filter(fb => fb.photos.some(p => imgs.has(p.url)))).filter(g => g.length);
-  if (!sendable.length) return { ok: false, error: '見本写真を読めませんでした。少し待ってからもう一度試してください', total: fabrics.length };
+  const unread = pool.filter(s => !s.photos.some(p => imgs.has(p.url))).length;   // 画像を読めなかった見本（照合していない）
+  const calls = planBatches(pool.filter(s => s.photos.some(p => imgs.has(p.url)))).map(g => buildSearchParts(g, cap, imgs)).filter(c => c.labels.size);
+  if (!calls.length) return { ok: false, error: '見本の画像を読めませんでした。少し待ってからもう一度試してください', index };
+  const results = await Promise.all(calls.map(c => callVisionJSON({ modelKey: payload.model, parts: c.parts, maxTokens: 1024 })
+    .then(value => ({ ok: true, value, labels: c.labels }), e => ({ ok: false, error: String(e?.message || e), labels: c.labels }))));
+  const merged = mergeResults(results);
+  if (!merged.answered) return { ok: false, error: 'AIの照合に失敗しました: ' + (results.find(r => !r.ok)?.error || '').slice(0, 160), index, retry: true };
+  const compared = results.filter(r => r.ok).reduce((n, r) => n + r.labels.size, 0);
+  const notCompared = unread + results.filter(r => !r.ok).reduce((n, r) => n + r.labels.size, 0);
 
-  const results = await Promise.all(sendable.map(g => callVisionJSON({ modelKey: payload.model, parts: buildParts(g, cap, imgs), maxTokens: 1024 })
-    .then(value => ({ ok: true, value })).catch(e => ({ ok: false, error: String(e?.message || e) }))));
-  const merged = mergeResults(results, labels);
-  if (!merged.answered) return { ok: false, error: 'AIの照合に失敗しました: ' + (results.find(r => !r.ok)?.error || '').slice(0, 160), total: fabrics.length };
-
-  const allItems = merged.candidates.flatMap(c => c.fb.items);
-  const info = allItems.length ? await lookupItems(airtableList, allItems) : new Map();
+  const ans = buildAnswer(merged.matched, ledger);
+  const all = [...ans.items, ...ans.similar.flatMap(s => s.items)];
+  const info = all.length ? await lookupItems(airtableList, all) : new Map();
+  // 根拠の見本の写真（画面で見比べる）
+  const photoOf = new Map(pool.map(s => [s.sid, s.photos[0]?.url || '']));
+  const nameOf = new Map(pool.map(s => [s.sid, s.name || '']));
   return {
-    ok: true, total: fabrics.length, quality: merged.quality, advice: merged.advice,
-    partial: merged.failed > 0, // 一部の組で AI が答えなかった（見落としがあり得る）
-    model: resolveModel(payload.model).label, ms: Date.now() - t0,
-    candidates: merged.candidates.slice(0, 5).map(c => ({
-      id: c.fb.id, name: c.fb.name, material: c.fb.material, score: c.score, reason: c.reason,
-      photo: c.fb.photos[0]?.url || '', items: itemRows(c.fb, info), bad: c.fb.bad,
-    })),
+    ...base, compared, notCompared, partial: notCompared > 0, pool: pool.length, fabricImages: fabricRows.length,
+    items: itemRows(ans.items, info).map(x => ({ book: x.book, wc: x.wc, itemName: x.itemName, active: x.active, ndate: x.ndate, known: x.known,
+      score: x.ev.score, reason: x.ev.reason, via: x.ev.via, photo: photoOf.get(x.ev.sid) || '', source: nameOf.get(x.ev.sid) || '' })),
+    similar: ans.similar.map(s => ({ score: s.score, reason: s.reason, photo: photoOf.get(s.sid) || '', source: nameOf.get(s.sid) || '',
+      items: itemRows(s.items, info).map(x => ({ book: x.book, wc: x.wc, itemName: x.itemName, active: x.active, ndate: x.ndate, known: x.known })) })),
+    ms: Date.now() - t0,
   };
 }
 
@@ -220,6 +325,13 @@ function streamJson(work) {
 /* ---------- ハンドラ ---------- */
 export default async function handler(req) {
   try {
+    // 毎晩の Cron（vercel.json）: 索引の取り込み。CRON_SECRET があれば Bearer、無ければ Vercel Cron の UA だけ受ける
+    if (req.method === 'GET' && new URL(req.url).searchParams.get('action') === 'index') {
+      const secret = process.env.CRON_SECRET || '';
+      const fromCron = secret ? (req.headers.get('authorization') || '') === `Bearer ${secret}` : /vercel-cron/i.test(req.headers.get('user-agent') || '');
+      if (!fromCron) return json({ ok: false, error: 'forbidden' }, 403);
+      return streamJson(() => indexRun({}, 200000));
+    }
     if (req.method !== 'POST') return json({ ok: false, error: 'Method Not Allowed' }, 405);
 
     const u = new URL(req.url);
@@ -241,6 +353,8 @@ export default async function handler(req) {
       if (!m) return json({ ok: false, error: 'missing image' }, 400);
       return streamJson(() => fabricSearch(payload, { mime: m[1], data: m[2] }));
     }
+    // 画面の「索引を進める」: 1回分（16枚まで）。画面は残りがあれば続けて呼ぶ
+    if (payload.action === 'index') return streamJson(async () => ({ ok: true, ...(await indexStep(payload, 16)) }));
     const book = (payload.book || '').trim();
     const wc = normalizeWc(payload.wc || '');
     const image = payload.image || ''; // data URL もしくは生base64

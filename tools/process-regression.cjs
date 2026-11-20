@@ -2256,93 +2256,188 @@ test('WL2 サーバー: 作業時間の一覧は9部屋を読み、部屋ごと�
   } finally { global.fetch = prevFetch; }
 });
 
-// ---- FS 生地から品番を探す（2026-11-18。偽の Airtable・偽の AI。本物には繋がない） ----
+// ---- FS 生地から品番を探す（2026-11-18 作り替え。偽の Airtable・偽の AI。本物には繋がない） ----
 const fabricMod = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_fabric.js')).href);
-test('FS1 品番欄の読み取り・AI に送る組分け・AI の答えの検証（知らない札は捨てる・同じ生地は高い方）・品番の並び', async () => {
+const att = (id, filename, size, url) => ({ id, filename, size, type: 'image/jpeg', url: url + '-full', thumbnails: { large: { url } } });
+test('FS1 索引の取り込み（重ねず・新しい受注から取り直す・消えた画像は消す）・AI の仕分けの検証・色柄の絞り込み・札はその回だけ・品番のまとめ', async () => {
   const f = await fabricMod();
-  const p = f.parseItemLines('Ta/1001\nＴａ／１００２\nko-1001\nTa / 1001\nYo 7\n\n品番なし\nXx/1');
-  assert.deepEqual(p.items.map(x => x.book + '/' + x.wc), ['Ta/1001', 'Ta/1002', 'Ko/1001', 'Yo/7'], '同じ品番は1回');
-  assert.deepEqual(p.bad, ['品番なし', 'Xx/1']);
-  const fab = (n, photos) => ({ id: 'rec' + n, name: 'F' + n, photos: Array.from({ length: photos }, (_, i) => ({ url: `u${n}-${i}` })), items: [] });
-  const g = f.planBatches([fab(1, 3), fab(2, 3), fab(3, 3), fab(4, 3), fab(5, 1)]);
-  assert.ok(g.every(x => x.reduce((s, fb) => s + fb.photos.length, 0) <= f.IMAGES_PER_CALL), '1回の写真は上限まで');
-  assert.equal(g.flat().length, 5, '生地は全部どこかの組に入る');
-  const many = Array.from({ length: f.IMAGES_PER_CALL * f.MAX_CALLS }, (_, i) => fab(i, 3));
-  assert.ok(f.planBatches(many).every(x => x.every(fb => fb.photos.length === 1)), '多いときは1生地1枚に減らす');
-  assert.equal(f.planBatches(Array.from({ length: f.IMAGES_PER_CALL * f.MAX_CALLS + 1 }, (_, i) => fab(i, 1))), null, '収まらなければ null');
-  const labels = new Map([['F1', fab(1, 1)], ['F2', fab(2, 1)], ['F3', fab(3, 1)]]);
+  // 品番欄
+  const p = f.parseItemLines('Ta/1001\nＴａ／１００２\nko-1001\nTa / 1001\n品番なし');
+  assert.deepEqual(p.items.map(x => x.book + '/' + x.wc), ['Ta/1001', 'Ta/1002', 'Ko/1001']); assert.deepEqual(p.bad, ['品番なし']);
+  // 受注の画像 → 品番ごとの画像。同じ図面が受注ごとに付いていても1つ、取り直す元は新しい受注
+  const ju = (id, created, book, wc, atts) => ({ id, createdTime: created, fields: { [f.JU.book]: book, [f.JU.wc]: wc, [f.JU.image]: atts } });
+  const images = f.collectImages([
+    ju('recOLD000000000A', '2026-05-01T00:00:00Z', 'Ta', 2100, [att('attOld', 'Ta-2100-zu.jpg', 170662, 'https://img/2100old')]),
+    ju('recNEW000000000A', '2026-11-13T00:00:00Z', 'Ta', 2100, [att('attNew', 'Ta-2100-zu.jpg', 170662, 'https://img/2100')]),
+    ju('recRED000000000A', '2026-10-23T00:00:00Z', 'Ta', 3688, [att('att3688', 'Ta-3688-zu.jpg', 908240, 'https://img/3688'), { id: 'attPdf', filename: 'x.pdf', type: 'application/pdf' }]),
+    ju('recBAD000000000A', '2026-10-23T00:00:00Z', '', 1, [att('attX', 'x.jpg', 1, 'https://img/x')]),
+  ]);
+  assert.equal(images.size, 2, 'PDF と Book の無い受注は外す');
+  assert.equal(images.get('Ta|2100|Ta-2100-zu.jpg|170662').rec, 'recNEW000000000A');
+  const idx = (id, key, rec, attId, state = '済', kind = '生地あり', extra = {}) => ({ id, fields: { [f.IX.key]: key, [f.IX.rec]: rec, [f.IX.att]: attId, [f.IX.state]: state, [f.IX.kind]: kind, ...extra } });
+  const plan = f.planSync(images, [
+    idx('recI1', 'Ta|2100|Ta-2100-zu.jpg|170662', 'recOLD000000000A', 'attOld', '済', '線画'),    // 元の受注が変わった → 直す
+    idx('recI2', 'Ta|2100|Ta-2100-zu.jpg|170662', 'recNEW000000000A', 'attNew'),                // 重なった行 → 消す
+    idx('recI3', 'Ta|9999|gone.jpg|5', 'recGONE00000000A', 'attG'),                             // 受注から消えた → 消す
+  ]);
+  assert.deepEqual(plan.remove, ['recI2', 'recI3']);
+  assert.deepEqual(plan.update, [{ id: 'recI1', fields: { [f.IX.rec]: 'recNEW000000000A', [f.IX.att]: 'attNew' } }]);
+  assert.deepEqual(plan.create.map(x => x.key), ['Ta|3688|Ta-3688-zu.jpg|908240'], '新しい画像を足す');
+  // 順番待ちと進み具合
+  const rows = [idx('a', 'k1', '', '', '未判定', ''), idx('b', 'k2', '', '', '失敗', '', { [f.IX.tries]: 1 }), idx('c', 'k3', '', '', '失敗', '', { [f.IX.tries]: 3 }), idx('d', 'k4', '', '', '済', '生地あり'), idx('e', 'k5', '', '', '済', '線画')];
+  assert.deepEqual(f.pendingRows(rows).map(r => r.id), ['a', 'b']);
+  assert.deepEqual(f.indexStatus(rows), { total: 5, ready: 2, fabric: 1, pending: 2, failed: 1 });
+  // AI の仕分け: 知らない札は捨て、色・柄は決まった言葉だけ、範囲は 0〜1 に収める
+  const labels = new Map([['I1', { id: 'r1' }], ['I2', { id: 'r2' }]]);
+  const cl = f.parseClassify({ images: [
+    { id: 'I1', kind: 'fabric', region: [0.6, -0.2, 1.4, 0.5], colors: ['赤', '金', '紅'], pattern: '和柄', desc: '赤地に金の丸紋' },
+    { id: 'i2', kind: 'drawing', region: [0, 0, 1, 1], colors: ['緑'] }, { id: 'I9', kind: 'fabric' }] }, labels);
+  assert.equal(cl.size, 2);
+  assert.equal(cl.get('r1')[f.IX.kind], '生地あり'); assert.equal(cl.get('r1')[f.IX.region], '0.6,0,1,0.5'); assert.equal(cl.get('r1')[f.IX.colors], '赤、金'); assert.equal(cl.get('r1')[f.IX.pattern], '和柄');
+  assert.equal(cl.get('r2')[f.IX.kind], '線画'); assert.equal(cl.get('r2')[f.IX.colors], '', '線画は色を持たない');
+  // 色柄の絞り込み: 80件の最後に正解を置いても上位に来る（読み込み順に左右されない）
+  const decoys = Array.from({ length: 80 }, (_, i) => ({ sid: 'recD' + String(i).padStart(3, '0'), colors: [['緑'], ['青', '白'], ['黒'], ['赤', '白']][i % 4], pattern: ['無地', '縞', '格子', '無地'][i % 4] }));
+  const pool = f.prefilter([...decoys, { sid: 'recZZZ', colors: ['赤', '金'], pattern: '和柄' }], { colors: ['朱', '金'], pattern: '和柄' }, 36);
+  assert.equal(pool.length, 36); assert.equal(pool[0].sid, 'recZZZ', '近い色（朱→赤）・同じ柄が一番上');
+  // 札はその回に渡した見本の中でだけ引き直す（別の回の札・知らない札は捨てる）
+  const sA = { sid: 'A', from: 'image', items: [{ book: 'Ta', wc: '3688' }] }, sB = { sid: 'B', from: 'image', items: [{ book: 'Ta', wc: '1002' }] };
   const m = f.mergeResults([
-    { ok: true, value: { matches: [{ id: 'F1', score: 70, reason: 'a' }, { id: 'F9', score: 99 }, { id: 'f2', score: 40 }], quality: 'ok' } },
-    { ok: true, value: { matches: [{ id: 'F1', score: 88, reason: 'b' }, { id: 'F3', score: 'x' }], quality: 'ok' } },
-    { ok: false, error: 'boom' },
-  ], labels);
-  assert.deepEqual(m.candidates.map(c => [c.fb.id, c.score, c.reason]), [['rec1', 88, 'b']], 'F9（知らない札）・低い score・数でない score は出さない');
-  assert.equal(m.failed, 1); assert.equal(m.answered, 2);
-  const q = f.mergeResults([{ ok: true, value: { matches: [], quality: 'dark', advice: '明るい所で' } }], labels);
-  assert.equal(q.quality, 'dark'); assert.equal(q.advice, '明るい所で');
-  // 品番の受注: 同じ品番の受注が何行あっても1つ。進行中を優先して品名を取る
-  const rows = [
-    { fields: { [f.JU.book]: 'Ta', [f.JU.wc]: 1001, [f.JU.item]: '古い名前', [f.JU.ndate]: '2026-01-01', [f.JU.archived]: true, [f.JU.progOut]: '完納済' } },
-    { fields: { [f.JU.book]: 'Ta', [f.JU.wc]: 1001, [f.JU.item]: '箱A', [f.JU.ndate]: '2026-11-20' } },
-    { fields: { [f.JU.book]: 'Ta', [f.JU.wc]: 1001, [f.JU.item]: '箱A', [f.JU.ndate]: '2026-11-25', [f.JU.progOut]: '伝票出力済' } },
-    { fields: { [f.JU.book]: 'Ko', [f.JU.wc]: 1001, [f.JU.item]: '箱K', [f.JU.ndate]: '2026-10-01', [f.JU.archived]: true, [f.JU.progOut]: '完納済' } },
-  ];
-  let asked = '';
-  const info = await f.lookupItems(async (t, o) => { asked = o.filterByFormula; return rows; }, [{ book: 'Ta', wc: '1001' }, { book: 'Ko', wc: '1001' }, { book: 'Yo', wc: '7' }]);
-  assert.match(asked, /AND\(\{Book\}='Ta',\{WorkCord\}=1001\)/);
-  assert.equal(info.size, 2);
-  assert.equal(info.get('Ta/1001').itemName, '箱A'); assert.equal(info.get('Ta/1001').active, true);
-  const list = f.itemRows({ items: [{ book: 'Yo', wc: '7' }, { book: 'Ko', wc: '1001' }, { book: 'Ta', wc: '1001' }] }, info);
-  assert.deepEqual(list.map(x => `${x.book}/${x.wc}:${x.active ? 'on' : x.known ? 'off' : 'none'}`), ['Ta/1001:on', 'Ko/1001:off', 'Yo/7:none'], '進行中を上に。受注の無い品番も出す');
+    { ok: true, labels: new Map([['S1', sA]]), value: { matches: [{ id: 'S1', score: 88 }, { id: 'S2', score: 99 }] } },   // S2 はこの回に無い
+    { ok: true, labels: new Map([['S1', sB]]), value: { matches: [{ id: 'S1', score: 40 }] } },
+    { ok: false, labels: new Map([['S1', { sid: 'C' }]]) },
+  ]);
+  assert.deepEqual(m.matched.map(x => [x.s.sid, x.score]), [['A', 88]]); assert.equal(m.failed, 1); assert.equal(m.answered, 2);
+  // まとめ: 同じ生地の見本の品番＋台帳でつながる品番（写真の無い品番も）。似ている別の生地は分ける。同じ品番は1回
+  const ledger = [{ id: 'recL', name: '赤 金丸', items: [{ book: 'Ta', wc: '1001' }, { book: 'Ta', wc: '1002' }, { book: 'Ko', wc: '1001' }] }];
+  const ans = f.buildAnswer([
+    { s: { sid: 'X1', from: 'image', items: [{ book: 'Ta', wc: '1001' }] }, score: 90, reason: 'a' },
+    { s: { sid: 'X2', from: 'image', items: [{ book: 'Ta', wc: '1001' }] }, score: 80, reason: 'b' },
+    { s: { sid: 'X3', from: 'image', items: [{ book: 'Yo', wc: '5' }] }, score: 60, reason: 'c' },
+  ], ledger);
+  assert.deepEqual(ans.items.map(x => `${x.book}/${x.wc}:${x.ev.via}:${x.ev.score}`).sort(), ['Ko/1001:ledger:90', 'Ta/1001:image:90', 'Ta/1002:ledger:90']);
+  assert.deepEqual(ans.similar.map(s => s.sid), ['X3']);
 });
-test('FS2 action=search: 台帳の有効な生地だけを見本に送り、AI の札を生地に戻して、その生地の品番を全部返す（空白を流してから JSON）', async () => {
-  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN'; process.env.OPENAI_API_KEY = 'TEST_ONLY_NOT_A_KEY';
-  const f = await fabricMod();
-  const mm = (await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', 'material-match.js')).href)).default;
-  const att = (u) => [{ type: 'image/jpeg', url: u + '-full', thumbnails: { large: { url: u } } }];
-  const fabrics = [
-    { id: 'recFAB0000000001', fields: { [f.FB.name]: '赤 ちりめん', [f.FB.photo]: att('https://img/a'), [f.FB.items]: 'Ta/1001\nTa/1002\nKo/1001\nTa/1001', [f.FB.material]: 'B/C5*C5', [f.FB.active]: true } },
-    { id: 'recFAB0000000002', fields: { [f.FB.name]: '写真なし', [f.FB.items]: 'Ta/9', [f.FB.active]: true } },
-    { id: 'recFAB0000000003', fields: { [f.FB.name]: '白', [f.FB.photo]: att('https://img/b'), [f.FB.items]: 'Yo/5', [f.FB.active]: true } },
-  ];
-  const calls = []; const prevFetch = global.fetch;
-  global.fetch = async (url, init = {}) => {
-    const u = new URL(String(url)); calls.push({ u, init });
-    const ok = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-    if (u.host === 'img') return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/jpeg' } });
-    if (u.pathname.includes(f.FABRIC_TABLE)) return ok({ records: fabrics });
-    if (u.pathname.includes(f.JUCHU_TABLE)) return ok({ records: [
-      { fields: { [f.JU.book]: 'Ta', [f.JU.wc]: 1001, [f.JU.item]: '箱A', [f.JU.ndate]: '2026-11-20' } },
-      { fields: { [f.JU.book]: 'Ta', [f.JU.wc]: 1001, [f.JU.item]: '箱A', [f.JU.ndate]: '2026-11-27' } },
-      { fields: { [f.JU.book]: 'Ko', [f.JU.wc]: 1001, [f.JU.item]: '箱K', [f.JU.archived]: true, [f.JU.progOut]: '完納済' } }] });
+
+// 偽の Airtable・画像・AI。画像の中身に「どの図面か」を入れておき、AI はそれを見て答える
+function fakeWorld(f, { juchu, index, ledger = [], brokenImages = [], ai }) {
+  const calls = [];
+  const ok = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  const fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); const method = init.method || 'GET';
+    calls.push({ u, method, body: init.body ? JSON.parse(init.body) : null });
+    if (u.host === 'img') return brokenImages.includes(u.pathname) ? new Response('x', { status: 500 })
+      : new Response(Buffer.from('IMG:' + u.pathname), { status: 200, headers: { 'content-type': 'image/jpeg' } });
     if (u.host === 'api.openai.com') {
-      const body = JSON.parse(init.body);
-      const texts = body.messages[0].content.filter(c => c.type === 'text').map(c => c.text).join('|');
-      assert.ok(!texts.includes('写真なし') && !texts.includes('赤 ちりめん'), 'AI には生地名を見せず札だけ');
-      const fid = /【見本 (F\d+)】/.exec(texts)[1];   // 最初の見本（赤 ちりめん）の札
-      return ok({ choices: [{ message: { content: JSON.stringify({ matches: [{ id: fid, score: 91, reason: '赤い縮緬の凹凸が同じ' }, { id: 'F99', score: 95 }], quality: 'ok' }) } }] });
+      const content = JSON.parse(init.body).messages[0].content;
+      const seq = []; let label = '';
+      for (const c of content) {
+        if (c.type === 'text') { const mm = /【(?:見本 )?([SI]\d+)】/.exec(c.text); label = mm ? mm[1] : (/撮影/.test(c.text) ? 'CAP' : label); }
+        else seq.push({ label, img: Buffer.from(c.image_url.url.split(',')[1], 'base64').toString() });
+      }
+      const text = content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+      return ok({ choices: [{ message: { content: JSON.stringify(ai(text, seq)) } }] });
+    }
+    if (u.host === 'api.airtable.com') {
+      if (u.pathname.includes(f.JUCHU_TABLE)) {
+        const formula = u.searchParams.get('filterByFormula') || '';
+        const ids = [...formula.matchAll(/RECORD_ID\(\)='(rec\w+)'/g)].map(x => x[1]);
+        const pairs = [...formula.matchAll(/\{Book\}='(\w+)',\{WorkCord\}=(\d+)/g)].map(x => x[1] + '/' + x[2]);
+        return ok({ records: ids.length ? juchu.filter(r => ids.includes(r.id))
+          : pairs.length ? juchu.filter(r => pairs.includes(r.fields[f.JU.book] + '/' + r.fields[f.JU.wc])) : /画像/.test(formula) ? juchu : [] });
+      }
+      if (u.pathname.includes(f.FABRIC_TABLE)) return ok({ records: ledger });
+      if (u.pathname.includes(f.IDX_TABLE)) {
+        if (method === 'GET') return ok({ records: index });
+        if (method === 'DELETE') { const ids = u.searchParams.getAll('records[]'); for (const id of ids) index.splice(index.findIndex(r => r.id === id), 1); return ok({ records: ids.map(id => ({ id, deleted: true })) }); }
+        const recs = JSON.parse(init.body).records;
+        if (method === 'POST') { const made = recs.map((r, i) => ({ id: 'recNEWIDX' + String(index.length + i).padStart(8, '0'), fields: r.fields })); index.push(...made); return ok({ records: made }); }
+        for (const r of recs) { const row = index.find(x => x.id === r.id); Object.assign(row.fields, r.fields); }
+        return ok({ records: recs });
+      }
     }
     throw new Error('unexpected ' + u);
   };
+  return { fetch, calls };
+}
+const mmPost = async (body) => {
+  const mm = (await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', 'material-match.js')).href)).default;
+  const r = await mm(new Request('http://localhost:3000/api/material-match', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
+  return { status: r.status, j: JSON.parse(await r.text()) };
+};
+test('FS2 TableFabric が空でも、受注の図面から作った索引で Ta/3688 が見つかる。線画の Ta/2100 は出さない。一部未照合・その回に無い札・80件超の末尾の正解', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN'; process.env.OPENAI_API_KEY = 'TEST_ONLY_NOT_A_KEY';
+  const f = await fabricMod();
+  const ju = (id, book, wc, attId, file) => ({ id, createdTime: '2026-11-01T00:00:00Z', fields: { [f.JU.book]: book, [f.JU.wc]: wc, [f.JU.image]: [att(attId, file, 1, `https://img/${book}-${wc}`)], [f.JU.item]: `品 ${book}${wc}` } });
+  const juchu = [ju('recRED00000000001', 'Ta', 3688, 'att3688', 'Ta-3688-zu.jpg'), ju('recLINE0000000001', 'Ta', 2100, 'att2100', 'Ta-2100-zu.jpg'),
+    ju('recRED00000000002', 'Ko', 77, 'attKo77', 'Ko-77-zu.jpg'), ju('recBROKE000000001', 'Ta', 500, 'att500', 'Ta-500-zu.jpg')];
+  const row = (id, rec, attId, book, wc, kind, colors, pattern, region = '0,0,1,1') => ({ id, fields: { [f.IX.key]: `${book}|${wc}|x|1`, [f.IX.book]: book, [f.IX.wc]: wc,
+    [f.IX.rec]: rec, [f.IX.att]: attId, [f.IX.state]: '済', [f.IX.kind]: kind, [f.IX.colors]: colors, [f.IX.pattern]: pattern, [f.IX.region]: region } });
+  // 読み込み順の先頭に80件の別の生地、末尾に正解。線画の Ta/2100 は 生地あり ではない
+  const decoys = Array.from({ length: 80 }, (_, i) => row('recDEC' + String(i).padStart(10, '0'), 'recDECOY000000000', 'attD' + i, 'Yo', 100 + i, '生地あり', ['緑', '青', '黒', '白'][i % 4], '無地'));
+  juchu.push({ id: 'recDECOY000000000', createdTime: '2026-11-01T00:00:00Z', fields: { [f.JU.book]: 'Yo', [f.JU.wc]: 100,
+    [f.JU.image]: Array.from({ length: 80 }, (_, i) => att('attD' + i, `Yo-${100 + i}.jpg`, 1, `https://img/Yo-${100 + i}`)) } });
+  const index = [...decoys, row('recIX2100000001', 'recLINE0000000001', 'att2100', 'Ta', 2100, '線画', '', ''),
+    row('recIX5000000001', 'recBROKE000000001', 'att500', 'Ta', 500, '生地あり', '赤', '和柄'),
+    row('recIXKO77000001', 'recRED00000000002', 'attKo77', 'Ko', 77, '生地あり', '赤、金', '和柄', '0.6,0,1,0.4'),   // 図面の片隅に同じ生地（別の抜型）
+    row('recIX3688000001', 'recRED00000000001', 'att3688', 'Ta', 3688, '生地あり', '赤、金', '和柄')];
+  const sentLabels = [];
+  const world = fakeWorld(f, { juchu, index, brokenImages: ['/Ta-500'], ai: (text, seq) => {
+    if (/色と柄を読んで/.test(text)) return { colors: ['朱', '金'], pattern: '和柄', quality: 'ok' };
+    const out = [];
+    for (const s of seq) {
+      if (s.label === 'CAP') continue;
+      sentLabels.push(s.img);
+      if (s.img.includes('Ta-3688')) out.push({ id: s.label, score: 92, reason: '赤橙の地に金の丸' });
+      if (s.img.includes('Ko-77')) out.push({ id: s.label, score: 81, reason: '片隅の生地が同じ柄' });
+    }
+    out.push({ id: 'S99', score: 99 });   // この回に渡していない札
+    return { matches: out };
+  } });
+  const prevFetch = global.fetch; global.fetch = world.fetch;
   try {
-    const r = await mm(new Request('http://localhost:3000/api/material-match', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'search', image: 'data:image/jpeg;base64,AAAA' }) }));
-    const text = await r.text();
-    const j = JSON.parse(text);
-    assert.equal(j.ok, true, text); assert.equal(j.total, 2, '写真の無い生地は数えない');
-    assert.equal(calls.filter(c => c.u.host === 'api.openai.com').length, 1, '2生地で写真2枚なら1回');
-    assert.match(calls.find(c => c.u.pathname.includes(f.FABRIC_TABLE)).u.search, /filterByFormula=%7B%E6%9C%89%E5%8A%B9%7D/, '有効な行だけ読む');
-    assert.equal(j.candidates.length, 1, '知らない札 F99 は捨てる');
-    const c = j.candidates[0];
-    assert.equal(c.name, '赤 ちりめん'); assert.equal(c.score, 91); assert.equal(c.photo, 'https://img/a');
-    assert.deepEqual(c.items.map(x => `${x.book}/${x.wc} ${x.itemName} ${x.active}`), ['Ta/1001 箱A true', 'Ko/1001 箱K false', 'Ta/1002  false'], '3品番を全部。受注が2行でも1回');
-    // 台帳が空
-    fabrics.length = 0;
-    const e = JSON.parse(await (await mm(new Request('http://localhost:3000/api/material-match', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'search', image: 'data:image/jpeg;base64,AAAA' }) }))).text());
-    assert.equal(e.ok, true); assert.equal(e.total, 0); assert.deepEqual(e.candidates, []);
-    const bad = await mm(new Request('http://localhost:3000/api/material-match', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'search' }) }));
-    assert.equal(bad.status, 400);
+    const { j } = await mmPost({ action: 'search', image: 'data:image/jpeg;base64,' + Buffer.from('CAPTURE').toString('base64') });
+    assert.equal(j.ok, true, JSON.stringify(j).slice(0, 300));
+    assert.ok(!world.calls.some(c => c.u.pathname.includes(f.FABRIC_TABLE) && c.method !== 'GET'), '台帳には書かない');
+    assert.deepEqual(j.items.map(x => `${x.book}/${x.wc}`).sort(), ['Ko/77', 'Ta/3688'], '3688 と、片隅に同じ生地のある別の品番');
+    assert.ok(!j.items.some(x => x.wc === '2100'), '線画の 2100 は出さない');
+    assert.ok(!sentLabels.some(s => s.includes('Ta-2100')), '線画は AI にも送らない');
+    assert.equal(j.items.find(x => x.wc === '3688').itemName, '品 Ta3688');
+    assert.equal(j.items.find(x => x.wc === '3688').photo, 'https://img/Ta-3688', '根拠の見本の写真を返す');
+    assert.equal(j.partial, true, '読めなかった画像（Ta/500）がある'); assert.equal(j.notCompared, 1);
+    assert.ok(j.pool <= 12, '全部は送らない');
+    assert.equal(world.calls.filter(c => c.u.host === 'api.openai.com').length, 1 + Math.ceil((j.pool - 1) / 12), '撮影写真の読み取り1回＋見比べ');
+    // 索引がまだ無い（全部 未判定）→ 準備中
+    index.splice(0, index.length, { id: 'recP', fields: { [f.IX.key]: 'k', [f.IX.state]: '未判定' } });
+    const p = (await mmPost({ action: 'search', image: 'data:image/jpeg;base64,QUFB' })).j;
+    assert.equal(p.ok, true); assert.equal(p.reason, 'indexing'); assert.equal(p.index.pending, 1);
+    assert.equal((await mmPost({ action: 'search' })).status, 400);
+  } finally { global.fetch = prevFetch; }
+});
+test('FS3 索引を進める: 受注の画像を取り込み（重ねない）、消えた画像の行を消し、AI の仕分けを書く。読めない画像は失敗・試行回数+1', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN'; process.env.OPENAI_API_KEY = 'TEST_ONLY_NOT_A_KEY';
+  const f = await fabricMod();
+  const ju = (id, created, book, wc, a) => ({ id, createdTime: created, fields: { [f.JU.book]: book, [f.JU.wc]: wc, [f.JU.image]: [a] } });
+  const juchu = [ju('recA0000000000001', '2026-10-01T00:00:00Z', 'Ta', 3688, att('attA', 'Ta-3688-zu.jpg', 9, 'https://img/Ta-3688')),
+    ju('recA0000000000002', '2026-11-01T00:00:00Z', 'Ta', 3688, att('attB', 'Ta-3688-zu.jpg', 9, 'https://img/Ta-3688')),   // 同じ図面が別の受注にも
+    ju('recL0000000000001', '2026-11-01T00:00:00Z', 'Ta', 2100, att('attL', 'Ta-2100-zu.jpg', 7, 'https://img/Ta-2100')),
+    ju('recX0000000000001', '2026-11-01T00:00:00Z', 'Ta', 1, att('attX', 'Ta-1-zu.jpg', 1, 'https://img/Ta-1'))];
+  const index = [{ id: 'recOLDIDX0000001', fields: { [f.IX.key]: 'Ta|9|gone.jpg|1', [f.IX.state]: '済' } }];
+  const world = fakeWorld(f, { juchu, index, brokenImages: ['/Ta-1'], ai: (text, seq) => ({ images: seq.map(s => s.img.includes('3688')
+    ? { id: s.label, kind: 'fabric', region: [0, 0, 1, 1], colors: ['赤', '金'], pattern: '和柄', desc: '赤地に金の丸' }
+    : { id: s.label, kind: 'drawing' }) }) });
+  const prevFetch = global.fetch; global.fetch = world.fetch;
+  try {
+    const { j } = await mmPost({ action: 'index' });
+    assert.equal(j.ok, true, JSON.stringify(j));
+    assert.equal(j.created, 3); assert.equal(j.removed, 1); assert.equal(j.images, 3, '同じ図面は1枚');
+    assert.equal(index.length, 3); assert.ok(!index.some(r => r.id === 'recOLDIDX0000001'), '受注から消えた画像の行は消す');
+    const by = (wc) => index.find(r => r.fields[f.IX.wc] === wc).fields;
+    assert.equal(by(3688)[f.IX.rec], 'recA0000000000002', '新しい受注から取り直す');
+    assert.equal(by(3688)[f.IX.state], '済'); assert.equal(by(3688)[f.IX.kind], '生地あり'); assert.equal(by(3688)[f.IX.colors], '赤、金');
+    assert.equal(by(2100)[f.IX.kind], '線画');
+    assert.equal(by(1)[f.IX.state], '失敗'); assert.equal(by(1)[f.IX.tries], 1);
+    assert.deepEqual(j.status, { total: 3, ready: 2, fabric: 1, pending: 1, failed: 0 });
+    assert.ok(!world.calls.some(c => c.u.pathname.includes(f.JUCHU_TABLE) && c.method !== 'GET'), '受注には書かない');
   } finally { global.fetch = prevFetch; }
 });
 
@@ -2350,7 +2445,7 @@ test('FS2 action=search: 台帳の有効な生地だけを見本に送り、AI �
   let failed = 0;
   for (const t of tests) {
     try { await t.fn(); console.log('PASS ' + t.name); }
-    catch (err) { failed++; console.log('FAIL ' + t.name + '\n     ' + String(err.message).split('\n')[0]); }
+    catch (err) { failed++; console.log('FAIL ' + t.name + '\n     ' + String(err.message).split('\n').filter(Boolean).join(' | ').slice(0, 400)); }
   }
   console.log(`\n${tests.length - failed}/${tests.length} passed`);
   process.exitCode = failed ? 1 : 0;

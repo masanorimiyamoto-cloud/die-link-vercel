@@ -106,7 +106,7 @@
     slipMode:false, slipRaf:null, slipLastAt:0, slipFrozen:false,
     slipKey:'', slipRecords:[], slipBusy:false, slipDoneSpoken:false, slipDocId:'',
     // 生地から品番を探す
-    fsMode:false, fsBusy:false, fsData:null, fsSel:0,
+    fsMode:false, fsBusy:false, fsData:null, fsIndexing:false,
   };
   const AI_MODELS = { [DEFAULT_AI_MODEL]:'GPT-6.2 Sol', 'claude-sonnet-5':'Claude Sonnet 5' };
   try{ const _cf = parseFloat(localStorage.getItem('boxCalFactor')); if(_cf>0.3 && _cf<3) S.calFactor = _cf; }catch{}
@@ -1839,7 +1839,7 @@
       });
       const j = await r.json().catch(() => ({ ok:false, error:`応答を読めませんでした（${r.status}）` }));
       j._sec = Math.round((performance.now() - t0) / 100) / 10;   // 撮影から候補表示まで（画面で測る）
-      S.fsData = j; S.fsSel = 0;
+      S.fsData = j;
       renderFs();
     }catch(e){
       const msg = e && e.name === 'TimeoutError' ? '時間がかかりすぎたので止めました' : String(e.message || e);
@@ -1854,51 +1854,75 @@
       D.fsStatus.textContent = '生地を真上から画面いっぱいに映して「📸 撮影して探す」';
     }
   }
+  // 索引（受注の画像から自動で作る見本）の進み具合の一行と「索引を進める」ボタン
+  function fsIndexNote(ix){
+    if(!ix || !ix.pending) return '';
+    return `<div class="fs-note">⏳ 見本の索引を作成中です（受注の画像 ${ix.total} 枚のうち、まだ見ていない画像 ${ix.pending} 枚）。まだ見ていない画像は探していません。`
+      + `<div class="fs-actions"><button class="btn btn-sub" type="button" data-fs="index">⏩ 索引を進める</button></div></div>`;
+  }
+  // 「索引を進める」: 1回16枚ずつ、残りが無くなるか画面を離れるまで続ける
+  async function fsIndexRun(){
+    if(S.fsIndexing) return;
+    S.fsIndexing = true;
+    let last = null, fails = 0;
+    try{
+      while(S.fsMode){
+        D.fsResult.innerHTML = `<div class="msg-empty">見本の索引を作成中…${last ? `（済 ${last.status.ready} / ${last.status.total} 枚・生地あり ${last.status.fabric} 枚）` : ''}<br>この画面のままお待ちください</div>`;
+        await ensureCsrf();
+        const r = await fetch('/api/material-match', {
+          method:'POST', credentials:'same-origin', cache:'no-store', signal: abortAfter(180000),
+          headers: Object.assign({ 'content-type':'application/json' }, S.csrf ? { 'X-CSRF':S.csrf } : {}),
+          body: JSON.stringify({ action:'index', model: S.aiModel }),
+        });
+        const j = await r.json().catch(() => ({ ok:false, error:`応答を読めませんでした（${r.status}）` }));
+        if(!j.ok){ if(++fails >= 2) throw new Error(j.error || '索引を作れませんでした'); continue; }
+        last = j; fails = 0;
+        if(!j.status.pending || (j.classified + j.failed) === 0) break;
+      }
+      const st = last?.status;
+      fsMsg(st && !st.pending ? '' : 'warn', st && !st.pending ? '✅ 索引ができました' : '索引を途中まで作りました',
+        st ? `受注の画像 ${st.total} 枚のうち、生地の写っている画像 ${st.fabric} 枚を見本にしました。` + (st.failed ? `（読めなかった画像 ${st.failed} 枚）` : '') + (st.pending ? `<br>残り ${st.pending} 枚はまだです。` : '') + '<br>生地を撮影して探してください。' : '');
+    }catch(e){
+      fsMsg('ng', '索引を作れませんでした', `${esc(String(e.message || e))}<br>少し待ってからもう一度押してください。`);
+    }finally{ S.fsIndexing = false; }
+  }
+  // 品番の一覧の1行（根拠の見本の写真付き）
+  function fsItemRow(x){
+    const tag = x.active ? `<span class="tag on">進行中${x.ndate ? ' 納期' + esc(x.ndate.slice(5).replace('-','/')) : ''}</span>`
+      : (x.known ? '' : '<span class="tag">受注なし</span>');
+    return `<button type="button" class="fs-item" data-book="${esc(x.book)}" data-wc="${esc(x.wc)}">`
+      + (x.photo ? `<img class="ev" src="${esc(x.photo)}" alt="" loading="lazy">` : '')
+      + `<span class="code">${esc(x.book)} / ${esc(x.wc)}</span><span class="nm">${esc(x.itemName || '（品名なし）')}</span>${tag}</button>`;
+  }
   function renderFs(){
     const j = S.fsData;
     if(!j) return;
     if(!j.ok){
       if(j.needLogin) return fsMsg('ng', 'ログインしてください', '生地から探すにはログインが必要です。画面上の帯からログインしてから、もう一度撮影してください。');
-      return fsMsg('ng', '探せませんでした', `${esc(j.error || '不明なエラー')}<br>もう一度撮影してください。続くときは品番を入力して照会してください。`);
+      return fsMsg('ng', j.retry ? '照合に失敗しました（もう一度お試しください）' : '探せませんでした', `${esc(j.error || '不明なエラー')}<br>もう一度撮影してください。続くときは品番を入力して照会してください。` + fsIndexNote(j.index));
     }
-    if(!j.total) return fsMsg('warn', '見本の生地がまだ登録されていません', '事務所で生地の台帳（Airtable の TableFabric）に見本写真と品番を登録し、「有効」を ON にすると探せるようになります。', false);
-    const cands = j.candidates || [];
-    if(!cands.length){
-      if(j.quality && j.quality !== 'ok'){
-        return fsMsg('warn', FS_QUALITY[j.quality] || '写真の状態で判断できませんでした', `${esc(j.advice || '生地を真上から、画面いっぱいに、明るい所で撮り直してください。')}`);
-      }
-      return fsMsg('warn', '候補が見つかりませんでした', `登録済みの見本 ${j.total} 件と見比べましたが、同じ生地はありませんでした。<br>真上から画面いっぱいに撮り直すか、品番が分かる場合は Book と WC を入力して照会してください。`
-        + (j.partial ? '<br>⚠ 一部の見本は AI が答えなかったため見比べられていません。もう一度撮影してください。' : ''));
+    if(j.reason === 'indexing') return fsMsg('warn', '見本の索引を準備中です', '受注に登録してある図面・写真から、生地の見本を自動で作っています。「索引を進める」を押すか、しばらく待ってから撮影してください。' + fsIndexNote(j.index), false);
+    if(j.reason === 'noSamples') return fsMsg('warn', '見本にできる画像がありません', '受注の画像に生地の写っているものがありませんでした。品番が分かる場合は Book と WC を入力して照会してください。', false);
+    if(j.reason === 'quality') return fsMsg('warn', FS_QUALITY[j.quality] || '写真の状態で判断できませんでした', `${esc(j.advice || '生地を真上から、画面いっぱいに、明るい所で撮り直してください。')}`);
+    const items = j.items || [], similar = j.similar || [];
+    const partialNote = j.partial ? `<div class="fs-note">⚠ 一部未照合: 見本 ${j.notCompared} 件は画像を読めないか AI が答えなかったため見比べていません。違うと思ったら撮り直してください。</div>` : '';
+    if(!items.length && !similar.length){
+      if(j.quality && j.quality !== 'ok') return fsMsg('warn', FS_QUALITY[j.quality] || '写真の状態で判断できませんでした', `${esc(j.advice || '生地を真上から、画面いっぱいに、明るい所で撮り直してください。')}` + partialNote);
+      return fsMsg('warn', '候補が見つかりませんでした', `色・柄の近い見本 ${j.compared} 件と見比べましたが、同じ生地はありませんでした。<br>真上から画面いっぱいに撮り直すか、品番が分かる場合は Book と WC を入力して照会してください。` + partialNote + fsIndexNote(j.index));
     }
-    const i = Math.min(S.fsSel, cands.length - 1), c = cands[i];
-    let h = '';
-    if(cands.length > 1){
-      h += `<div class="fs-note" style="margin:0 0 6px;">似ている生地が ${cands.length} 件あります。見本写真と材質を見比べて選んでください</div><div class="fs-cands">`;
-      cands.forEach((x, k) => {
-        h += `<button type="button" class="fs-cand${k===i?' sel':''}" data-fs-sel="${k}">`
-          + (x.photo ? `<img src="${esc(x.photo)}" alt="" loading="lazy">` : '')
-          + `<div class="nm">${esc(x.name)}</div><div class="sc">${esc(x.material || '材質なし')}・似ている度 ${x.score}</div></button>`;
+    let h = `<div class="fs-count">この生地を使う品番候補 ${items.length}件</div>`;
+    if(!items.length) h += '<div class="fs-note">同じ生地とまでは言えませんでした。下の「似ている別の生地」を見本の写真で見比べてください。</div>';
+    h += items.map(fsItemRow).join('');
+    if(items.length) h += '<div class="fs-note">左の写真が、同じ生地と判断した見本（受注の図面・写真）です。品番を押すと、その品番の仕様・図面を開きます。</div>';
+    if(similar.length){
+      h += `<div class="fs-count" style="margin-top:14px;">似ている別の生地かもしれない見本 ${similar.length}件</div>`;
+      similar.forEach(s => {
+        h += `<div class="fs-head">${s.photo ? `<img src="${esc(s.photo)}" alt="見本">` : ''}<div><div class="sub">似ている度 ${s.score}${s.reason ? '・' + esc(s.reason) : ''}</div></div></div>`
+          + s.items.map(fsItemRow).join('');
       });
-      h += '</div>';
     }
-    h += `<div class="fs-head">${c.photo ? `<img src="${esc(c.photo)}" alt="見本写真">` : ''}<div>`
-      + `<div class="ttl">🧵 ${esc(c.name)}</div>`
-      + `<div class="sub">材質 ${esc(c.material || '—')}・似ている度 ${c.score}</div>`
-      + (c.reason ? `<div class="sub">AI: ${esc(c.reason)}</div>` : '')
-      + `</div></div>`;
-    const items = c.items || [];
-    h += `<div class="fs-count">この生地を使う品番候補 ${items.length}件</div>`;
-    if(!items.length) h += '<div class="fs-note">この生地には品番がまだ登録されていません（台帳の「品番」欄）。</div>';
-    items.forEach(x => {
-      const tag = x.active ? `<span class="tag on">進行中${x.ndate ? ' 納期' + esc(x.ndate.slice(5).replace('-','/')) : ''}</span>`
-        : (x.known ? '' : '<span class="tag">受注なし</span>');
-      h += `<button type="button" class="fs-item" data-book="${esc(x.book)}" data-wc="${esc(x.wc)}">`
-        + `<span class="code">${esc(x.book)} / ${esc(x.wc)}</span><span class="nm">${esc(x.itemName || '（品名なし）')}</span>${tag}</button>`;
-    });
-    if((c.bad || []).length) h += `<div class="fs-note">⚠ 台帳の品番欄で読めない行: ${c.bad.map(esc).join('、')}</div>`;
-    if(j.partial) h += '<div class="fs-note">⚠ 一部の見本は AI が答えなかったため見比べられていません。違うと思ったら撮り直してください。</div>';
-    h += `<div class="fs-note">品番を押すと、その品番の仕様・図面を開きます。違う生地なら撮り直してください。</div>`
-      + `<div class="fs-note">見本 ${j.total} 件と比較・撮影から ${j._sec ?? '—'} 秒（AI: ${esc(j.model || '')}）</div>`
+    h += partialNote + fsIndexNote(j.index)
+      + `<div class="fs-note">見た色・柄: ${esc((j.seen?.colors || []).join('・') || '—')}／${esc(j.seen?.pattern || '—')}。生地の写っている見本 ${j.fabricImages ?? '—'} 枚から色・柄の近い ${j.pool ?? '—'} 件を見比べました・撮影から ${j._sec ?? '—'} 秒（AI: ${esc(j.model || '')}）</div>`
       + '<div class="fs-actions"><button class="btn btn-sub" type="button" data-fs="retake">📸 撮り直す</button></div>';
     D.fsResult.innerHTML = h;
   }
@@ -2016,7 +2040,7 @@
     const el = e.target.closest && e.target.closest('button');
     if(!el) return;
     if(el.dataset.fs === 'retake'){ try{ D.stack.scrollIntoView({ behavior:'smooth', block:'start' }); }catch{} fsCaptureRun(); return; }
-    if(el.dataset.fsSel != null){ S.fsSel = parseInt(el.dataset.fsSel, 10) || 0; renderFs(); return; }
+    if(el.dataset.fs === 'index'){ fsIndexRun(); return; }
     if(el.dataset.book && el.dataset.wc) fsOpenItem(el.dataset.book, el.dataset.wc);
   });
   if(D.slipRescan) D.slipRescan.onclick = () => slipRescanStart();
