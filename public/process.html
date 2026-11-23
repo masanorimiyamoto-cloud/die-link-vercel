@@ -706,7 +706,7 @@
     <div id="goBar"></div>
     <!-- 箱に貼るラベルの印刷（事務所の LBP442 手差し＝ラベル紙。Label_Print.xls の Stecker24B 24面）2026-11-12 -->
     <div class="kcopy" id="labelPrint"></div>
-    <!-- 工程表のコピー印刷（事務所のプリンタ。Excel・受注の記録は変えない）2026-11-05 -->
+    <!-- 工程表の印刷（事務所のプリンタ）。1枚目がまだなら最初の一枚、刷った後に数量・納期が変わっていれば直して一枚目、それ以外はコピー 2026-11-05／11-23 -->
     <div class="kcopy" id="koteiCopy"></div>
     <!-- 受領伝票のすぐ発行（事務所のプリンタ。受領伝票発行可能の受注だけ）2026-11-10 -->
     <div class="kcopy" id="slipIssue"></div>
@@ -3016,16 +3016,24 @@
   const kcPending = (r) => r && (r.state === '依頼済' || r.state === '印刷中');
   const hm = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' }); };
   S.kc = {}; // 受注ID → { last: 直近の依頼, at: 読んだ時刻, retry: 結果不明の依頼ID, msg, cls }
+  // 2026-11-23: 種類はサーバーが受注から決める（o.koteiKind）。first＝最初の一枚／fix＝数量・納期が変わったので直して一枚目／copy＝コピー
+  const KC_KIND = {
+    first: { name: '最初の一枚', btn: '🖨 工程表を印刷（最初の一枚）', ask: '今すぐ最初の一枚を印刷します。', hint: 'まだ工程表を刷っていません。押すと今すぐ最初の一枚を刷ります' },
+    copy: { name: 'コピー', btn: '🖨 工程表を印刷（コピー）', ask: 'コピーを印刷します。\nExcel と受注の記録（工程表印刷済・進行）は変えません。', hint: '事務所のプリンタで工程表をもう1枚刷ります（Excel・受注の記録は変えません）' },
+    fix: { name: '修正して一枚目', btn: '🖨 工程表を印刷（内容を修正して一枚目）', ask: '内容を修正して一枚目を印刷します。', hint: '工程表を刷った後に内容が変わっています。押すと直した工程表を一枚目として刷ります' },
+  };
+  const kcKindOf = (o) => KC_KIND[o.koteiKind] ? o.koteiKind : 'copy';
   function renderKoteiCopy(o) {
     const box = $('koteiCopy'); box.textContent = '';
     const st = S.kc[o.id] || (S.kc[o.id] = {});
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn'; b.textContent = '🖨 工程表を印刷（コピー）';
+    const kind = kcKindOf(o), K = KC_KIND[kind];
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'amtbtn'; b.textContent = K.btn;
     b.disabled = !!st.sending || kcPending(st.last);
     const line = document.createElement('div'); line.className = 'kcst';
     const r = st.last;
     if (st.msg) { line.textContent = st.msg; line.className = 'msg ' + (st.cls || ''); }
-    else if (r) line.textContent = `${kcPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼 → ${KC_LABEL[r.state] || r.state}${r.doneAt && !kcPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
-    else line.textContent = '事務所のプリンタで工程表をもう1枚刷ります（Excel・受注の記録は変えません）';
+    else if (r && (kcPending(r) || kind === 'copy')) line.textContent = `${kcPending(r) ? '' : '前回: '}${hm(r.at)} ${r.by} の依頼（${(KC_KIND[r.kind] || KC_KIND.copy).name}） → ${KC_LABEL[r.state] || r.state}${r.doneAt && !kcPending(r) ? '（' + hm(r.doneAt) + '）' : ''}${r.state === '失敗' && r.memo ? '：' + r.memo : ''}`;
+    else line.textContent = K.hint + (kind === 'fix' && o.koteiChanged?.length ? `（変わったもの: ${o.koteiChanged.join('・')}）` : '');
     box.append(b, line);
     b.onclick = () => kcRequest(o);
     if (!st.at || Date.now() - st.at > 30000) kcLoad(o.id);
@@ -3040,8 +3048,11 @@
       st.last = j.requests?.[0] || null;
       if (kcPending(st.last) && !st.pollFrom) st.pollFrom = Date.now();
       if (was && kcPending(was) && st.last && !kcPending(st.last) && st.last.reqId === was.reqId) {
-        st.msg = st.last.state === '印刷済' ? `工程表を印刷しました（${hm(st.last.doneAt)}）` : `印刷できませんでした${st.last.memo ? '：' + st.last.memo : ''}`;
+        st.msg = st.last.state === '印刷済' ? `工程表（${(KC_KIND[st.last.kind] || KC_KIND.copy).name}）を印刷しました（${hm(st.last.doneAt)}）` : `印刷できませんでした${st.last.memo ? '：' + st.last.memo : ''}`;
         st.cls = st.last.state === '印刷済' ? 'ok' : 'err';
+        // 最初の一枚・直した一枚目が刷れたら、次からはコピー（一覧を読み直すまでの間も）
+        const cur = current();
+        if (st.last.state === '印刷済' && st.last.kind !== 'copy' && cur?.id === id) { cur.koteiKind = 'copy'; cur.koteiChanged = []; }
       }
     }
     if (current()?.id === id) renderKoteiCopy(current());
@@ -3056,21 +3067,29 @@
   async function kcRequest(o) {
     const st = S.kc[o.id] || (S.kc[o.id] = {});
     if (st.sending) return;
+    const kind = st.retry ? st.retryKind : kcKindOf(o);
     if (!st.retry && !confirm(`${itemShort(o)}
 ${o.book} / ${o.wc}
-
-工程表のコピーを事務所のプリンタで1枚印刷します。
-Excel と受注の記録（工程表印刷済・進行）は変えません。`)) return;
+${kind === 'fix' && o.koteiChanged?.length ? `\n工程表を刷った後に ${o.koteiChanged.join('・')} が変わっています。` : ''}
+${KC_KIND[kind].ask}
+（事務所のプリンタで1枚）`)) return;
     const reqId = st.retry || ('kc-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12)));
     st.sending = true; st.msg = '依頼しています…'; st.cls = ''; renderKoteiCopy(o);
-    const j = await api({ action: 'koteiCopy', id: o.id, reqId });
+    const j = await api({ action: 'koteiCopy', id: o.id, reqId, kind });
     st.sending = false;
-    if (j.unknown) { st.retry = reqId; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2枚にはなりません）'; st.cls = 'warn'; }
+    if (j.unknown) { st.retry = reqId; st.retryKind = kind; st.msg = '依頼できたか分かりません。もう一度押すと同じ依頼として確かめます（2枚にはなりません）'; st.cls = 'warn'; }
+    else if (j.kindChanged) {
+      // 別の人が刷った・数量が変わった。新しい種類にしてボタンを出し直し、押し直してもらう
+      st.retry = ''; o.koteiKind = j.kind; o.koteiChanged = j.changed || [];
+      st.msg = j.error; st.cls = 'warn';
+    }
     else if (!j.ok) { st.retry = ''; st.msg = j.error || '依頼できませんでした'; st.cls = 'err'; }
     else {
       st.retry = ''; st.last = j.request; st.at = Date.now(); st.pollFrom = Date.now();
       st.msg = j.dup ? `すでに依頼中です（${hm(j.request.at)} ${j.request.by}）。事務所のPCが刷るまでお待ちください`
-        : '依頼しました。1〜2分で事務所のプリンタから出ます';
+        : kind === 'first' ? '依頼しました。1〜2分で事務所のプリンタから最初の一枚が出ます'
+        : kind === 'fix' ? '依頼しました。内容を直して、1〜2分で事務所のプリンタから一枚目が出ます'
+        : '依頼しました。1〜2分で事務所のプリンタからコピーが出ます';
       st.cls = 'ok'; navigator.vibrate?.(40);
     }
     if (current()?.id === o.id) renderKoteiCopy(current());

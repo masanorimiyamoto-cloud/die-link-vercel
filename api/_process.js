@@ -34,7 +34,7 @@ const F = {
   progIn: '進行社内', progOut: '進行社外', group: '進行社内グループ', kotei: '工程(自動)', archived: 'アーカイブ済',
   memo: '連絡事項', image: '画像', paper: '紙入荷日',
   amountPrev: 'NAmount_Prev', amtLog: '数量変更記録', slipId: '伝票ID', die: '抜型状況', room: 'Room',
-  ndateLog: '納期変更記録', printed: '工程表印刷日時', addPending: 'Add_from_Airtable', approved: '承認済', deli: 'DeliPlace',
+  ndateLog: '納期変更記録', printed: '工程表印刷日時', printedFlag: '工程表印刷済', addPending: 'Add_from_Airtable', approved: '承認済', deli: 'DeliPlace',
   material: 'Material', paperSize: 'Paper_Size', cutSize: 'Cut_Size', packUnit: 'PackUnit', kname: 'Kname', preNdate: 'PreNdate', wscd: 'info_wscd', finalProcess: 'FinalProcess', updated: '更新時間',
   // 流れの整理（2026-11-15）: 材料・型・次の作業 は Airtable の数式、在庫シート・注意 は人が入れる欄
   mat: '材料', dieSt: '型', next: '次の作業', stock: '在庫シート', caution: '注意',
@@ -199,6 +199,7 @@ function describe(rec) {
     die: Array.isArray(f[F.die]) ? f[F.die].map(String) : [],   // 抜型状況（複数選択）
     room: Array.isArray(f[F.room]) ? f[F.room].map(String) : [], // Room（複数選択）
     printedAt: String(f[F.printed] || ''), // 工程表印刷日時（YYYY-MM-DD HH:MM）。作業リストの社内の流れの最初に出す
+    ...koteiKindOf(f), // koteiKind（first／copy／fix）と koteiChanged（['数量','納期']）。詳細画面の工程表の印刷ボタンが使う
     // 数量を画面で変えた履歴の最後の行（「1000→1020 佐藤 …」）から元の数量を出す
     amountFrom: (() => { const m = /^(\d+|空白)→/.exec(String(f[F.amtLog] || '').trim()); return m ? m[1] : ''; })(),
     amountLog: String(f[F.amtLog] || '').trim().split('\n').pop() || '',
@@ -329,7 +330,7 @@ function imagesOf(f) {
 
 // 詳細画面の「仕様」に出す欄（2026-11-05）。画面の SPEC_LABEL と同じ並び
 const SPEC_KEYS = ['kname', 'material', 'paperSize', 'cutSize', 'packUnit', 'preNdate', 'wscd'];
-const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.addPending, F.deli, F.finalProcess, F.updated, F.mat, F.dieSt, F.next, F.stock, F.caution, F.fabric, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
+const LIST_FIELDS = [F.book, F.wc, F.item, F.amount, F.ndate, F.progIn, F.progOut, F.group, F.kotei, F.memo, F.image, F.paper, F.amtLog, F.slipId, F.die, F.room, F.ndateLog, F.printed, F.printedFlag, F.addPending, F.deli, F.finalProcess, F.updated, F.mat, F.dieSt, F.next, F.stock, F.caution, F.fabric, ...SPEC_KEYS.map(k => F[k]), ...RECORD_FIELDS];
 
 // formula を渡すと、ビューの条件に加えて Airtable の filterByFormula でも絞る
 // 作業リストは まず画像なしで返して早く出し、画像は viewImages で後から足す（2026-10-20 初回表示が遅い対策）
@@ -1173,6 +1174,26 @@ async function undo(body, user) {
   return json({ ok: true });
 }
 
+// ---- 工程表の印刷の種類（2026-11-23）----
+// first＝まだ1枚目を刷っていない（工程表印刷済 が OFF）。事務所PCが普段の自動印刷と同じに刷り、工程表印刷済・印刷日時・進行社内を書く。
+// fix＝刷った後に数量・納期を画面で変えた（数量変更記録・納期変更記録 に 工程表印刷日時 より後の行がある）。内容を直して1枚目として刷り直す。
+// copy＝それ以外。今までどおりコピー（Excel・受注には書かない）。
+// 記録の日時はどれも日本時間の「YYYY-MM-DD HH:MM」なので文字のまま比べる。Excel 側で直した数量は記録に残らないので、事務所PCも刷る前に確かめる
+export const KOTEI_KIND_LABEL = { first: '最初の一枚', copy: 'コピー', fix: '修正して一枚目' };
+function koteiKindOf(f) {
+  if (!f[F.printedFlag]) return { koteiKind: 'first', koteiChanged: [] };
+  const at = String(f[F.printed] || '').trim().slice(0, 16);
+  if (!/^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(at)) return { koteiKind: 'copy', koteiChanged: [] }; // 2026-08-23 に一括で ON にした古い行は日時が無い
+  const after = (log) => String(log || '').split('\n').some(line => {
+    const t = /(\d{4}-\d\d-\d\d \d\d:\d\d)\s*$/.exec(line.trim())?.[1];
+    return !!t && t > at;
+  });
+  const changed = [];
+  if (after(f[F.amtLog])) changed.push('数量');
+  if (after(f[F.ndateLog])) changed.push('納期');
+  return { koteiKind: changed.length ? 'fix' : 'copy', koteiChanged: changed };
+}
+
 // ---- 工程表のコピー印刷（2026-11-05）----
 // 工程表を無くした・もう1枚要るときに、スマホから事務所のプリンタへ刷る。ここでは依頼の表（TableKoteiCopyRequest）に1行書くだけ。
 // 事務所の新PC（kotei_print_file.py --copy）が 依頼済 の行を拾って刷り、印刷中→印刷済／失敗 にする。
@@ -1180,13 +1201,15 @@ async function undo(body, user) {
 // 依頼ID は画面が1回ごとに作る。通信が切れて送り直しても同じ ID なので2行にならない。
 // 同じ受注に 依頼済・印刷中 の依頼が既にあれば新しく作らない（二度押し・別の人の同時依頼で2枚出ないように）
 const KC_API = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(process.env.KOTEI_COPY_TABLE || 'TableKoteiCopyRequest')}`;
+// 2026-11-23: 最初の一枚・修正して一枚目 も同じ表で頼む（種別 欄）。事務所PCが 種別 を見るまでは Vercel に KOTEI_FIRST_ENABLED=1 が無いので、コピー以外は受けない
 const KC = { req: '依頼ID', rec: '受注RecordID', state: '状態', book: 'Book', wc: 'WorkCord', item: 'ItemName',
-  by: '依頼者', no: '社員番号', at: '依頼日時', doneAt: '処理日時', memo: '処理メモ' };
+  by: '依頼者', no: '社員番号', at: '依頼日時', doneAt: '処理日時', memo: '処理メモ', kind: '種別' };
+const KC_KIND_OF = Object.fromEntries(Object.entries(KOTEI_KIND_LABEL).map(([k, v]) => [v, k]));
 const KC_WAIT = '依頼済', KC_BUSY = '印刷中';
 const kcOut = (r) => {
   const f = r.fields || {};
   return { reqId: String(f[KC.req] || ''), state: String(f[KC.state] || ''), at: String(f[KC.at] || ''), doneAt: String(f[KC.doneAt] || ''),
-    by: String(f[KC.by] || ''), memo: String(f[KC.memo] || '').trim().split('\n').pop() || '' };
+    by: String(f[KC.by] || ''), memo: String(f[KC.memo] || '').trim().split('\n').pop() || '', kind: KC_KIND_OF[f[KC.kind]] || 'copy' };
 };
 async function kcFind(formula, max = 3) {
   const url = new URL(KC_API);
@@ -1216,14 +1239,21 @@ async function koteiCopy(body, user) {
   if (!rec) return json({ ok: false, error: 'この受注はもうありません' }, 404);
   const o = describe(rec);
   if (!['Ta', 'Ko', 'Yo'].includes(String(o.book).slice(0, 2))) return json({ ok: false, error: `Book「${o.book}」の工程表は刷れません（Ta/Ko/Yo だけ）` }, 400);
-  const fields = { [KC.req]: reqId, [KC.rec]: id, [KC.state]: KC_WAIT, [KC.book]: String(o.book || ''), [KC.wc]: String(o.wc ?? ''),
+  // 画面が確かめた種類と今の受注の種類が違えば頼まない（別の人が刷った・数量が変わった）。画面は新しい種類で確かめ直す
+  const kind = o.koteiKind;
+  if (body?.kind && body.kind !== kind) return json({ ok: false, kindChanged: true, kind, changed: o.koteiChanged,
+    error: `工程表の状態が変わりました（${KOTEI_KIND_LABEL[kind]}）。もう一度押してください` }, 409);
+  if (kind !== 'copy' && process.env.KOTEI_FIRST_ENABLED !== '1')
+    return json({ ok: false, refused: true, error: `事務所PCの準備がまだなので、${KOTEI_KIND_LABEL[kind]}の印刷はまだスマホから頼めません` }, 503);
+  const fields = { [KC.req]: reqId, [KC.rec]: id, [KC.state]: KC_WAIT, [KC.kind]: KOTEI_KIND_LABEL[kind], [KC.book]: String(o.book || ''), [KC.wc]: String(o.wc ?? ''),
     [KC.item]: String(o.item || ''), [KC.by]: String(user?.name || ''), [KC.at]: new Date().toISOString() };
   const no = Number(user?.no); if (Number.isFinite(no)) fields[KC.no] = no;
   let row;
   try { row = (await airtable(KC_API, { method: 'POST', body: JSON.stringify({ records: [{ fields }] }) })).records?.[0]; }
   catch (e) { return json({ ok: false, error: `依頼できませんでした（${String(e?.message || e).slice(0, 120)}）` }, 502); }
   if (!row) return json({ ok: false, error: '依頼できませんでした' }, 502);
-  await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: '工程表コピー依頼', detail: `依頼ID ${reqId}` }).catch(() => {});
+  await writeWorkLog(user, { recordIds: [id], book: o.book, wc: o.wc, action: kind === 'copy' ? '工程表コピー依頼' : '工程表印刷依頼',
+    detail: `${KOTEI_KIND_LABEL[kind]}${o.koteiChanged.length ? '（' + o.koteiChanged.join('・') + 'が変わった）' : ''} 依頼ID ${reqId}` }).catch(() => {});
   return json({ ok: true, request: kcOut(row) });
 }
 // ---- 箱に貼るラベルの印刷（2026-11-12）----

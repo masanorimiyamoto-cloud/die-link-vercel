@@ -912,6 +912,43 @@ test('KC1 依頼IDなし・受注が無い・Ta/Ko/Yo 以外は依頼しない�
     assert.equal(st.j.ok, true); assert.equal(st.j.requests[0].reqId, KREQ); assert.equal(st.j.requests[0].state, '依頼済');
   } finally { e.restore(); }
 });
+// ---- KC2 工程表の印刷の種類 2026-11-23: 1枚目がまだ→最初の一枚／刷った後に数量・納期が変わった→修正して一枚目／それ以外→コピー ----
+test('KC2 種類は受注から決める（工程表印刷済・工程表印刷日時・数量変更記録・納期変更記録）', async () => {
+  const at = '2026-11-20 10:00';
+  const orders = {
+    recKOTEIKIND00001: { id: 'recKOTEIKIND00001', fields: { Book: 'Ta', WorkCord: 1 } },
+    recKOTEIKIND00002: { id: 'recKOTEIKIND00002', fields: { Book: 'Ta', WorkCord: 2, 工程表印刷済: true, 工程表印刷日時: at, 数量変更記録: '100→120 佐藤 2026-11-21 09:00' } },
+    recKOTEIKIND00003: { id: 'recKOTEIKIND00003', fields: { Book: 'Ta', WorkCord: 3, 工程表印刷済: true, 工程表印刷日時: at, 数量変更記録: '100→120 佐藤 2026-11-19 09:00', 納期変更記録: '2026-11-25→2026-11-28 佐藤 2026-11-22 08:00' } },
+    recKOTEIKIND00004: { id: 'recKOTEIKIND00004', fields: { Book: 'Ta', WorkCord: 4, 工程表印刷済: true, 工程表印刷日時: at, 数量変更記録: '100→120 佐藤 2026-11-19 09:00\n120→130 佐藤 2026-11-20 10:00' } }, // 印刷と同じ分の変更は前のものとみなす
+  };
+  process.env.KOTEI_FIRST_ENABLED = '1';
+  const e = await kcEnv({ orders });
+  try {
+    const want = { 1: ['最初の一枚', '工程表印刷依頼'], 2: ['修正して一枚目', '工程表印刷依頼'], 3: ['修正して一枚目', '工程表印刷依頼'], 4: ['コピー', '工程表コピー依頼'] };
+    const kinds = { 1: 'first', 2: 'fix', 3: 'fix', 4: 'copy' };
+    for (const n of [1, 2, 3, 4]) {
+      const r = await e.run('koteiCopy', { id: 'recKOTEIKIND0000' + n, reqId: 'kc-kind0000-0000-0000-000' + n, kind: kinds[n] });
+      assert.equal(r.j.ok, true, n + JSON.stringify(r.j)); assert.equal(r.j.request.kind, kinds[n]);
+      const row = [...e.reqs.values()].find(x => x.fields['受注RecordID'] === 'recKOTEIKIND0000' + n);
+      assert.equal(row.fields['種別'], want[n][0], '種別 ' + n);
+    }
+    assert.ok(!e.calls.some(c => /^(PATCH|POST|DELETE) order/.test(c)), '受注には書かない（1枚目の記録は事務所PCが書く）');
+  } finally { e.restore(); delete process.env.KOTEI_FIRST_ENABLED; }
+});
+test('KC2 画面の種類と今の種類が違えば頼まない。事務所PCの準備前はコピー以外を断る', async () => {
+  const orders = { recKOTEIKIND00001: { id: 'recKOTEIKIND00001', fields: { Book: 'Ta', WorkCord: 1 } }, [KREC]: korder };
+  const e = await kcEnv({ orders });
+  try {
+    const off = await e.run('koteiCopy', { id: 'recKOTEIKIND00001', reqId: 'kc-kind0000-0000-0000-0001', kind: 'first' });
+    assert.equal(off.status, 503); assert.equal(off.j.refused, true);
+    const copy = await e.run('koteiCopy', { id: KREC, reqId: KREQ, kind: 'copy' });
+    assert.equal(copy.j.ok, true, 'コピーは今までどおり頼める');
+    process.env.KOTEI_FIRST_ENABLED = '1';
+    const diff = await e.run('koteiCopy', { id: 'recKOTEIKIND00001', reqId: 'kc-kind0000-0000-0000-0002', kind: 'copy' });
+    assert.equal(diff.status, 409); assert.equal(diff.j.kindChanged, true); assert.equal(diff.j.kind, 'first');
+    assert.equal(e.reqs.size, 1);
+  } finally { e.restore(); delete process.env.KOTEI_FIRST_ENABLED; }
+});
 // ---- LB1 箱ラベルの印刷依頼 2026-11-12（偽の Airtable。本物には繋がない） ----
 const LREQ = 'lp-11111111-2222-3333-4444-555555555555';
 test('LB1 依頼は依頼の表に依頼済で1行書くだけ。品名2行・梱包数・枚数を入れ、空なら書かない。受注には書かない', async () => {
@@ -1224,7 +1261,8 @@ test('KC1 画面: 確認してから依頼IDを作って送り、結果不明は
   const src = extract('kcRequest');
   assert.ok(src.includes('if (!st.retry && !confirm('));
   assert.ok(src.includes("const reqId = st.retry || ('kc-'"));
-  assert.ok(src.includes("api({ action: 'koteiCopy', id: o.id, reqId })"));
+  assert.ok(src.includes("api({ action: 'koteiCopy', id: o.id, reqId, kind })"));
+  assert.ok(src.includes('const kind = st.retry ? st.retryKind : kcKindOf(o);'), '送り直しは前と同じ種類で');
   assert.ok(src.includes('if (j.unknown) { st.retry = reqId;'));
   assert.ok(extract('renderKoteiCopy').includes('b.disabled = !!st.sending || kcPending(st.last);'));
   assert.ok(extract('renderSteps').includes('renderKoteiCopy(o);'));
