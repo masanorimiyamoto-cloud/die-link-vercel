@@ -1443,6 +1443,56 @@ test('MS1 画面: 完了・取消・材料の報告を保存できたらログ�
   assert.ok(extract('write').includes('myStats.refresh(true)'));
 });
 
+// ---- IN2 スマホからの事務の操作も数える（2026-11-24。偽の Airtable。本物には繋がない） ----
+test('IN2 新規受注は削除されたら数えない。印刷の依頼は受注・種類ごとに最初の1回だけ（範囲より前の依頼も見る）', async () => {
+  process.env.AIRTABLE_PAT = 'TEST_ONLY_NOT_A_TOKEN';
+  const mod = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'api', '_incentive.js')).href);
+  const jst = (n) => new Date(Date.now() + 9 * 3600 * 1000 - n * 86400000).toISOString().slice(0, 10);
+  const at = (d, hm) => new Date(Date.parse(`${d}T${hm}:00+09:00`)).toISOString();
+  const WL = { at: 'fldal1FMiPlRVn9BF', no: 'fldmjyRUDyPPaFFnb', name: 'fldEBJAH0707h1ity', action: 'fldHbWQ5VemkIPMmS',
+    orderId: 'fldOfsIbZmKNfeik8', detail: 'fldJvGOGNVnGzadUW' };
+  const log = (id, d, hm, no, action, order, detail) => ({ id, fields: { [WL.at]: at(d, hm), [WL.no]: no, [WL.name]: 'n' + no,
+    [WL.action]: action, ...(order ? { [WL.orderId]: order } : {}), ...(detail ? { [WL.detail]: detail } : {}) } });
+  const R = (c) => 'rec' + c.repeat(14);
+  const from = [mod.START_DATE, jst(45)].sort().pop();
+  const old = jst(60) > mod.START_DATE ? jst(60) : null;   // 範囲より前（10/8 より後のときだけ試す）
+  const d = jst(3);
+  const logs = [
+    log('n1', d, '09:00', 1005, '新規受注', R('A')),
+    log('n2', d, '09:01', 1001, '新規受注', R('B')),
+    log('x2', d, '09:02', 1001, '受注削除', null, `${R('B')} を削除（削除要求 recQ） {}`),   // 作り直し → n2 は数えない
+    log('p1', d, '10:00', 1002, '工程表コピー依頼', R('C')),
+    log('p2', d, '10:05', 1002, '工程表コピー依頼', R('C')),                               // 頼み直し → 数えない
+    log('p3', jst(2), '10:00', 1001, '工程表印刷依頼', R('C')),                            // 別の人・同じ工程表 → 数えない
+    log('p4', d, '11:00', 1001, '受領伝票すぐ発行依頼', `${R('D')},${R('E')}`),            // まとめ発行は1件
+    log('p5', d, '11:10', 1001, '受領伝票すぐ発行依頼', R('E')),                           // 先頭が違うので別の1件
+    log('p6', d, '12:00', 1001, 'ラベル印刷依頼', R('C')),                                 // 種類が違えば数える
+    ...(old ? [log('o1', old, '10:00', 1003, '工程表コピー依頼', R('F')), log('p7', d, '13:00', 1003, '工程表コピー依頼', R('F'))] : []),
+  ];
+  const rows = [...mod.countDaily(logs).values()].filter(c => c.date >= from).map(c => `${c.no}|${c.step}=${c.count}`).sort();
+  assert.deepEqual(rows, ['1001|ラベル印刷=1', '1001|伝票発行=2', '1002|工程表印刷=1', '1005|新規受注=1'].sort());
+
+  const calls = []; const prevFetch = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url)); calls.push(u);
+    if ((init.method || 'GET') !== 'GET' || !u.pathname.includes('tblQFZ7QEuRaBW4oj')) return new Response(JSON.stringify({ records: [] }), { status: 200 });
+    const f = u.searchParams.get('filterByFormula') || '';
+    const m = /IS_AFTER\(\{fldal1FMiPlRVn9BF\}, '([^']+)'\)/.exec(f);
+    const before = f.startsWith('AND(NOT(');
+    return new Response(JSON.stringify({ records: logs.filter(l => !m || (before ? l.fields[WL.at] <= m[1] : l.fields[WL.at] > m[1])) }), { status: 200 });
+  };
+  try {
+    const r = await mod.runIncentive();
+    assert.equal(r.total, 5, '範囲より前の依頼（o1）があるので p7 は数えない');
+    const wq = calls.filter(u => u.pathname.includes('tblQFZ7QEuRaBW4oj')).map(u => u.searchParams.get('filterByFormula'));
+    assert.equal(wq.length, 2, '直近のログと、それより前の印刷の依頼を読む');
+    assert.ok(wq[0].includes("'新規受注'") && wq[0].includes("'受注削除'") && wq[0].includes("'ラベル印刷依頼'"));
+    calls.length = 0;
+    await mod.runIncentive({ full: true });
+    assert.equal(calls.filter(u => u.pathname.includes('tblQFZ7QEuRaBW4oj')).length, 1, 'full は全部読むので前の分は読まない');
+  } finally { global.fetch = prevFetch; }
+});
+
 // ---- QR1 工程表のQR（2026-11-08） ----
 test('QR1 同じ品番が何件もあるとき、最後に見ていた作業リストで自分の工程がまだの受注が1件だけならそれを選ぶ。決まらなければ選ばない', () => {
   const env = { S: { view: 'auton', views: [{ key: 'auton', label: 'オートン抜き', mine: ['o'] }, { key: 'all', label: '全件', mine: [] }] } };

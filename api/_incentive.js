@@ -7,6 +7,11 @@
 //    最後が取消なら0件（押し間違いの取消、別の人がやり直した場合はやり直した人に付く）。
 //  ・状況報告／状況報告取消（工程カードの「シート材料入荷済」「機械貼材料入荷済」。2026-10-29）も同じく 受注ID＋工程 の最後の状態で数える。
 //  ・探す（抜型照合）・仕舞う（抜型仕舞い）・知る（生地照合）は、実績対象 が付いた行を1件ずつ数える（取消は無い）。
+//  ・スマホからの事務の操作（2026-11-24 ユーザー判断。単価は他と同じ1件）:
+//     新規受注（同じ品目のコピー入力）… 作った人に1件。あとで「受注削除」された受注は数えない（削除ログの内容の先頭の rec... で突き合わせ）
+//     工程表印刷依頼・工程表コピー依頼 → 「工程表印刷」、受領伝票すぐ発行依頼 → 「伝票発行」、ラベル印刷依頼 → 「ラベル印刷」。
+//       1つの受注につき種類ごとに最初の1回だけ（頼み直し・別の人の同じ依頼は数えない）。まとめ発行は先頭の受注で見る
+//     どれも実績対象のチェックは付いていないので、操作名で数える。
 //  ・社員番号が無いログ（10/7 以前）は数えない。対象は 2026-10-08（日本時間）以降。
 //  ・日付は記録した時刻の日本時間の日。
 // 実行: 毎晩の Vercel Cron（vercel.json）と、管理者が /api/session?action=incentive を開いたとき。
@@ -20,7 +25,7 @@ const WORKLOG = process.env.WORKLOG_TABLE_ID || 'tblQFZ7QEuRaBW4oj';
 const DAILY   = process.env.INCENTIVE_TABLE_ID || 'tblaO7MWgAW0VvCwU';
 
 const WL = { at: 'fldal1FMiPlRVn9BF', no: 'fldmjyRUDyPPaFFnb', name: 'fldEBJAH0707h1ity', action: 'fldHbWQ5VemkIPMmS',
-  step: 'flds9HiDR5e1eiFGf', orderId: 'fldOfsIbZmKNfeik8', credit: 'fldIHadyI8FqyEqQ5' };
+  step: 'flds9HiDR5e1eiFGf', orderId: 'fldOfsIbZmKNfeik8', credit: 'fldIHadyI8FqyEqQ5', detail: 'fldJvGOGNVnGzadUW' };
 const D = { key: 'fldCqMq8twEDgwn3a', date: 'fld9QfTWCVyARS1KA', no: 'fldZOZLQTiElEHx7D', name: 'fldOV7V9IWzGDGfSL',
   step: 'fldcYOdk3kKZ4E56t', count: 'fldqLboYbHkmWrVqN', updated: 'fldukDQM6sXoQlDlb' };
 
@@ -30,6 +35,14 @@ const WINDOW_DAYS = 45;
 const PROCESS_ACTIONS = new Set(['工程完了', '工程取消', '工程完了取消', '状況報告', '状況報告取消']);
 const DONE_ACTIONS = new Set(['工程完了', '状況報告']);
 const CANCEL_ACTIONS = [...PROCESS_ACTIONS].filter(a => !DONE_ACTIONS.has(a));
+// スマホからの事務の操作（2026-11-24）。操作名 → 日別の表の「工程」
+const ORDER_ACTION = '新規受注', DELETE_ACTION = '受注削除', ORDER_STEP = '新規受注';
+const PRINT_KINDS = { '工程表印刷依頼': '工程表印刷', '工程表コピー依頼': '工程表印刷', '受領伝票すぐ発行依頼': '伝票発行', 'ラベル印刷依頼': 'ラベル印刷' };
+const actionsOr = (list) => list.map(a => `{${WL.action}}='${a}'`).join(', ');
+// 作業ログのうち集計に使う行（実績対象つき・取消・事務の操作）
+const LOG_FILTER = `OR({${WL.credit}}, ${actionsOr([...CANCEL_ACTIONS, ORDER_ACTION, DELETE_ACTION, ...Object.keys(PRINT_KINDS)])})`;
+const PRINT_FILTER = `OR(${actionsOr(Object.keys(PRINT_KINDS))})`;
+const firstId = (v) => String(v || '').split(',')[0].trim();
 
 const jstDate = (iso) => new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString().slice(0, 10);
 const daysAgoJST = (n) => new Date(Date.now() + 9 * 3600 * 1000 - n * 86400000).toISOString().slice(0, 10);
@@ -62,16 +75,28 @@ async function readAll(table, formula, fields) {
 
 // 作業ログから 日付|社員番号|工程 → 件数 を数える（純粋な計算。テストしやすいよう分けてある）
 export function countDaily(logs) {
-  const lines = logs.map(r => ({ id: r.id, ...Object.fromEntries(Object.entries(WL).map(([k, f]) => [k, r.fields?.[f]])) }))
-    .filter(x => x.at && Number.isFinite(Number(x.no)))
+  const all = logs.map(r => ({ id: r.id, ...Object.fromEntries(Object.entries(WL).map(([k, f]) => [k, r.fields?.[f]])) }));
+  // 削除された受注（社員番号の無い削除ログでも、消えたことには変わりないので見る）
+  const deleted = new Set(all.filter(x => x.action === DELETE_ACTION)
+    .map(x => /^(rec[A-Za-z0-9]{14}) を削除/.exec(String(x.detail || ''))?.[1]).filter(Boolean));
+  const lines = all.filter(x => x.at && Number.isFinite(Number(x.no)))
     .sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  const winners = [];             // 数える行（完了の最後の状態／照合・仕舞い）
+  const winners = [];             // 数える行（完了の最後の状態／照合・仕舞い／事務の操作）
   const last = new Map();         // 受注ID|工程 → 最後の完了（取消なら null）
+  const printed = new Set();      // 種類|受注ID（最初の1回だけ数える）
   for (const x of lines) {
     if (PROCESS_ACTIONS.has(x.action)) {
       if (!x.orderId || !x.step) continue;
       const k = `${x.orderId}|${x.step}`;
       last.set(k, DONE_ACTIONS.has(x.action) && x.credit ? x : null);
+    } else if (x.action === ORDER_ACTION) {
+      const id = firstId(x.orderId);
+      if (id && !deleted.has(id)) winners.push({ ...x, step: ORDER_STEP });
+    } else if (PRINT_KINDS[x.action]) {
+      const id = firstId(x.orderId), k = `${PRINT_KINDS[x.action]}|${id}`;
+      if (!id || printed.has(k)) continue;
+      printed.add(k);
+      winners.push({ ...x, step: PRINT_KINDS[x.action] });
     } else if (x.credit && x.step) {
       winners.push(x);            // 抜型照合・抜型仕舞い・生地照合（新しく済んだときだけ実績対象が付いている）
     }
@@ -101,11 +126,20 @@ export function logsSince(from) {
   return new Date(Date.parse(`${from}T00:00:00+09:00`) - 86400000).toISOString();
 }
 
+// since より後の集計用ログを読む。印刷の依頼だけは「その受注で最初の1回か」を見るため、since より前の分も読む
+// （依頼は1日に数件なので軽い）。新規受注の削除は必ず作った後なので、since より後だけで足りる。
+async function readLogs(since, { history = true } = {}) {
+  const fields = Object.values(WL);
+  const logs = await readAll(WORKLOG, `AND(IS_AFTER({${WL.at}}, '${since}'), ${LOG_FILTER})`, fields);
+  if (!history) return logs;
+  const before = await readAll(WORKLOG, `AND(NOT(IS_AFTER({${WL.at}}, '${since}')), ${PRINT_FILTER})`, fields);
+  const seen = new Set(logs.map(r => r.id));
+  return [...logs, ...before.filter(r => !seen.has(r.id))];
+}
+
 export async function runIncentive({ full = false } = {}) {
   const from = full ? START_DATE : [START_DATE, daysAgoJST(WINDOW_DAYS)].sort().pop();
-  const logs = await readAll(WORKLOG,
-    `AND(IS_AFTER({${WL.at}}, '${logsSince(from)}'), OR({${WL.credit}}, ${CANCEL_ACTIONS.map(a => `{${WL.action}}='${a}'`).join(', ')}))`,
-    Object.values(WL));
+  const logs = await readLogs(logsSince(from), { history: from > START_DATE });
   const counts = countDaily(logs);
   const want = [...counts.values()].filter(c => c.date >= from);
 
@@ -170,9 +204,7 @@ export async function myStats(no, { fresh = false } = {}) {
   if (age > (fresh ? LIVE_FRESH_MS : LIVE_CACHE_MS)) {
     // 昨日の日本時間 0:00 から（取り消しの相手を見るため、昨日の分も読む）
     const since = new Date(Date.parse(`${yesterday}T00:00:00+09:00`) - 1000).toISOString();
-    const logs = await readAll(WORKLOG,
-      `AND(IS_AFTER({${WL.at}}, '${since}'), OR({${WL.credit}}, ${CANCEL_ACTIONS.map(a => `{${WL.action}}='${a}'`).join(', ')}))`,
-      Object.values(WL));
+    const logs = await readLogs(since);
     liveCache = { at: Date.now(), today, counts: countDaily(logs) };
   }
   const pk = `${no}|${today}`;
